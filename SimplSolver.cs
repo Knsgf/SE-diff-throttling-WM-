@@ -78,7 +78,7 @@ namespace ttdtwm
         {
             while (true)
             {
-                log_tableau(height, width);
+                //log_tableau(height, width);
 
                 double min_column_value = 0.0;
                 int    pivot_column     = -1, cur_column;
@@ -159,7 +159,7 @@ namespace ttdtwm
 
         private bool is_solution_good(int item_count)
         {
-            float sum_x = 0.0f, sum_y = 0.0f;
+            //float sum_x = 0.0f, sum_y = 0.0f;
             float max_ratio = 0.0f;
 
             for (int cur_item = 0; cur_item < item_count; ++cur_item)
@@ -168,10 +168,10 @@ namespace ttdtwm
                     return false;
                 if (items[cur_item].max_value > 0.0f && max_ratio < items[cur_item].result / items[cur_item].max_value)
                     max_ratio = items[cur_item].result / items[cur_item].max_value;
-                sum_x += items[cur_item].result * items[cur_item].x;
-                sum_y += items[cur_item].result * items[cur_item].y;
+                //sum_x += items[cur_item].result * items[cur_item].x;
+                //sum_y += items[cur_item].result * items[cur_item].y;
             }
-            MyLog.Default.WriteLine(string.Format("TT&DT\t\tsimplex_solver.is_solution_good(): {0}/{1} residual static moment", sum_x, sum_y));
+            //MyLog.Default.WriteLine(string.Format("TT&DT\t\tsimplex_solver.is_solution_good(): {0}/{1} residual static moment", sum_x, sum_y));
             return max_ratio >= 0.8f;
         }
 
