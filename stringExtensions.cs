@@ -8,10 +8,10 @@ namespace ttdtwm
 {
     static class stringAndStringBuilderExtensions
     {
-        private static readonly string m_RCSTag  = "[THR]";
-        private static readonly string m_STATTag = "[STAT]";
-        private static readonly string m_STABTag = "[STAB]";
-        private static readonly int[]  m_RCSShiftTable, m_STATShiftTable, m_STABShiftTable;
+        private static readonly string m_THRTag     = "[THR]";
+        private static readonly string m_STATTag    = "[STAT]";
+        private static readonly string m_LANDINGTag = "[LANDING]";
+        private static readonly int[]  m_THRShiftTable, m_STATShiftTable, m_LANDINGShiftTable;
 
         #region Private methods
 
@@ -54,16 +54,16 @@ namespace ttdtwm
 
         static stringAndStringBuilderExtensions()
         {
-            m_RCSShiftTable  = GenerateShiftTable(m_RCSTag);
-            m_STATShiftTable = GenerateShiftTable(m_STATTag);
-            m_STABShiftTable = GenerateShiftTable(m_STABTag);
+            m_THRShiftTable     = GenerateShiftTable(m_THRTag    );
+            m_STATShiftTable    = GenerateShiftTable(m_STATTag   );
+            m_LANDINGShiftTable = GenerateShiftTable(m_LANDINGTag);
         }
 
         #endregion
 
-        public static bool ContainsRCSTag(this StringBuilder blockName)
+        public static bool ContainsTHRTag(this StringBuilder blockName)
         {
-            return ContainsTag(blockName, m_RCSTag, m_RCSShiftTable);
+            return ContainsTag(blockName, m_THRTag, m_THRShiftTable);
         }
 
         public static bool ContainsSTATTag(this StringBuilder blockName)
@@ -71,9 +71,9 @@ namespace ttdtwm
             return ContainsTag(blockName, m_STATTag, m_STATShiftTable);
         }
 
-        public static bool ContainsSTABTag(this StringBuilder blockName)
+        public static bool ContainsLANDINGTag(this StringBuilder blockName)
         {
-            return ContainsTag(blockName, m_STABTag, m_STABShiftTable);
+            return ContainsTag(blockName, m_LANDINGTag, m_LANDINGShiftTable);
         }
 
         public static void ToUpperTo(this string source, StringBuilder destination)

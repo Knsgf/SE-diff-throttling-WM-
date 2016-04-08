@@ -15,6 +15,7 @@ namespace ttdtwm
         private static Dictionary<long, grid_logic> entities = new Dictionary<long, grid_logic>();
 
         public static bool network_handlers_registered { get; private set; }
+        public static bool is_spectator_mode_on { get; set; }
 
         public static void try_register_handlers()
         {

@@ -18,6 +18,8 @@ namespace ttdtwm
 {
     class grid_logic: IDisposable
     {
+        #region fields
+
         const float MESSAGE_MULTIPLIER = 10.0f, MESSAGE_SHIFT = 128.0f, ANGULAR_VELOCITY_MULTIPLIER = 1024.0f, ANGULAR_VELOCITY_SHIFT = 32768.0f;
 
         private static byte[] long_message  = new byte[8 + 3];
@@ -29,11 +31,13 @@ namespace ttdtwm
         private IMyHudNotification             _thrust_redction_text  = null, _control_warning_text = null;
         private engine_control_unit            _ECU                   = null;
         private Vector3UByte                   _prev_manual_thrust    = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
-        private Vector3                        _prev_angular_velocity = Vector3.Zero;
-        private StringBuilder                  _RC_block_name         = new StringBuilder();
 
         private int  _num_thrusters, _prev_thrust_reduction = 0;
-        private bool _ID_on, _control_limit_is_visible = false, _thrust_redction_is_visible = false, _disposed = false;
+        private bool _ID_on, _control_limit_is_visible = false, _thrust_redction_is_visible = false, _disposed = false, _status_shown = false, _was_in_landing_mode = false;
+
+        #endregion
+
+        #region auxiliaries
 
         private static void log_grid_action(string method_name, string message)
         {
@@ -45,6 +49,20 @@ namespace ttdtwm
             if (_disposed)
                 throw new Exception(string.Format("grid_logic for \"{0}\" has been disposed", _grid.DisplayName));
         }
+
+        private IMyPlayer get_controlling_player()
+        {
+            if (MyAPIGateway.Multiplayer != null)
+                return MyAPIGateway.Multiplayer.Players.GetPlayerControllingEntity(_grid);
+            IMyPlayer controlling_player = MyAPIGateway.Session.LocalHumanPlayer;
+            if (_ECU == null || !_ECU.is_under_control_of(controlling_player.Controller.ControlledEntity))
+                return null;
+            return controlling_player;
+        }
+
+        #endregion
+
+        #region event handlers
 
         private void on_block_added(IMySlimBlock block)
         {
@@ -91,16 +109,6 @@ namespace ttdtwm
                     --_num_thrusters;
                 }
             }
-        }
-
-        private IMyPlayer get_controlling_player()
-        {
-            if (MyAPIGateway.Multiplayer != null)
-                return MyAPIGateway.Multiplayer.Players.GetPlayerControllingEntity(_grid);
-            IMyPlayer controlling_player = MyAPIGateway.Session.LocalHumanPlayer;
-            if (!_ECU.is_under_control_of(controlling_player.Controller.ControlledEntity))
-                return null;
-            return controlling_player;
         }
 
         internal static void display_thrust_reduction(byte[] argument)
@@ -170,6 +178,10 @@ namespace ttdtwm
             instance._ECU.translate_rotation_input(manual_rotation, controlling_player.Controller.ControlledEntity);
         }
 
+        #endregion
+
+        #region event triggers
+
         private void send_linear_message(Vector3 manual_thrust)
         {
             Vector3UByte packed_vector = Vector3UByte.Round(manual_thrust * MESSAGE_MULTIPLIER + Vector3.One * MESSAGE_SHIFT);
@@ -238,13 +250,15 @@ namespace ttdtwm
             }
         }
 
+        #endregion
+
         private void handle_user_input(IMyControllableEntity controller)
         {
             Vector3 manual_thrust = Vector3.Zero, manual_rotation;
 
             if (_ECU == null)
                 return;
-            if (MyGuiScreenTerminal.GetCurrentScreen() != MyTerminalPageEnum.None)
+            if (sync_helper.is_spectator_mode_on || MyGuiScreenTerminal.GetCurrentScreen() != MyTerminalPageEnum.None || MyGuiScreenGamePlay.ActiveGameplayScreen != null)
                 manual_rotation = Vector3.Zero;
             else
             {
@@ -278,7 +292,7 @@ namespace ttdtwm
         public void handle_60Hz()
         {
             check_disposed();
-            if (!_grid.IsStatic && _num_thrusters > 0)
+            if (!_grid.IsStatic && _ECU != null && _num_thrusters > 0)
             {
                 IMyPlayer controlling_player = get_controlling_player();
                 if (controlling_player == null)
@@ -302,10 +316,14 @@ namespace ttdtwm
         public void handle_4Hz()
         {
             check_disposed();
-            if (!_grid.IsStatic && _num_thrusters > 0)
+            if (!_grid.IsStatic && _ECU != null && _num_thrusters > 0)
             {
                 _ECU.handle_4Hz();
-                if (get_controlling_player() == null)
+
+                IMyPlayer player = get_controlling_player();
+                if (player != null)
+                    _ECU.select_flight_mode(player.Controller.ControlledEntity, _RC_blocks.Count > 0);
+                else
                 {
                     if (_control_limit_is_visible)
                     {
@@ -318,7 +336,22 @@ namespace ttdtwm
                         _thrust_redction_is_visible = false;
                     }
                 }
-                else if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+
+                player = MyAPIGateway.Session.LocalHumanPlayer;
+                if (player != null)
+                {
+                    bool display_notification = _ECU.is_under_control_of(player.Controller.ControlledEntity);
+                    if (_status_shown && !display_notification)
+                        _status_shown = false;
+                    else if (display_notification && (!_status_shown || _ECU.landing_mode_on != _was_in_landing_mode) && MyAPIGateway.Utilities != null)
+                    {
+                        MyAPIGateway.Utilities.ShowNotification(_ECU.landing_mode_on ? "Landing mode engaged" : "Flight mode engaged");
+                        _status_shown = true;
+                        _was_in_landing_mode = _ECU.landing_mode_on;
+                    }
+                }
+
+                if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
                 {
                     send_control_limit_message();
                     send_thrust_reduction_message();
@@ -329,7 +362,7 @@ namespace ttdtwm
         public void handle_2s_period()
         {
             check_disposed();
-            if (!_grid.IsStatic && _num_thrusters > 0)
+            if (!_grid.IsStatic && _ECU != null && _num_thrusters > 0)
             {
                 if (!sync_helper.network_handlers_registered)
                     sync_helper.try_register_handlers();
@@ -339,18 +372,6 @@ namespace ttdtwm
                     _control_warning_text = MyAPIGateway.Utilities.CreateNotification("WARNING: Control limit reached", 0, MyFontEnum.Red);
                 }
 
-                _ECU.RC_stabilisation_on = false;
-                foreach (var cur_RC_block in _RC_blocks)
-                {
-                    if (!cur_RC_block.IsWorking)
-                        continue;
-                    cur_RC_block.CustomName.ToUpperTo(_RC_block_name);
-                    if (_RC_block_name.ContainsSTABTag())
-                    {
-                        _ECU.RC_stabilisation_on = true;
-                        break;
-                    }
-                }
                 _ECU.handle_2s_period();
             }
         }
@@ -363,19 +384,34 @@ namespace ttdtwm
             _ID_on = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).DampenersEnabled;
             sync_helper.register_logic_object(this, _grid.EntityId);
 
-            var thruster_list = new List<IMySlimBlock>();
-            _grid.GetBlocks(thruster_list,
+            var block_list = new List<IMySlimBlock>();
+            _grid.GetBlocks(block_list,
                 delegate (IMySlimBlock block)
                 {
                     return block.FatBlock is IMyThrust;
                 }
             );
-            _num_thrusters = thruster_list.Count;
+            _num_thrusters = block_list.Count;
             if (_num_thrusters > 0)
             {
                 _ECU = new engine_control_unit(_grid);
-                foreach (var cur_thruster in thruster_list)
+                foreach (var cur_thruster in block_list)
                     _ECU.assign_thruster((IMyThrust) cur_thruster.FatBlock);
+            }
+
+            block_list.Clear();
+            _grid.GetBlocks(block_list,
+                delegate (IMySlimBlock block)
+                {
+                    return block.FatBlock is PB.IMyCockpit || block.FatBlock is PB.IMyRemoteControl;
+                }
+            );
+            foreach (var cur_controller in block_list)
+            {
+                _ship_controllers.Add((IMyControllableEntity) cur_controller.FatBlock);
+                var RC_block = cur_controller.FatBlock as PB.IMyRemoteControl;
+                if (RC_block != null)
+                    _RC_blocks.Add(RC_block);
             }
         }
 
