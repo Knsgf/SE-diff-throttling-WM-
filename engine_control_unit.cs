@@ -1053,7 +1053,7 @@ namespace ttdtwm
 
         public void select_flight_mode(VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller, bool RC_block_present)
         {
-            if (_speed >= DESCENDING_SPEED * 10.0f || _grid.HasMainCockpit() || _grid.Physics.Gravity.LengthSquared() < 0.0001f)
+            if (_speed >= DESCENDING_SPEED * 10.0f || _grid.HasMainCockpit() || _grid.Physics == null || _grid.Physics.Gravity.LengthSquared() < 0.0001f)
                 _landing_mode_on = false;
             else if (current_controller is PB.IMyRemoteControl)
             {
