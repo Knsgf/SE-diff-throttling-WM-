@@ -54,10 +54,9 @@ namespace ttdtwm
         {
             if (MyAPIGateway.Multiplayer != null)
                 return MyAPIGateway.Multiplayer.Players.GetPlayerControllingEntity(_grid);
-            IMyPlayer controlling_player = MyAPIGateway.Session.LocalHumanPlayer;
-            if (_ECU == null || !_ECU.is_under_control_of(controlling_player.Controller.ControlledEntity))
+            if (_ECU == null || !_ECU.is_under_control_of(sync_helper.local_controller))
                 return null;
-            return controlling_player;
+            return sync_helper.local_player;
         }
 
         #endregion
@@ -184,6 +183,9 @@ namespace ttdtwm
 
         private void send_linear_message(Vector3 manual_thrust)
         {
+            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+                return;
+
             Vector3UByte packed_vector = Vector3UByte.Round(manual_thrust * MESSAGE_MULTIPLIER + Vector3.One * MESSAGE_SHIFT);
             if (packed_vector == _prev_manual_thrust)
                 return;
@@ -192,14 +194,14 @@ namespace ttdtwm
             long_message[ 9] = packed_vector.Y;
             long_message[10] = packed_vector.Z;
             _prev_manual_thrust = packed_vector;
-            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
-                linear_message_handler(long_message);
-            else
-                MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.LINEAR_MESSAGE_ID, long_message);
+            MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.LINEAR_MESSAGE_ID, long_message);
         }
 
         private void send_rotation_message(Vector3 manual_rotation)
         {
+            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+                return;
+
             Vector3UByte packed_vector = Vector3UByte.Round(manual_rotation * MESSAGE_MULTIPLIER + Vector3.One * MESSAGE_SHIFT);
             if (packed_vector == _prev_manual_rotation)
                 return;
@@ -208,10 +210,7 @@ namespace ttdtwm
             long_message[ 9] = packed_vector.Y;
             long_message[10] = packed_vector.Z;
             _prev_manual_rotation = packed_vector;
-            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
-                rotation_message_handler(long_message);
-            else
-                MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.ROTATION_MESSAGE_ID, long_message);
+            MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.ROTATION_MESSAGE_ID, long_message);
         }
 
         private void send_control_limit_message()
@@ -223,7 +222,7 @@ namespace ttdtwm
             if (controlling_player != null && _control_limit_is_visible != _ECU.control_limit_reached)
             {
                 sync_helper.encode_entity_id(_grid, short_message);
-                short_message[8] = (byte)(_ECU.control_limit_reached ? 1 : 0);
+                short_message[8] = (byte) (_ECU.control_limit_reached ? 1 : 0);
                 _control_limit_is_visible = _ECU.control_limit_reached;
                 if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
                     display_control_warning(short_message);
@@ -285,8 +284,10 @@ namespace ttdtwm
                 if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.CROUCH))
                     manual_thrust += Vector3.Down;
             }
-            send_linear_message  (  manual_thrust);
+            send_linear_message  (manual_thrust  );
             send_rotation_message(manual_rotation);
+            _ECU.translate_linear_input  (manual_thrust  , controller);
+            _ECU.translate_rotation_input(manual_rotation, controller);
         }
 
         public void handle_60Hz()
@@ -320,11 +321,12 @@ namespace ttdtwm
             {
                 _ECU.handle_4Hz();
 
-                IMyPlayer player = get_controlling_player();
-                if (player != null)
-                    _ECU.select_flight_mode(player.Controller.ControlledEntity, _RC_blocks.Count > 0);
+                IMyPlayer controlling_player = get_controlling_player();
+                if (controlling_player != null)
+                    _ECU.select_flight_mode(controlling_player.Controller.ControlledEntity, _RC_blocks.Count > 0);
                 else
                 {
+                    _ECU.select_flight_mode(null, _RC_blocks.Count > 0);
                     if (_control_limit_is_visible)
                     {
                         _control_warning_text.Hide();
@@ -337,13 +339,12 @@ namespace ttdtwm
                     }
                 }
 
-                player = MyAPIGateway.Session.LocalHumanPlayer;
-                if (player != null)
+                if (sync_helper.local_player != null)
                 {
-                    bool display_notification = _ECU.is_under_control_of(player.Controller.ControlledEntity);
+                    bool display_notification = _ECU.is_under_control_of(sync_helper.local_controller);
                     if (_status_shown && !display_notification)
                         _status_shown = false;
-                    else if (display_notification && (!_status_shown || _ECU.landing_mode_on != _was_in_landing_mode) && MyAPIGateway.Utilities != null)
+                    else if (display_notification && _ID_on && (!_status_shown || _ECU.landing_mode_on != _was_in_landing_mode) && MyAPIGateway.Utilities != null)
                     {
                         MyAPIGateway.Utilities.ShowNotification(_ECU.landing_mode_on ? "Landing mode engaged" : "Flight mode engaged");
                         _status_shown = true;
@@ -364,8 +365,6 @@ namespace ttdtwm
             check_disposed();
             if (!_grid.IsStatic && _ECU != null && _num_thrusters > 0)
             {
-                if (!sync_helper.network_handlers_registered)
-                    sync_helper.try_register_handlers();
                 if (_control_warning_text == null && MyAPIGateway.Utilities != null)
                 {
                     _thrust_redction_text = MyAPIGateway.Utilities.CreateNotification("", 0);

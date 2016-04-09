@@ -73,18 +73,7 @@ namespace ttdtwm
         {
             base.UpdateBeforeSimulation();
 
-            if (MyAPIGateway.Session.SessionSettings.EnableSpectator && MyAPIGateway.Input != null)
-            {
-                if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_FREE))
-                    sync_helper.is_spectator_mode_on = true;
-                else if (   MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_NONE  )
-                         || MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_DELTA )
-                         || MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_STATIC))
-                { 
-                    sync_helper.is_spectator_mode_on = false;
-                }
-            }
-
+            sync_helper.handle_60Hz();
             if (_grids_handle_60Hz != null)
                 _grids_handle_60Hz();
             if (--_count15 <= 0)
