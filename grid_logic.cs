@@ -32,7 +32,7 @@ namespace ttdtwm
         private engine_control_unit            _ECU                   = null;
         private Vector3UByte                   _prev_manual_thrust    = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
 
-        private int  _num_thrusters, _prev_thrust_reduction = 0;
+        private int  _num_thrusters = 0, _prev_thrust_reduction = 0;
         private bool _ID_on, _control_limit_is_visible = false, _thrust_redction_is_visible = false, _disposed = false, _status_shown = false, _was_in_landing_mode = false;
 
         #endregion
@@ -84,6 +84,13 @@ namespace ttdtwm
                     _ECU.assign_thruster(thruster);
                     ++_num_thrusters;
                 }
+                var gyro = entity as IMyGyro;
+                if (gyro != null)
+                {
+                    if (_ECU == null)
+                        _ECU = new engine_control_unit(_grid);
+                    _ECU.assign_gyroscope(gyro);
+                }
             }
         }
 
@@ -106,6 +113,12 @@ namespace ttdtwm
                     if (_ECU != null)
                         _ECU.dispose_thruster(thruster);
                     --_num_thrusters;
+                }
+                if (_ECU != null)
+                {
+                    var gyro = entity as IMyGyro;
+                    if (gyro != null)
+                        _ECU.dispose_gyroscope(gyro);
                 }
             }
         }
@@ -387,16 +400,26 @@ namespace ttdtwm
             _grid.GetBlocks(block_list,
                 delegate (IMySlimBlock block)
                 {
-                    return block.FatBlock is IMyThrust;
+                    return block.FatBlock is IMyThrust || block.FatBlock is IMyGyro;
                 }
             );
-            _num_thrusters = block_list.Count;
-            if (_num_thrusters > 0)
+            if (block_list.Count > 0)
             {
                 _ECU = new engine_control_unit(_grid);
-                foreach (var cur_thruster in block_list)
-                    _ECU.assign_thruster((IMyThrust) cur_thruster.FatBlock);
+                foreach (var cur_block in block_list)
+                {
+                    var thruster = cur_block.FatBlock as IMyThrust;
+                    var gyro     = cur_block.FatBlock as IMyGyro;
+                    if (thruster != null)
+                    { 
+                        _ECU.assign_thruster(thruster);
+                        ++_num_thrusters;
+                    }
+                    if (gyro != null)
+                        _ECU.assign_gyroscope(gyro);
+                }
             }
+
 
             block_list.Clear();
             _grid.GetBlocks(block_list,

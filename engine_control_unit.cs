@@ -59,7 +59,8 @@ namespace ttdtwm
         private static float[] __local_gravity_inv         = new float[6];
         private static float[] __local_linear_velocity_inv = new float[6];
 
-        private MyCubeGrid              _grid;
+        private MyCubeGrid _grid;
+
         private Dictionary<MyThrust, thruster_info>[] _controlled_thrusters =
         {
             new Dictionary<MyThrust, thruster_info>(),   // fore
@@ -73,8 +74,10 @@ namespace ttdtwm
         private float[] _max_force        = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
         private  bool[] _dampers_disabled = { false, false, false, false, false, false };
 
-        private bool     _gyro_override_active = false, _status_displayed = false, _RC_status_displayed = false, _calibration_scheduled = true;
-        private Vector3D _grid_CoM_location = Vector3D.Zero, _prev_position;
+        private HashSet<MyGyro> _gyroscopes = new HashSet<MyGyro>();
+
+        private bool     _status_displayed = false, _RC_status_displayed = false, _calibration_scheduled = true;
+        private Vector3D _grid_CoM_location = Vector3D.Zero, _prev_position = Vector3D.Zero;
         private MatrixD  _inverse_world_transform;
         private Matrix   _inverse_world_rotation_fixed;
         private float    /*_max_gyro_torque = 0.0f, _max_gyro_torque_squared = 0.0f,*/ _spherical_moment_of_inertia;
@@ -85,15 +88,16 @@ namespace ttdtwm
         private  bool[] _calibration_needed = { false, false, false, false, false, false };
         private float[] _current_trim         = new float[6];
         private float[] _last_trim            = new float[6];
-        private Vector3 _local_angular_velocity, _prev_angular_velocity = Vector3.Zero, _torque, _manual_thrust, _manual_rotation, _target_rotation;
-        private float   _speed, _manual_rotation_cap = 0;
-        private bool    _current_mode_is_steady_velocity = false, _new_mode_is_steady_velocity = false;
+        private Vector3 _local_angular_velocity, _prev_angular_velocity = Vector3.Zero, _torque, _manual_thrust, _manual_rotation, _target_rotation, _gyro_override = Vector3.Zero;
+        private float   _max_gyro_torque = 0;
+        private bool    _current_mode_is_steady_velocity = false, _new_mode_is_steady_velocity = false, _is_gyro_override_active = false;
         private sbyte   _last_control_scheme = -1;
         private bool    _stabilisation_off = true, _all_engines_off = false, _active_control_on = false, _landing_mode_on, _under_player_control = false, _was_dry_run = false;
 
         private  bool   _allow_extra_linear_opposition = false, _integral_cleared = false;
         private  bool[] _enable_linear_integral = {  true,  true,  true,  true,  true,  true };
         private float[] _linear_integral        = {  0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f };
+        private float   _speed;
 
         private Vector3[] _rotation_samples = new Vector3[NUM_ROTATION_SAMPLES];
         private Vector3   _sample_sum       = Vector3.Zero;
@@ -231,23 +235,17 @@ namespace ttdtwm
             }
 
             //_are_gyroscopes_saturated = _max_gyro_torque < 1.0f || torque.LengthSquared() / _max_gyro_torque_squared >= 0.75f * 0.75f;
-            /*
-            if (!_stabilisation_off && _manual_rotation.LengthSquared() <= 0.0001f)
+            if (!_stabilisation_off && _active_control_on && _max_gyro_torque >= 1.0f && _manual_rotation.LengthSquared() <= 0.0001f)
             {
-                float gyro_limit = _gyro_control.ResourceSink.SuppliedRatio * (_max_gyro_torque - _gyro_control.Torque.Length());
-                if (gyro_limit > 1.0f)
-                {
-                    Vector3 gyro_torque = 5.0f * (_spherical_moment_of_inertia / _max_gyro_torque) * (desired_angular_velocity - _local_angular_velocity);
-                    if (gyro_torque.LengthSquared() > 1.0f)
-                        gyro_torque.Normalize();
-                    gyro_torque     *= gyro_limit;
-                    _torque         += gyro_torque;
-                }
+                //float gyro_limit = _gyro_control.ResourceSink.SuppliedRatio * (_max_gyro_torque - _gyro_control.Torque.Length());
+                Vector3 gyro_torque_dir = 10.0f * (_spherical_moment_of_inertia / _max_gyro_torque) * (desired_angular_velocity - _local_angular_velocity);
+                if (gyro_torque_dir.LengthSquared() > 1.0f)
+                    gyro_torque_dir.Normalize();
+                //gyro_torque     *= gyro_limit;
+                _torque += gyro_torque_dir * _max_gyro_torque;
+                //screen_text("", (gyro_torque * _max_gyro_torque).ToString(), 16, controlled_only: false);
             }
-            */
             Vector3 world_torque = Vector3.Transform(_torque, _grid.WorldMatrix.GetOrientation());
-            if (!_grid.Physics.Enabled && _manual_rotation.LengthSquared() > 0.0001f)
-                _grid.Physics.Enabled = true;
             _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, Vector3.Zero, null, world_torque);
         }
 
@@ -415,9 +413,9 @@ namespace ttdtwm
             decompose_vector(_manual_thrust, __control_vector);
             sbyte control_scheme = get_current_control_scheme();
 
+            _stabilisation_off = _is_gyro_override_active;
             if (!linear_dampers_on)
             {
-                _stabilisation_off = false;
                 if (!_integral_cleared)
                 {
                     for (int dir_index = 0; dir_index < 6; ++dir_index)
@@ -434,17 +432,14 @@ namespace ttdtwm
                 float gravity_magnitude = local_gravity_vector.Length();
                 Vector3 linear_damping  = local_linear_velocity_vector * DAMPING_CONSTANT;
                 if (!_landing_mode_on)
-                {
-                    linear_damping    -= local_gravity_vector;
-                    _stabilisation_off = false;
-                }
+                    linear_damping -= local_gravity_vector;
                 else
                 {
                     float counter_thrust_limit = _speed / DESCENDING_SPEED;
                     if (counter_thrust_limit > 1.0f)
                         counter_thrust_limit = 1.0f;
-                    linear_damping    -= local_gravity_vector * counter_thrust_limit;
-                    _stabilisation_off = _speed < DESCENDING_SPEED * 0.5f;
+                    linear_damping     -= local_gravity_vector * counter_thrust_limit;
+                    _stabilisation_off |= _speed < DESCENDING_SPEED * 0.5f;
                 }
                 decompose_vector(linear_damping * _grid.Physics.Mass,            __braking_vector);
                 decompose_vector(              -local_gravity_vector,         __local_gravity_inv);
@@ -479,9 +474,19 @@ namespace ttdtwm
                         _linear_integral[dir_index] = 0.0f;
                     else
                     {
-                        _linear_integral[dir_index] += INTEGRAL_CONSTANT * (__local_linear_velocity_inv[dir_index] - __local_linear_velocity_inv[opposite_dir]);
+                        float gravity_ratio          = __local_gravity_inv[dir_index] / gravity_magnitude, 
+                              linear_integral_change = INTEGRAL_CONSTANT * (__local_linear_velocity_inv[dir_index] - __local_linear_velocity_inv[opposite_dir]);
+                        if (linear_integral_change > INTEGRAL_CONSTANT)
+                            linear_integral_change = INTEGRAL_CONSTANT;
+                        else if (linear_integral_change < -INTEGRAL_CONSTANT)
+                            linear_integral_change = -INTEGRAL_CONSTANT;
+                        if (__local_linear_velocity_inv[dir_index] < 1.0f)
+                            linear_integral_change *= __local_linear_velocity_inv[dir_index] * (gravity_ratio - 1.0f) + 1.0f;
+                        else
+                            linear_integral_change *= gravity_ratio;
+                        _linear_integral[dir_index] += linear_integral_change;
                         if (_landing_mode_on)
-                            _linear_integral[dir_index] -= INTEGRAL_CONSTANT * DESCENDING_SPEED * __local_gravity_inv[dir_index] / gravity_magnitude;
+                            _linear_integral[dir_index] -= INTEGRAL_CONSTANT * DESCENDING_SPEED * gravity_ratio;
                         if (_linear_integral[dir_index] < 0.0f)
                             _linear_integral[dir_index] = 0.0f;
                     }
@@ -635,7 +640,7 @@ namespace ttdtwm
             Vector3 local_angular_acceleration  = (_local_angular_velocity - _prev_angular_velocity) / MyEngineConstants.UPDATE_STEP_SIZE_IN_SECONDS;
             _prev_angular_velocity = _local_angular_velocity;
 
-            decompose_vector(                       _manual_rotation,       __steering_input);
+            decompose_vector(                      _manual_rotation,       __steering_input);
             decompose_vector(               _local_angular_velocity,     __angular_velocity);
             decompose_vector(            local_angular_acceleration, __angular_acceleration);
             decompose_vector(_torque / _spherical_moment_of_inertia, __nominal_acceleration);
@@ -647,20 +652,21 @@ namespace ttdtwm
                     __steering_output[dir_index] = 0.0f;
                 else if (__steering_input[dir_index] > 0.01f)
                 {
-                    __steering_output[dir_index] = /*(__angular_velocity[dir_index] < 0.1f) ? 
-                          (__steering_input[dir_index] * 5.0f) 
-                        :*/ (__angular_velocity[dir_index] /*+ __angular_velocity[opposite_dir]*/ + __steering_input[dir_index] * 2.0f);
+                    __steering_output[dir_index] = (__angular_velocity[dir_index] < 0.1f) ? 
+                          (__steering_input[dir_index] * 15.0f) 
+                        : (__angular_velocity[dir_index] + __steering_input[dir_index] * 3.0f);
+                    //__steering_output[dir_index]  = __steering_input[dir_index] * 3.0f + __angular_velocity[dir_index] + __angular_velocity[opposite_dir];
                     __steering_output[dir_index] += _last_trim[dir_index];
                     _enable_integral[dir_index]   = _enable_integral[opposite_dir] = false;
                     _current_trim[opposite_dir]   = 0.0f;
                     update_inverse_world_matrix   = true;
-                    if (_stabilisation_off || !_active_control_on)
+                    //if (_stabilisation_off || !_active_control_on)
                         _current_trim[dir_index] = 0.0f;
-                    else if (__angular_velocity[opposite_dir] > 0.1f)
+                    /*else if (__angular_velocity[opposite_dir] > 0.1f)
                         _current_trim[dir_index] -= ANGULAR_INTEGRAL_COEFF * __angular_velocity[opposite_dir];
                     else if (__angular_velocity[dir_index] < 0.1f)
                         _current_trim[dir_index] -= ANGULAR_INTEGRAL_COEFF * 0.5f * (0.1f + __angular_velocity[opposite_dir] - __angular_velocity[dir_index]);
-                    _current_trim[dir_index] = (__angular_velocity[dir_index] > 0.1f) ? 0.0f : (_current_trim[dir_index] - ANGULAR_INTEGRAL_COEFF * 0.01f);
+                    _current_trim[dir_index] = (__angular_velocity[dir_index] > 0.1f) ? 0.0f : (_current_trim[dir_index] - ANGULAR_INTEGRAL_COEFF * 0.01f);*/
 
                 }
                 else
@@ -744,14 +750,25 @@ namespace ttdtwm
             Matrix inverse_world_rotation = _inverse_world_transform.GetOrientation();
             Vector3 local_gravity         = Vector3.Transform(_grid.Physics.Gravity, inverse_world_rotation);
             _local_angular_velocity       = Vector3.Transform(_grid.Physics.AngularVelocity, inverse_world_rotation);
+            if (_is_gyro_override_active)
+                _manual_rotation = _gyro_override - _local_angular_velocity;
 
             float thrust_limit;
             //_stabilisation_off = true;
             //foreach (var cur_direction in _controlled_thrusters)
             //    _stabilisation_off &= cur_direction.Count == 0;
             //_stabilisation_off = (!_grid.HasMainCockpit() && !RC_stabilisation_on) /*|| _stabilisation_off && _max_gyro_torque < 0.0001f * _spherical_moment_of_inertia*/;
-            sbyte control_scheme              = initialise_linear_controls(local_linear_velocity, local_gravity);
-            bool  update_inverse_world_matrix = adjust_trim_setting(control_scheme, out desired_angular_velocity, out thrust_limit);
+            sbyte control_scheme = initialise_linear_controls(local_linear_velocity, local_gravity);
+            bool  update_inverse_world_matrix;
+            if (!_is_gyro_override_active)
+                update_inverse_world_matrix = adjust_trim_setting(control_scheme, out desired_angular_velocity, out thrust_limit);
+            else
+            {
+                desired_angular_velocity    = _gyro_override;
+                thrust_limit                = 1.0f;
+                update_inverse_world_matrix = true;
+            }
+
             // Update fixed inverse rotation matrix when angle exceeds 11 degrees or speed is low 
             // (decoupling inertia dampers' axes from ship orientation isn't needed at low velocities)
             if (update_inverse_world_matrix || _speed <= 20.0f || Vector3.Dot(_inverse_world_rotation_fixed.Forward, inverse_world_rotation.Forward) < 0.98f)
@@ -780,7 +797,7 @@ namespace ttdtwm
                         __actual_force[dir_index] += cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
                     }
                 }
-                if (!_gyro_override_active && !_dampers_disabled[dir_index])
+                if (!_dampers_disabled[dir_index])
                     adjust_thrust_for_steering(dir_index, opposite_dir, desired_angular_velocity, thrust_limit);
                 if (++opposite_dir >= 6)
                     opposite_dir = 0;
@@ -1021,15 +1038,6 @@ namespace ttdtwm
             }
         }
 
-        private void calc_spherical_moment_of_inertia()
-        {
-            Vector3 grid_dim             = (_grid.Max - _grid.Min + Vector3I.One) * _grid.GridSize;
-            float grid_volume            = Math.Abs(grid_dim.X * grid_dim.Y * grid_dim.Z);
-            float reference_radius       = (float) Math.Pow(grid_volume / (4.0 / 3.0 * Math.PI), 1.0 / 3.0);
-            _spherical_moment_of_inertia = 0.4f * _grid.Physics.Mass * reference_radius * reference_radius;
-            log_ECU_action("calc_spherical_moment_of_inertia", string.Format("volume = {0} m3, radius = {1} m, SMoI = {2} t*m2", grid_volume, reference_radius, _spherical_moment_of_inertia / 1000.0f));
-        }
-
         private engine_control_unit()
         {
             throw new InvalidOperationException("Attempt to construct ECU without associated CubeGrid");
@@ -1040,10 +1048,89 @@ namespace ttdtwm
             _grid = (MyCubeGrid) grid_ref;
             _inverse_world_transform      = _grid.PositionComp.WorldMatrixNormalizedInv;
             _inverse_world_rotation_fixed = _inverse_world_transform.GetOrientation();
-            _prev_position                = _grid.PositionComp.GetPosition();
         }
 
         #endregion
+
+        #region Gyroscope handling
+
+        private void calc_spherical_moment_of_inertia()
+        {
+            Vector3I grid_dim = _grid.Max - _grid.Min + Vector3I.One;
+            int      low_dim  = grid_dim.X, med_dim = grid_dim.Y, high_dim = grid_dim.Z, temp;
+
+            if (low_dim < 0)
+                low_dim = -low_dim;
+            if (med_dim < 0)
+                med_dim = -med_dim;
+            if (high_dim < 0)
+                high_dim = -high_dim;
+            do
+            {
+                temp = -1;
+                if (low_dim > med_dim)
+                {
+                    temp    = low_dim;
+                    low_dim = med_dim;
+                    med_dim = temp;
+                }
+                if (med_dim > high_dim)
+                {
+                    temp     = med_dim;
+                    med_dim  = high_dim;
+                    high_dim = temp;
+                }
+            }
+            while (temp >= 0);
+            float smallest_area          = low_dim * med_dim * _grid.GridSize * _grid.GridSize;
+            float reference_radius       = (float) Math.Sqrt(smallest_area / Math.PI);
+            _spherical_moment_of_inertia = 0.4f * _grid.Physics.Mass * reference_radius * reference_radius;
+            log_ECU_action("calc_spherical_moment_of_inertia", string.Format("smallest area = {0} m2, radius = {1} m, SMoI = {2} t*m2", smallest_area, reference_radius, _spherical_moment_of_inertia / 1000.0f));
+        }
+
+        private void refresh_gyro_info()
+        {
+            uint num_overriden_gyroscopes = 0;
+
+            _gyro_override   = Vector3.Zero;
+            _max_gyro_torque = 0.0f;
+            foreach (var cur_gyroscope in _gyroscopes)
+            {
+                if (cur_gyroscope.IsWorking)
+                {
+                    _max_gyro_torque += cur_gyroscope.MaxGyroForce;
+                    if (cur_gyroscope.GyroOverride)
+                    {
+                        _gyro_override += cur_gyroscope.GyroOverrideVelocityGrid;
+                        ++num_overriden_gyroscopes;
+                    }
+                }
+            }
+            if (num_overriden_gyroscopes > 0)
+            {
+                _gyro_override          /= num_overriden_gyroscopes;
+                _is_gyro_override_active = true;
+            }
+            else if (_is_gyro_override_active)
+            {
+                reset_user_input();
+                _is_gyro_override_active = false;
+            }
+        }
+
+        public void assign_gyroscope(IMyGyro new_gyroscope)
+        {
+            _gyroscopes.Add((MyGyro) new_gyroscope);
+        }
+
+        public void dispose_gyroscope(IMyGyro gyroscope_to_remove)
+        {
+            _gyroscopes.Remove((MyGyro) gyroscope_to_remove);
+        }
+
+        #endregion
+
+        #region Flight controls handling
 
         public bool is_under_control_of(VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)
         {
@@ -1103,6 +1190,8 @@ namespace ttdtwm
             _under_player_control = true;
         }
 
+        #endregion
+
         public void handle_60Hz()
         {
             if (_grid.Physics == null)
@@ -1115,7 +1204,9 @@ namespace ttdtwm
                 _current_index = 0;
             _manual_rotation = _sample_sum / NUM_ROTATION_SAMPLES;
 
-            Vector3D current_position      = _grid.PositionComp.GetPosition();
+            if (Vector3D.IsZero(_prev_position))
+                _prev_position = _grid.Physics.CenterOfMassWorld;
+            Vector3D current_position      = _grid.Physics.CenterOfMassWorld;
             Vector3D world_linear_velocity = (current_position - _prev_position) * MyEngineConstants.UPDATE_STEPS_PER_SECOND;
             _speed                         = (float) world_linear_velocity.Length();
             _prev_position                 = current_position;
@@ -1157,6 +1248,7 @@ namespace ttdtwm
                 _current_mode_is_steady_velocity = _new_mode_is_steady_velocity;
             }
             refresh_real_max_forces();
+            refresh_gyro_info();
 
             control_limit_reached = false;
 
