@@ -92,13 +92,14 @@ namespace ttdtwm
         private float[] _current_trim         = new float[6];
         private float[] _last_trim            = new float[6];
         private Vector3 _local_angular_velocity, _prev_angular_velocity = Vector3.Zero, _torque, _manual_thrust, _manual_rotation, _target_rotation, _gyro_override = Vector3.Zero;
-        private bool    _current_mode_is_steady_velocity = false, _new_mode_is_steady_velocity = false, _is_gyro_override_active = false;
+        private bool    _current_mode_is_steady_velocity = false, _new_mode_is_steady_velocity = false, _is_gyro_override_active = false, _is_thrust_verride_active = false;
         private sbyte   _last_control_scheme = -1;
         private bool    _stabilisation_off = true, _all_engines_off = false, _active_control_on = false, _landing_mode_on, _under_player_control = false, _was_dry_run = false;
 
         private  bool   _allow_extra_linear_opposition = false, _integral_cleared = false;
         private  bool[] _enable_linear_integral = {  true,  true,  true,  true,  true,  true };
         private float[] _linear_integral        = {  0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f };
+        private float[] _thrust_override_vector = {  0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f };
         private float   _speed;
 
         private Vector3[] _rotation_samples = new Vector3[NUM_ROTATION_SAMPLES];
@@ -209,21 +210,24 @@ namespace ttdtwm
             thruster_info thrust_info;
             float         thrust_override;
 
+            _is_thrust_verride_active = false;
             for (int dir_index = 0; dir_index < 6; ++dir_index)
+            {
                 __uncontrolled_override_checked[dir_index] = false;
+                _thrust_override_vector[dir_index] = 0.0f;
+            }
             foreach (var cur_thruster in _uncontrolled_thrusters)
             {
                 thrust_info = cur_thruster.Value;
-                if (__uncontrolled_override_checked[(int) thrust_info.nozzle_direction] && thrust_info.actual_max_force >= 1.0f)
+                if (!__uncontrolled_override_checked[(int) thrust_info.nozzle_direction] && thrust_info.actual_max_force >= 1.0f)
                 {
                     thrust_override = cur_thruster.Key.ThrustOverride / thrust_info.actual_max_force;
                     if (thrust_override > 0.01f)
-                        __control_vector[(int) thrust_info.nozzle_direction] += thrust_override;
-                    if (__control_vector[(int) thrust_info.nozzle_direction] > 1.0f)
-                        __control_vector[(int) thrust_info.nozzle_direction] = 1.0f;
-                    __uncontrolled_override_checked[(int) thrust_info.nozzle_direction] = true;
+                        _thrust_override_vector[(int) thrust_info.nozzle_direction] = thrust_override;
+                    __uncontrolled_override_checked[(int) thrust_info.nozzle_direction] = _is_thrust_verride_active = true;
                 }
             }
+            return;
         }
 
         private void calculate_and_apply_torque(Vector3 desired_angular_velocity)
@@ -424,7 +428,12 @@ namespace ttdtwm
 
             _allow_extra_linear_opposition = _manual_thrust.LengthSquared() > 0.75f * 0.75f;
             decompose_vector(_manual_thrust, __control_vector);
-            check_override_on_uncontrolled();
+            for (int dir_index = 0; dir_index < 6; ++dir_index)
+            {
+                __control_vector[dir_index] += _thrust_override_vector[dir_index];
+                if (__control_vector[dir_index] > 1.0f)
+                    __control_vector[dir_index] = 1.0f;
+            }
             sbyte control_scheme = get_current_control_scheme();
 
             _stabilisation_off = _is_gyro_override_active;
@@ -1058,6 +1067,11 @@ namespace ttdtwm
             thrust_info.next_tandem_thruster = thrust_info.prev_tandem_thruster = thrust_info;
         }
 
+        private void on_thrust_override_changed(float dummy)
+        {
+            check_override_on_uncontrolled();
+        }
+
         private void check_thruster_control_changed()
         {
             MyThrust      cur_thruster;
@@ -1086,6 +1100,7 @@ namespace ttdtwm
                     {
                         if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
                             cur_thruster.SetValueFloat("Override", 0.0f);
+                        cur_thruster.ThrustOverrideChanged += on_thrust_override_changed;
                         remove_thruster_from_lists(cur_thrust_info);
                         cur_thrust_info.thrust_limit = 1.0f;
                         cur_thrust_info.enable_limit = cur_thrust_info.enable_rotation = cur_thrust_info.is_RCS = false;
@@ -1124,6 +1139,7 @@ namespace ttdtwm
                 contains_STAT = __thruster_name.ContainsSTATTag();
                 if (cur_thruster.IsWorking  && cur_thrust_info.actual_max_force > 0.01f * cur_thrust_info.max_force && (contains_THR || contains_STAT))
                 {
+                    cur_thruster.ThrustOverrideChanged -= on_thrust_override_changed;
                     dir_index = (int) cur_thrust_info.nozzle_direction;
                     _controlled_thrusters[dir_index].Add(cur_thruster, cur_thrust_info);
                     _uncontrolled_thrusters.Remove(cur_thruster);
@@ -1182,7 +1198,7 @@ namespace ttdtwm
             new_thruster.enable_limit         = new_thruster.enable_rotation = new_thruster.is_RCS = false;
             new_thruster.opposing_thruster    = null;
             new_thruster.next_tandem_thruster = new_thruster.prev_tandem_thruster = new_thruster;
-            //new_thruster.is_first_in_line     = true;
+            thruster.ThrustOverrideChanged   += on_thrust_override_changed;
             _uncontrolled_thrusters.Add(thruster, new_thruster);
             log_ECU_action("assign_thruster", string.Format("{0} ({1}) [{2}]\n\t\t\tCentre position: {3}",
                 ((PB.IMyTerminalBlock) thruster).CustomName, new_thruster.nozzle_direction.ToString(), thruster.EntityId, 
@@ -1193,6 +1209,8 @@ namespace ttdtwm
         {
             var  thruster       = (MyThrust) thruster_ref;
             bool thruster_found = false;
+
+            thruster.ThrustOverrideChanged -= on_thrust_override_changed;
             if (_uncontrolled_thrusters.ContainsKey(thruster))
             {
                 thruster_found = true;
@@ -1390,7 +1408,7 @@ namespace ttdtwm
             _speed                         = (float) world_linear_velocity.Length();
             _prev_position                 = current_position;
             _inverse_world_transform       = _grid.PositionComp.WorldMatrixNormalizedInv;
-            if (   _manual_rotation.LengthSquared() < 0.0001f && _manual_thrust.LengthSquared() < 0.0001f
+            if (  !_is_thrust_verride_active && !_is_gyro_override_active && _manual_rotation.LengthSquared() < 0.0001f && _manual_thrust.LengthSquared() < 0.0001f
                 && _grid.Physics.AngularVelocity.LengthSquared() < 1.0E-6f && _grid.Physics.Gravity.LengthSquared() < 0.01f
                 && (!linear_dampers_on || _grid.Physics.LinearVelocity.LengthSquared() < 0.01f))
             {
