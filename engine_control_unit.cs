@@ -60,6 +60,7 @@ namespace ttdtwm
 
         private static float[] __local_gravity_inv         = new float[6];
         private static float[] __local_linear_velocity_inv = new float[6];
+        private static float[] __thrust_override_vector    = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
         private static bool[] __uncontrolled_override_checked = new bool[6];
 
@@ -91,7 +92,7 @@ namespace ttdtwm
         private  bool[] _calibration_needed = { false, false, false, false, false, false };
         private float[] _current_trim         = new float[6];
         private float[] _last_trim            = new float[6];
-        private Vector3 _local_angular_velocity, _prev_angular_velocity = Vector3.Zero, _torque, _manual_thrust, _manual_rotation, _target_rotation, _gyro_override = Vector3.Zero;
+        private Vector3 _local_angular_velocity, _prev_angular_velocity = Vector3.Zero, _torque, _manual_rotation, _target_rotation, _gyro_override = Vector3.Zero;
         private bool    _current_mode_is_steady_velocity = false, _new_mode_is_steady_velocity = false, _is_gyro_override_active = false, _is_thrust_verride_active = false;
         private sbyte   _last_control_scheme = -1;
         private bool    _stabilisation_off = true, _all_engines_off = false, _active_control_on = false, _landing_mode_on, _under_player_control = false, _was_dry_run = false;
@@ -99,8 +100,8 @@ namespace ttdtwm
         private  bool   _allow_extra_linear_opposition = false, _integral_cleared = false;
         private  bool[] _enable_linear_integral = {  true,  true,  true,  true,  true,  true };
         private float[] _linear_integral        = {  0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f };
-        private float[] _thrust_override_vector = {  0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f };
         private float   _speed;
+        private Vector3 _manual_thrust, _thrust_override = Vector3.Zero;
 
         private Vector3[] _rotation_samples = new Vector3[NUM_ROTATION_SAMPLES];
         private Vector3   _sample_sum       = Vector3.Zero;
@@ -208,26 +209,26 @@ namespace ttdtwm
         private void check_override_on_uncontrolled()
         {
             thruster_info thrust_info;
-            float         thrust_override;
+            float         thrust_override_value;
 
             _is_thrust_verride_active = false;
             for (int dir_index = 0; dir_index < 6; ++dir_index)
             {
                 __uncontrolled_override_checked[dir_index] = false;
-                _thrust_override_vector[dir_index] = 0.0f;
+                __thrust_override_vector[       dir_index] = 0.0f;
             }
             foreach (var cur_thruster in _uncontrolled_thrusters)
             {
                 thrust_info = cur_thruster.Value;
                 if (!__uncontrolled_override_checked[(int) thrust_info.nozzle_direction] && thrust_info.actual_max_force >= 1.0f)
                 {
-                    thrust_override = cur_thruster.Key.ThrustOverride / thrust_info.actual_max_force;
-                    if (thrust_override > 0.01f)
-                        _thrust_override_vector[(int) thrust_info.nozzle_direction] = thrust_override;
+                    thrust_override_value = cur_thruster.Key.ThrustOverride / thrust_info.actual_max_force;
+                    if (thrust_override_value > 0.01f)
+                        __thrust_override_vector[(int) thrust_info.nozzle_direction] = thrust_override_value;
                     __uncontrolled_override_checked[(int) thrust_info.nozzle_direction] = _is_thrust_verride_active = true;
                 }
             }
-            return;
+            recompose_vector(__thrust_override_vector, out _thrust_override);
         }
 
         private void calculate_and_apply_torque(Vector3 desired_angular_velocity)
@@ -427,16 +428,10 @@ namespace ttdtwm
             const float DAMPING_CONSTANT = -2.0f, INTEGRAL_CONSTANT = 0.05f;
 
             _allow_extra_linear_opposition = _manual_thrust.LengthSquared() > 0.75f * 0.75f;
-            decompose_vector(_manual_thrust, __control_vector);
-            for (int dir_index = 0; dir_index < 6; ++dir_index)
-            {
-                __control_vector[dir_index] += _thrust_override_vector[dir_index];
-                if (__control_vector[dir_index] > 1.0f)
-                    __control_vector[dir_index] = 1.0f;
-            }
+            decompose_vector(Vector3.Clamp(_manual_thrust + _thrust_override, -Vector3.One, Vector3.One), __control_vector);
             sbyte control_scheme = get_current_control_scheme();
+            _stabilisation_off   = _is_gyro_override_active;
 
-            _stabilisation_off = _is_gyro_override_active;
             if (!linear_dampers_on)
             {
                 if (!_integral_cleared)
@@ -729,7 +724,7 @@ namespace ttdtwm
                 thrust_reduction = (  int) ((1.0f - linear_force / requested_force) * 100.0f + 0.5f);
 
                 // Possible due to relaxed limits on hover thrusters
-                if (thrust_reduction < 0)
+                if (thrust_reduction < 0 || requested_force < 0.05f * _grid.Physics.Mass)
                     thrust_reduction = 0;
             }
         }
