@@ -84,7 +84,7 @@ namespace ttdtwm
         private Vector3D _grid_CoM_location = Vector3D.Zero, _prev_position = Vector3D.Zero;
         private MatrixD  _inverse_world_transform;
         private Matrix   _inverse_world_rotation_fixed;
-        private float    _max_gyro_torque = 0.0f, _spherical_moment_of_inertia;
+        private float    _max_gyro_torque = 0.0f, _spherical_moment_of_inertia = 1.0f;
 
         private  bool[] _enable_integral    = { false, false, false, false, false, false };
         private  bool[] _restrict_integral  = { false, false, false, false, false, false };
@@ -738,10 +738,13 @@ namespace ttdtwm
             Vector3 local_angular_acceleration  = (_local_angular_velocity - _prev_angular_velocity) / MyEngineConstants.UPDATE_STEP_SIZE_IN_SECONDS, trim_vector;
             _prev_angular_velocity = _local_angular_velocity;
 
-            decompose_vector(                      _manual_rotation,       __steering_input);
-            decompose_vector(               _local_angular_velocity,     __angular_velocity);
-            decompose_vector(            local_angular_acceleration, __angular_acceleration);
-            decompose_vector(_torque / _spherical_moment_of_inertia, __nominal_acceleration);
+            decompose_vector(          _manual_rotation,       __steering_input);
+            decompose_vector(   _local_angular_velocity,     __angular_velocity);
+            decompose_vector(local_angular_acceleration, __angular_acceleration);
+            Vector3 nominal_acceleration_vector = _torque / _spherical_moment_of_inertia;
+            if (nominal_acceleration_vector.LengthSquared() > 1.0f)
+                nominal_acceleration_vector.Normalize();
+            decompose_vector(nominal_acceleration_vector, __nominal_acceleration);
             int opposite_dir = 3;
             for (int dir_index = 0; dir_index < 6; ++dir_index)
             {
@@ -1276,7 +1279,7 @@ namespace ttdtwm
             while (temp >= 0);
             float smallest_area          = low_dim * med_dim * _grid.GridSize * _grid.GridSize;
             float reference_radius       = (float) Math.Sqrt(smallest_area / Math.PI);
-            _spherical_moment_of_inertia = 0.4f * _grid.Physics.Mass * reference_radius * reference_radius;
+            _spherical_moment_of_inertia = 0.4f * ((_grid.Physics.Mass >= 1.0f) ? _grid.Physics.Mass : 1.0f) * reference_radius * reference_radius;
             log_ECU_action("calc_spherical_moment_of_inertia", string.Format("smallest area = {0} m2, radius = {1} m, SMoI = {2} t*m2", smallest_area, reference_radius, _spherical_moment_of_inertia / 1000.0f));
         }
 
@@ -1387,7 +1390,10 @@ namespace ttdtwm
         public void handle_60Hz()
         {
             if (_grid.Physics == null)
+            {
+                _prev_position = _prev_angular_velocity = Vector3.Zero;
                 return;
+            }
 
             // Suppress input noise caused by analog controls
             _sample_sum += _target_rotation - _rotation_samples[_current_index];
@@ -1428,7 +1434,6 @@ namespace ttdtwm
             if (CoM_shifted)
             {
                 _grid_CoM_location = current_grid_CoM;
-                calc_spherical_moment_of_inertia();
                 refresh_thruster_info();
                 log_ECU_action("handle_4Hz", "CoM refreshed");
             }
@@ -1441,6 +1446,7 @@ namespace ttdtwm
                 _current_mode_is_steady_velocity = _new_mode_is_steady_velocity;
             }
             refresh_real_max_forces();
+            calc_spherical_moment_of_inertia();
 
             control_limit_reached = false;
 
