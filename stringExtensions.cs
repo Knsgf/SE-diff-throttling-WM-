@@ -9,9 +9,10 @@ namespace ttdtwm
     static class stringAndStringBuilderExtensions
     {
         private static readonly string m_THRTag     = "[THR]";
+        private static readonly string m_RCSTag     = "[RCS]";
         private static readonly string m_STATTag    = "[STAT]";
         private static readonly string m_LANDINGTag = "[LANDING]";
-        private static readonly int[]  m_THRShiftTable, m_STATShiftTable, m_LANDINGShiftTable;
+        private static readonly int[]  m_THRShiftTable, m_RCSShiftTable, m_STATShiftTable, m_LANDINGShiftTable;
 
         #region Private methods
 
@@ -55,6 +56,7 @@ namespace ttdtwm
         static stringAndStringBuilderExtensions()
         {
             m_THRShiftTable     = GenerateShiftTable(m_THRTag    );
+            m_RCSShiftTable     = GenerateShiftTable(m_RCSTag    );
             m_STATShiftTable    = GenerateShiftTable(m_STATTag   );
             m_LANDINGShiftTable = GenerateShiftTable(m_LANDINGTag);
         }
@@ -64,6 +66,11 @@ namespace ttdtwm
         public static bool ContainsTHRTag(this StringBuilder blockName)
         {
             return ContainsTag(blockName, m_THRTag, m_THRShiftTable);
+        }
+
+        public static bool ContainsRCSTag(this StringBuilder blockName)
+        {
+            return ContainsTag(blockName, m_RCSTag, m_RCSShiftTable);
         }
 
         public static bool ContainsSTATTag(this StringBuilder blockName)
