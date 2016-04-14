@@ -9,10 +9,9 @@ namespace ttdtwm
 {
     static class sync_helper
     {
-        internal const ushort LINEAR_MESSAGE_ID           = 17370;
-        internal const ushort ROTATION_MESSAGE_ID         = 17371;
-        internal const ushort THRUST_REDUCTION_MESSAGE_ID = 17372;
-        internal const ushort CONTROL_LIMIT_MESSAGE_ID    = 17373;
+        internal const ushort LINEAR_MESSAGE_ID   = 17370;
+        internal const ushort ROTATION_MESSAGE_ID = 17371;
+        internal const ushort SHORT_MESSAGE_ID    = 17372;
 
         private static Dictionary<long, grid_logic> entities = new Dictionary<long, grid_logic>();
 
@@ -31,12 +30,7 @@ namespace ttdtwm
                     MyAPIGateway.Multiplayer.RegisterMessageHandler(  LINEAR_MESSAGE_ID, grid_logic.linear_message_handler  );
                     MyAPIGateway.Multiplayer.RegisterMessageHandler(ROTATION_MESSAGE_ID, grid_logic.rotation_message_handler);
                 }
-                IMyPlayer local_player = MyAPIGateway.Session.LocalHumanPlayer;
-                if (!MyAPIGateway.Multiplayer.IsServer || local_player != null && MyAPIGateway.Multiplayer.IsServerPlayer(local_player.Client))
-                {
-                    MyAPIGateway.Multiplayer.RegisterMessageHandler(   CONTROL_LIMIT_MESSAGE_ID, grid_logic.display_control_warning );
-                    MyAPIGateway.Multiplayer.RegisterMessageHandler(THRUST_REDUCTION_MESSAGE_ID, grid_logic.display_thrust_reduction);
-                }
+                MyAPIGateway.Multiplayer.RegisterMessageHandler(SHORT_MESSAGE_ID, grid_logic.short_message_handler);
                 network_handlers_registered = true;
             }
         }
@@ -50,12 +44,7 @@ namespace ttdtwm
                 MyAPIGateway.Multiplayer.UnregisterMessageHandler(  LINEAR_MESSAGE_ID, grid_logic.linear_message_handler  );
                 MyAPIGateway.Multiplayer.UnregisterMessageHandler(ROTATION_MESSAGE_ID, grid_logic.rotation_message_handler);
             }
-            IMyPlayer local_player = MyAPIGateway.Session.LocalHumanPlayer;
-            if (!MyAPIGateway.Multiplayer.IsServer || local_player != null && MyAPIGateway.Multiplayer.IsServerPlayer(local_player.Client))
-            {
-                MyAPIGateway.Multiplayer.UnregisterMessageHandler(   CONTROL_LIMIT_MESSAGE_ID, grid_logic.display_control_warning );
-                MyAPIGateway.Multiplayer.UnregisterMessageHandler(THRUST_REDUCTION_MESSAGE_ID, grid_logic.display_thrust_reduction);
-            }
+            MyAPIGateway.Multiplayer.UnregisterMessageHandler(SHORT_MESSAGE_ID, grid_logic.short_message_handler);
         }
 
         public static void register_logic_object(grid_logic obj, long entity_id)

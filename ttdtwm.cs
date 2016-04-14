@@ -1,7 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 
-using Sandbox.Game;
 using Sandbox.ModAPI;
 using VRage.Game.Components;
 using VRage.Game.ModAPI;
@@ -18,8 +17,8 @@ namespace ttdtwm
         private Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
         private grid_handler _grids_handle_60Hz = null, _grids_handle_4Hz = null, _grids_handle_2s_period = null;
 
-        int  _count15 = 0, _count8 = 0;
-        bool _entity_events_set = false;
+        private int  _count15 = 0, _count8 = 0;
+        private bool _entity_events_set = false, _announced = false;
 
         private void log_session_action(string method_name, string message)
         {

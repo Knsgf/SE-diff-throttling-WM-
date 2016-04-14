@@ -96,9 +96,9 @@ namespace ttdtwm
         private Vector3 _local_angular_velocity, _prev_angular_velocity = Vector3.Zero, _torque, _manual_rotation, _target_rotation, _gyro_override = Vector3.Zero;
         private bool    _current_mode_is_steady_velocity = false, _new_mode_is_steady_velocity = false, _is_gyro_override_active = false, _is_thrust_verride_active = false;
         private sbyte   _last_control_scheme = -1;
-        private bool    _stabilisation_off = true, _all_engines_off = false, _active_control_on = false, _landing_mode_on, _under_player_control = false, _was_dry_run = false;
+        private bool    _stabilisation_off = true, _all_engines_off = false, _active_control_on = false, _under_player_control = false, _was_dry_run = false;
 
-        private  bool   _allow_extra_linear_opposition = false, _integral_cleared = false;
+        private  bool   _allow_extra_linear_opposition = false, _integral_cleared = false, _landing_mode_on = false, _RC_landing_mode_on = false;
         private  bool[] _enable_linear_integral = {  true,  true,  true,  true,  true,  true };
         private float[] _linear_integral        = {  0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f };
         private float   _speed;
@@ -112,16 +112,29 @@ namespace ttdtwm
 
         #region Properties
 
-        public bool linear_dampers_on { get; set; }
+        public bool linear_dampers_on     { get; set; }
 
-        public bool control_limit_reached { get; private set; }
         public int  thrust_reduction      { get; private set; }
+        public bool control_limit_reached { get; private set; }
+
+        public bool active_control_enabled
+        {
+            get
+            {
+                return _active_control_on;
+            }
+        }
 
         public bool landing_mode_on
         {
             get
             {
                 return _landing_mode_on;
+            }
+            set
+            {
+                if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
+                    _landing_mode_on = value;
             }
         }
 
@@ -221,7 +234,7 @@ namespace ttdtwm
             foreach (var cur_thruster in _uncontrolled_thrusters)
             {
                 thrust_info = cur_thruster.Value;
-                if (!__uncontrolled_override_checked[(int) thrust_info.nozzle_direction] && thrust_info.actual_max_force >= 1.0f)
+                if (!__uncontrolled_override_checked[(int) thrust_info.nozzle_direction] && cur_thruster.Key.IsWorking && thrust_info.actual_max_force >= 1.0f)
                 {
                     thrust_override_value = cur_thruster.Key.ThrustOverride / thrust_info.actual_max_force;
                     if (thrust_override_value > 0.01f)
@@ -428,10 +441,12 @@ namespace ttdtwm
         {
             const float DAMPING_CONSTANT = -2.0f, INTEGRAL_CONSTANT = 0.05f;
 
-            _allow_extra_linear_opposition = _manual_thrust.LengthSquared() > 0.75f * 0.75f;
-            decompose_vector(Vector3.Clamp(_manual_thrust + _thrust_override, -Vector3.One, Vector3.One), __control_vector);
-            sbyte control_scheme = get_current_control_scheme();
-            _stabilisation_off   = _is_gyro_override_active;
+            Vector3 control = Vector3.Clamp(_manual_thrust + _thrust_override, -Vector3.One, Vector3.One);
+            _allow_extra_linear_opposition = control.LengthSquared() > 0.75f * 0.75f;
+            decompose_vector(control, __control_vector);
+            sbyte control_scheme    = get_current_control_scheme();
+            float gravity_magnitude = local_gravity_vector.Length();
+            _stabilisation_off      = _is_gyro_override_active;
 
             if (!linear_dampers_on)
             {
@@ -444,11 +459,11 @@ namespace ttdtwm
                     }
                     _integral_cleared = true;
                 }
+                _stabilisation_off |= gravity_magnitude > 0.1f && _speed < DESCENDING_SPEED * 0.5f && control.LengthSquared() < 0.0001f;
             }
             else
             {
                 _integral_cleared         = false;
-                float   gravity_magnitude = local_gravity_vector.Length();
                 Vector3 linear_damping    = local_linear_velocity_vector * DAMPING_CONSTANT;
                 if (!_landing_mode_on)
                     linear_damping -= local_gravity_vector;
@@ -553,7 +568,6 @@ namespace ttdtwm
             float         max_linear_opposition, damping = DAMPING_CONSTANT * _grid.Physics.Mass / _max_force[cur_dir];
             thruster_info cur_thruster_info;
 
-            //__actual_force[cur_dir] = 0.0f;
             if (_max_force[cur_dir] <= 0.0f)
                 return;
 
@@ -569,10 +583,7 @@ namespace ttdtwm
                     continue;
                 cur_thruster_info = cur_thruster.Value;
                 if (!cur_thruster_info.enable_rotation || cur_thruster_info.actual_max_force < 1.0f)
-                {
-                    __actual_force[cur_dir] += cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
                     continue;
-                }
 
                 decompose_vector(Vector3.Cross(angular_velocity_diff, cur_thruster_info.reference_vector), __linear_component);
                 if (__linear_component[cur_dir] > 0.0f)
@@ -607,7 +618,6 @@ namespace ttdtwm
 
                 //__actual_force[cur_dir] += cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
             }
-            return;
         }
 
         // Ensures that resulting linear force doesn't exceed player/ID input (to prevent undesired drift when turning)
@@ -760,6 +770,7 @@ namespace ttdtwm
                 nominal_acceleration_vector.Normalize();
             decompose_vector(nominal_acceleration_vector, __nominal_acceleration);
             int opposite_dir = 3;
+            control_limit_reached = false;
             for (int dir_index = 0; dir_index < 6; ++dir_index)
             {
                 if (__steering_input[opposite_dir] > 0.01f)
@@ -810,6 +821,7 @@ namespace ttdtwm
                                 {
                                     _current_trim[opposite_dir] = -_current_trim[dir_index];
                                     _current_trim[   dir_index] = 0.0f;
+                                    control_limit_reached      |= _current_trim[opposite_dir] >= MAX_TRIM;
                                 }
                             }
                             else
@@ -876,7 +888,7 @@ namespace ttdtwm
             //    _stabilisation_off &= cur_direction.Count == 0;
             //_stabilisation_off = (!_grid.HasMainCockpit() && !RC_stabilisation_on) /*|| _stabilisation_off && _max_gyro_torque < 0.0001f * _spherical_moment_of_inertia*/;
             sbyte control_scheme = initialise_linear_controls(local_linear_velocity, local_gravity);
-            bool  update_inverse_world_matrix, new_deferred_reduction = _manual_rotation.LengthSquared() < 0.0001f && _local_angular_velocity.LengthSquared() < 0.0001f;
+            bool  update_inverse_world_matrix;
             if (!_is_gyro_override_active)
                 update_inverse_world_matrix = adjust_trim_setting(control_scheme, out desired_angular_velocity);
             else
@@ -898,7 +910,7 @@ namespace ttdtwm
             {
                 if (__control_vector[dir_index] > 0.05f)
                     _new_mode_is_steady_velocity = false;
-                __requested_force[dir_index] /*= __actual_force[dir_index]*/ = 0.0f;
+                __requested_force[dir_index] = 0.0f;
                 foreach (var cur_thruster in _controlled_thrusters[dir_index])
                 {
                     cur_thruster_info = cur_thruster.Value;
@@ -1174,6 +1186,7 @@ namespace ttdtwm
                 else
                     update_reference_vectors_for_accelerating_mode();
                 _calibration_scheduled = true;
+                check_override_on_uncontrolled();
                 /*
                 log_ECU_action("check_thruster_control_changed", string.Format("{0}/{1}/{2}/{3}/{4}/{5} kN",
                     _max_force[(int) thrust_dir.fore     ] / 1000.0f,
@@ -1216,9 +1229,9 @@ namespace ttdtwm
             new_thruster.next_tandem_thruster = new_thruster.prev_tandem_thruster = new_thruster;
             thruster.ThrustOverrideChanged   += on_thrust_override_changed;
             _uncontrolled_thrusters.Add(thruster, new_thruster);
-            log_ECU_action("assign_thruster", string.Format("{0} ({1}) [{2}]\n\t\t\tCentre position: {3}",
-                ((PB.IMyTerminalBlock) thruster).CustomName, new_thruster.nozzle_direction.ToString(), thruster.EntityId, 
-                new_thruster.grid_centre_pos));
+            //log_ECU_action("assign_thruster", string.Format("{0} ({1}) [{2}]\n\t\t\tCentre position: {3}",
+            //    ((PB.IMyTerminalBlock) thruster).CustomName, new_thruster.nozzle_direction.ToString(), thruster.EntityId, 
+            //    new_thruster.grid_centre_pos));
         }
 
         public void dispose_thruster(IMyThrust thruster_ref)
@@ -1231,6 +1244,7 @@ namespace ttdtwm
             {
                 thruster_found = true;
                 _uncontrolled_thrusters.Remove(thruster);
+                check_override_on_uncontrolled();
                 //log_ECU_action("dispose_thruster", string.Format("{0} ({1}) [{2}]", ((PB.IMyTerminalBlock) thruster).CustomName, get_nozzle_orientation(thruster).ToString(), thruster.EntityId));
             }
             else
@@ -1249,11 +1263,6 @@ namespace ttdtwm
                     }
                 }
             }
-        }
-
-        private engine_control_unit()
-        {
-            throw new InvalidOperationException("Attempt to construct ECU without associated CubeGrid");
         }
 
         public engine_control_unit(IMyCubeGrid grid_ref)
@@ -1298,7 +1307,7 @@ namespace ttdtwm
             float smallest_area          = low_dim * med_dim * _grid.GridSize * _grid.GridSize;
             float reference_radius       = (float) Math.Sqrt(smallest_area / Math.PI);
             _spherical_moment_of_inertia = 0.4f * ((_grid.Physics.Mass >= 1.0f) ? _grid.Physics.Mass : 1.0f) * reference_radius * reference_radius;
-            log_ECU_action("calc_spherical_moment_of_inertia", string.Format("smallest area = {0} m2, radius = {1} m, SMoI = {2} t*m2", smallest_area, reference_radius, _spherical_moment_of_inertia / 1000.0f));
+            //log_ECU_action("calc_spherical_moment_of_inertia", string.Format("smallest area = {0} m2, radius = {1} m, SMoI = {2} t*m2", smallest_area, reference_radius, _spherical_moment_of_inertia / 1000.0f));
         }
 
         private void refresh_gyro_info()
@@ -1353,15 +1362,18 @@ namespace ttdtwm
 
         public void select_flight_mode(VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller, bool RC_block_present)
         {
+            if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
+                return;
+
             if (_speed >= DESCENDING_SPEED * 10.0f || _grid.HasMainCockpit() || _grid.Physics == null || _grid.Physics.Gravity.LengthSquared() < 0.0001f)
-                _landing_mode_on = false;
+                _landing_mode_on = _RC_landing_mode_on = false;
             else if (current_controller is PB.IMyRemoteControl)
             {
                 ((PB.IMyTerminalBlock) current_controller).CustomName.ToUpperTo(_RC_block_name);
-                _landing_mode_on = _RC_block_name.ContainsLANDINGTag();
+                _landing_mode_on = _RC_landing_mode_on = _RC_block_name.ContainsLANDINGTag();
             }
             else
-                _landing_mode_on = !RC_block_present;
+                _landing_mode_on = !RC_block_present || _RC_landing_mode_on;
         }
 
         public void reset_user_input()
@@ -1405,13 +1417,17 @@ namespace ttdtwm
 
         #endregion
 
+        public void reset_ECU()
+        {
+            _prev_position = _prev_angular_velocity = Vector3.Zero;
+            for (int dir_index = 0; dir_index < 6; ++dir_index)
+                _current_trim[dir_index] = _last_trim[dir_index] = _linear_integral[dir_index] = 0.0f;
+        }
+
         public void handle_60Hz()
         {
             if (_grid.Physics == null)
-            {
-                _prev_position = _prev_angular_velocity = Vector3.Zero;
                 return;
-            }
 
             // Suppress input noise caused by analog controls
             _sample_sum += _target_rotation - _rotation_samples[_current_index];
@@ -1446,14 +1462,18 @@ namespace ttdtwm
         public void handle_4Hz()
         {
             if (_grid.Physics == null)
+            {
+                reset_ECU();
                 return;
+            }
+
             var  current_grid_CoM = Vector3D.Transform(_grid.Physics.CenterOfMassWorld, _inverse_world_transform);
             bool CoM_shifted      = (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
             if (CoM_shifted)
             {
                 _grid_CoM_location = current_grid_CoM;
                 refresh_thruster_info();
-                log_ECU_action("handle_4Hz", "CoM refreshed");
+                //log_ECU_action("handle_4Hz", "CoM refreshed");
             }
             if (CoM_shifted || _current_mode_is_steady_velocity != _new_mode_is_steady_velocity)
             {
@@ -1465,35 +1485,6 @@ namespace ttdtwm
             }
             refresh_real_max_forces();
             calc_spherical_moment_of_inertia();
-
-            control_limit_reached = false;
-
-            /*
-            if (!(__current_controller is MyCockpit) && !(__current_controller is MyRemoteControl) || __current_controller.CubeGrid != _grid)
-                _status_displayed = _RC_status_displayed = false;
-            else
-            {
-                if (__current_controller is MyRemoteControl)
-                {
-                    if (!_RC_status_displayed)
-                    {
-                        if (__current_controller.HorizonIndicatorEnabled)
-                            screen_info("Active RC stabilisation is enabled. Uncheck \"Show horizon and altitude\" to disable", 5000, MyFontEnum.White, controlled_only: false);
-                        else
-                            screen_info("Active RC stabilisation is disabled. Tick \"Show horizon and altitude\" to enable", 5000, MyFontEnum.White, controlled_only: false);
-                        _RC_status_displayed = true;
-                    }
-                }
-                else if (!_status_displayed)
-                {
-                    if (_grid.HasMainCockpit())
-                        screen_info("Active stabilisation is enabled. Uncheck \"Main Cockpit\" to disable", 5000, MyFontEnum.White, controlled_only: true);
-                    else
-                        screen_info("Active stabilisation is disabled. Set up a main cockpit to enable", 5000, MyFontEnum.White, controlled_only: true);
-                    _status_displayed = true;
-                }
-            }
-            */
         }
 
         public void handle_2s_period()
