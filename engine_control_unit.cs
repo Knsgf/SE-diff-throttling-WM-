@@ -602,7 +602,7 @@ namespace ttdtwm
                 decompose_vector(Vector3.Cross(angular_velocity_diff, cur_thruster_info.reference_vector), __linear_component);
                 if (__linear_component[cur_dir] > 0.0f)
                 {
-                    if (cur_thruster_info.opposing_thruster != null && __control_vector[opposite_dir] > 0.1f)
+                    if (!_current_mode_is_CoT && cur_thruster_info.opposing_thruster != null && __control_vector[opposite_dir] > 0.1f)
                         continue;
 
                     cur_thruster_info.current_setting += damping * __linear_component[cur_dir];
@@ -1237,7 +1237,7 @@ namespace ttdtwm
             if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
                 thruster.SetValueFloat("Override", 0.0f);
             var new_thruster = new thruster_info();
-            new_thruster.grid_centre_pos      = (thruster.Min + thruster.Max + Vector3I.One) * (_grid.GridSize / 2.0f);
+            new_thruster.grid_centre_pos      = (thruster.Min + thruster.Max) * (_grid.GridSize / 2.0f);
             new_thruster.max_force            = new_thruster.actual_max_force = thruster.BlockDefinition.ForceMagnitude;
             new_thruster.static_moment        = new_thruster.grid_centre_pos * new_thruster.max_force;
             new_thruster.nozzle_direction     = get_nozzle_orientation(thruster);
