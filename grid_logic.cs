@@ -19,8 +19,9 @@ namespace ttdtwm
     {
         #region fields
 
-        const float MESSAGE_MULTIPLIER = 10.0f, MESSAGE_SHIFT = 128.0f, ANGULAR_VELOCITY_MULTIPLIER = 1024.0f, ANGULAR_VELOCITY_SHIFT = 32768.0f;
-        const int   CONTROL_WARNING_OFF = 200, CONTROL_WARNING_ON = 201, LANDING_MODE_OFF = 202, LANDING_MODE_ON = 203, CLIENT_ANNOUNCE = 204, SERVER_ACKNOWLEDGE = 205;
+        const float MESSAGE_MULTIPLIER = 10.0f, MESSAGE_SHIFT = 128.0f;
+        const int   CONTROL_WARNING_OFF = 200, CONTROL_WARNING_ON = 201, CLIENT_ANNOUNCE = 202, SERVER_ACKNOWLEDGE = 203;
+        const int   CONTROL_MODE_BASE = 204, LANDING_MODE_ON = 1, COT_MODE_ON = 2;  // 204 - 207
 
         private static byte[] long_message  = new byte[8 + 3];
         private static byte[] short_message = new byte[8 + 1];
@@ -34,7 +35,8 @@ namespace ttdtwm
         private IMyPlayer                      _prev_player           = null;
 
         private int  _num_thrusters = 0, _prev_thrust_reduction = 0;
-        private bool _ID_on, _control_limit_is_visible = false, _thrust_redction_is_visible = false, _disposed = false, _status_shown = false, _was_in_landing_mode = false;
+        private bool _ID_on, _control_limit_is_visible = false, _thrust_redction_is_visible = false, _disposed = false, _status_shown = false;
+        private bool _was_in_landing_mode = false, _was_in_CoT_mode = false;
         private bool _announced = false;
 
         #endregion
@@ -127,6 +129,9 @@ namespace ttdtwm
 
         private void display_thrust_reduction(int thrust_reduction)
         {
+            if (_thrust_redction_text == null)
+                return;
+
             if (thrust_reduction < 5)
             {
                 _thrust_redction_text.Hide();
@@ -143,6 +148,9 @@ namespace ttdtwm
 
         private void display_control_warning(bool is_warning_on)
         {
+            if (_control_warning_text == null)
+                return;
+
             if (!is_warning_on)
                 _control_warning_text.Hide();
             else
@@ -169,14 +177,18 @@ namespace ttdtwm
                     instance.display_control_warning(contents == CONTROL_WARNING_ON);
                     break;
 
-                case LANDING_MODE_OFF:
-                case LANDING_MODE_ON:
-                    instance._ECU.landing_mode_on = contents == LANDING_MODE_ON;
+                case CONTROL_MODE_BASE:
+                case CONTROL_MODE_BASE + LANDING_MODE_ON:
+                case CONTROL_MODE_BASE + COT_MODE_ON:
+                case CONTROL_MODE_BASE + COT_MODE_ON + LANDING_MODE_ON:
+                    int flags = contents - CONTROL_MODE_BASE;
+                    instance._ECU.landing_mode_on = (flags & LANDING_MODE_ON) != 0;
+                    instance._ECU.CoT_mode_on     = (flags &     COT_MODE_ON) != 0;
                     //instance.log_grid_action("short_message_handler", "landing mode = " + ((contents == LANDING_MODE_ON) ? "on" : "off"));
                     break;
 
                 case CLIENT_ANNOUNCE:
-                    instance.send_landing_mode_message(force_send: true);
+                    instance.send_control_modes_message(force_send: true);
                     instance.send_server_acknowledge();
                     //instance.log_grid_action("short_message_handler", "announce received");
                     break;
@@ -271,16 +283,21 @@ namespace ttdtwm
             }
         }
 
-        private void send_landing_mode_message(bool force_send)
+        private void send_control_modes_message(bool force_send)
         {
             if (_ECU == null || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer)
                 return;
 
-            if (_was_in_landing_mode != _ECU.landing_mode_on || force_send)
+            if (force_send || _was_in_landing_mode != _ECU.landing_mode_on || _was_in_CoT_mode != _ECU.CoT_mode_on)
             {
                 sync_helper.encode_entity_id(_grid, short_message);
-                short_message[8] = (byte) (_ECU.landing_mode_on ? LANDING_MODE_ON : LANDING_MODE_OFF);
+                short_message[8] = CONTROL_MODE_BASE;
+                if (_ECU.landing_mode_on)
+                    short_message[8] += LANDING_MODE_ON;
+                if (_ECU.CoT_mode_on)
+                    short_message[8] += COT_MODE_ON;
                 _was_in_landing_mode = _ECU.landing_mode_on;
+                _was_in_CoT_mode     = _ECU.CoT_mode_on;
                 MyAPIGateway.Multiplayer.SendMessageToOthers(sync_helper.SHORT_MESSAGE_ID, short_message);
             }
         }
@@ -402,10 +419,10 @@ namespace ttdtwm
 
                 IMyPlayer controlling_player = get_controlling_player();
                 if (controlling_player != null)
-                    _ECU.select_flight_mode(controlling_player.Controller.ControlledEntity, _RC_blocks.Count > 0);
+                    _ECU.select_flight_modes(controlling_player.Controller.ControlledEntity, _RC_blocks.Count > 0);
                 else
                 {
-                    _ECU.select_flight_mode(null, _RC_blocks.Count > 0);
+                    _ECU.select_flight_modes(null, _RC_blocks.Count > 0);
                     if (_control_limit_is_visible)
                     {
                         _control_warning_text.Hide();
@@ -433,7 +450,7 @@ namespace ttdtwm
 
                 if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
                 {
-                    send_landing_mode_message(force_send: false);
+                    send_control_modes_message(force_send: false);
                     send_control_limit_message(   controlling_player);
                     send_thrust_reduction_message(controlling_player);
                 }

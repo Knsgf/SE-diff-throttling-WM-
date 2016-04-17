@@ -8,7 +8,8 @@ namespace ttdtwm
         private static readonly string m_RCSTag     = "[RCS]";
         private static readonly string m_STATTag    = "[STAT]";
         private static readonly string m_LANDINGTag = "[LANDING]";
-        private static readonly int[]  m_THRShiftTable, m_RCSShiftTable, m_STATShiftTable, m_LANDINGShiftTable;
+        private static readonly string m_COTTag     = "[COT]";
+        private static readonly int[]  m_THRShiftTable, m_RCSShiftTable, m_STATShiftTable, m_LANDINGShiftTable, m_COTShiftTable;
 
         #region Private methods
 
@@ -55,6 +56,7 @@ namespace ttdtwm
             m_RCSShiftTable     = GenerateShiftTable(m_RCSTag    );
             m_STATShiftTable    = GenerateShiftTable(m_STATTag   );
             m_LANDINGShiftTable = GenerateShiftTable(m_LANDINGTag);
+            m_COTShiftTable     = GenerateShiftTable(m_COTTag    );
         }
 
         #endregion
@@ -77,6 +79,11 @@ namespace ttdtwm
         public static bool ContainsLANDINGTag(this StringBuilder blockName)
         {
             return ContainsTag(blockName, m_LANDINGTag, m_LANDINGShiftTable);
+        }
+
+        public static bool ContainsCOTTag(this StringBuilder blockName)
+        {
+            return ContainsTag(blockName, m_COTTag, m_COTShiftTable);
         }
 
         public static void ToUpperTo(this string source, StringBuilder destination)
