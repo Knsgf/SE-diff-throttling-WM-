@@ -293,11 +293,15 @@ namespace ttdtwm
             if (!_stabilisation_off && _active_control_on && _max_gyro_torque >= 1.0f && _manual_rotation.LengthSquared() <= 0.0001f)
             {
                 //float gyro_limit = _gyro_control.ResourceSink.SuppliedRatio * (_max_gyro_torque - _gyro_control.Torque.Length());
-                Vector3 gyro_torque_dir = 10.0f * (_spherical_moment_of_inertia / _max_gyro_torque) * (desired_angular_velocity - _local_angular_velocity);
+                float   inverse_angular_acceleration = _spherical_moment_of_inertia / _max_gyro_torque;
+                float   gyro_load                    = _local_angular_velocity.Length() * inverse_angular_acceleration;
+                if (gyro_load > 1.0f)
+                    gyro_load = 1.0f;
+                Vector3 gyro_torque_dir = /*10.0f **/ inverse_angular_acceleration * (desired_angular_velocity - _local_angular_velocity);
                 if (gyro_torque_dir.LengthSquared() > 1.0f)
                     gyro_torque_dir.Normalize();
                 //gyro_torque     *= gyro_limit;
-                _torque += gyro_torque_dir * _max_gyro_torque;
+                _torque += gyro_torque_dir * _max_gyro_torque * (1.0f - gyro_load);
                 //screen_text("", (gyro_torque * _max_gyro_torque).ToString(), 16, controlled_only: false);
             }
             Vector3 world_torque = Vector3.Transform(_torque, _grid.WorldMatrix.GetOrientation());
@@ -734,8 +738,8 @@ namespace ttdtwm
                     new_force_ratio = (force2 + __requested_force[dir_index] - __non_THR_force[dir_index]) / __actual_force[dir_index];
                     if (new_force_ratio < 0.0f)
                         new_force_ratio = 0.0f;
-                    if (__local_gravity_inv[dir_index] > 0.1f && new_force_ratio < 0.3f && _speed > 1.0f && (_manual_rotation.LengthSquared() > 0.0001f || _local_angular_velocity.LengthSquared() > 0.0001f))
-                        new_force_ratio = 0.3f;
+                    //if (__local_gravity_inv[dir_index] > 0.1f && new_force_ratio < 0.3f && _speed > 1.0f && (_manual_rotation.LengthSquared() > 0.0001f || _local_angular_velocity.LengthSquared() > 0.0001f))
+                    //    new_force_ratio = 0.3f;
                     foreach (var cur_thruster in _controlled_thrusters[dir_index])
                         cur_thruster.Value.current_setting *= new_force_ratio;
                     __actual_force[dir_index] *= new_force_ratio;
@@ -745,8 +749,8 @@ namespace ttdtwm
                     new_force_ratio = (force1 + __requested_force[opposite_dir] - __non_THR_force[opposite_dir]) / __actual_force[opposite_dir];
                     if (new_force_ratio < 0.0f)
                         new_force_ratio = 0.0f;
-                    if (__local_gravity_inv[opposite_dir] > 0.1f && new_force_ratio < 0.3f && _speed > 1.0f && (_manual_rotation.LengthSquared() > 0.0001f || _local_angular_velocity.LengthSquared() > 0.0001f))
-                        new_force_ratio = 0.3f;
+                    //if (__local_gravity_inv[opposite_dir] > 0.1f && new_force_ratio < 0.3f && _speed > 1.0f && (_manual_rotation.LengthSquared() > 0.0001f || _local_angular_velocity.LengthSquared() > 0.0001f))
+                    //    new_force_ratio = 0.3f;
                     foreach (var cur_thruster in _controlled_thrusters[opposite_dir])
                         cur_thruster.Value.current_setting *= new_force_ratio;
                     __actual_force[opposite_dir] *= new_force_ratio;
