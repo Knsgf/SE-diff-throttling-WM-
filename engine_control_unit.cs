@@ -432,7 +432,7 @@ namespace ttdtwm
                 if (reset_all_thrusters)
                     _current_trim[dir_index] = _last_trim[dir_index] = 0.0f;
 
-                enforce_min_override = __control_vector[dir_index] > 0.01f && _speed > 0.5f;
+                enforce_min_override = __control_vector[dir_index] > 0.01f && _speed > DESCENDING_SPEED || _landing_mode_on && linear_dampers_on && _speed < DESCENDING_SPEED * 0.5f;
                 foreach (var cur_thruster in _controlled_thrusters[dir_index])
                 {
                     cur_thruster_info = cur_thruster.Value;
@@ -510,7 +510,7 @@ namespace ttdtwm
                 int opposite_dir = 3;
                 for (int dir_index = 0; dir_index < 6; ++dir_index)
                 {
-                    _enable_linear_integral[dir_index] = __local_gravity_inv[dir_index] > 0.0f
+                    _enable_linear_integral[dir_index] = (__local_gravity_inv[dir_index] > 0.0f || __local_gravity_inv[opposite_dir] > 0.0f)
                         && __control_vector_copy[dir_index] < 0.01f && __control_vector_copy[opposite_dir] < 0.01f;
 
                     if (_controlled_thrusters[dir_index].Count == 0 || _max_force[dir_index] < 1.0f)
@@ -522,20 +522,17 @@ namespace ttdtwm
                         if (__control_vector[dir_index] >= 1.0f)
                         {
                             __control_vector[dir_index]        = 1.0f;
-                            _enable_linear_integral[dir_index] = false;
+                            _enable_linear_integral[dir_index] = _enable_linear_integral[opposite_dir] = false;
                         }
                         if (__control_vector[dir_index] > 0.75f)
                             _allow_extra_linear_opposition = true;
-                        // Prevent stock dampers from taking over and causing flicker
-                        if (_landing_mode_on && _speed < DESCENDING_SPEED * 0.5f && __local_gravity_inv[dir_index] > 0.0f && __control_vector[dir_index] < 0.02f)
-                            __control_vector[dir_index] = 0.02f;
                     }
 
                     if (!_enable_linear_integral[dir_index])
                         _linear_integral[dir_index] = 0.0f;
-                    else
+                    else if (_linear_integral[dir_index] > 0.0f || _linear_integral[opposite_dir] == 0.0f)
                     {
-                        float gravity_ratio          = __local_gravity_inv[dir_index] / gravity_magnitude, 
+                        float gravity_ratio          = (__local_gravity_inv[dir_index] + __local_gravity_inv[opposite_dir]) / gravity_magnitude,
                               linear_integral_change = INTEGRAL_CONSTANT * (__local_linear_velocity_inv[dir_index] - __local_linear_velocity_inv[opposite_dir]);
                         if (linear_integral_change > INTEGRAL_CONSTANT)
                             linear_integral_change = INTEGRAL_CONSTANT;
@@ -546,6 +543,13 @@ namespace ttdtwm
                         else
                             linear_integral_change *= gravity_ratio;
                         _linear_integral[dir_index] += linear_integral_change;
+                        if (_linear_integral[dir_index] >= 0.0f)
+                            _linear_integral[opposite_dir] = 0.0f;
+                        else
+                        {
+                            _linear_integral[opposite_dir] = -_linear_integral[dir_index];
+                            _linear_integral[   dir_index] = 0.0f;
+                        }
                         if (_landing_mode_on)
                             _linear_integral[dir_index] -= INTEGRAL_CONSTANT * DESCENDING_SPEED * gravity_ratio;
                         if (_linear_integral[dir_index] < 0.0f)
