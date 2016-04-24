@@ -645,7 +645,7 @@ namespace ttdtwm
                 else if (linear_component[opposite_dir] >= rotation_threshold)
                 {
                     cur_thruster_info.current_setting -= damping * linear_component[opposite_dir];
-                    current_limit = cur_thruster_info.thrust_limit - cur_thruster_info.thrust_limit * __thrust_limits[cur_dir] + __thrust_limits[cur_dir];
+                    current_limit = 0.5f * cur_thruster_info.thrust_limit * (1.0f - __thrust_limits[cur_dir]) + __thrust_limits[cur_dir];
                     if (cur_thruster_info.current_setting > current_limit)
                         cur_thruster_info.current_setting = current_limit;
                     if (cur_thruster_info.current_setting < 0.0f)
@@ -1642,7 +1642,8 @@ namespace ttdtwm
             if (_grid.Physics == null || _thrust_manager_task.valid && !_thrust_manager_task.IsComplete)
                 return;
 
-            _thrust_manager_task = MyAPIGateway.Parallel.StartBackground(start_2s_manager_thread);
+            _thrust_manager_task          = MyAPIGateway.Parallel.StartBackground(start_2s_manager_thread);
+            _inverse_world_rotation_fixed = _inverse_world_transform.GetOrientation();
         }
     }
 }
