@@ -435,6 +435,10 @@ namespace ttdtwm
                     }
                 }
 
+                _ECU.autopilot_on = false;
+                foreach (var cur_RC_block in _RC_blocks)
+                    _ECU.check_autopilot(cur_RC_block);
+
                 if (sync_helper.local_player != null)
                 {
                     bool display_notification = _ECU.active_control_enabled && _ECU.is_under_control_of(sync_helper.local_controller);

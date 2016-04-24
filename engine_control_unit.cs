@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
+using Sandbox.Common.ObjectBuilders;
 using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
 using Sandbox.ModAPI.Interfaces;
@@ -120,7 +121,8 @@ namespace ttdtwm
 
         #region Properties
 
-        public bool linear_dampers_on     { get; set; }
+        public bool linear_dampers_on { get; set; }
+        public bool autopilot_on      { get; set; }
 
         public int  thrust_reduction      { get; private set; }
         public bool control_limit_reached { get; private set; }
@@ -254,9 +256,9 @@ namespace ttdtwm
             foreach (var cur_thruster in _uncontrolled_thrusters)
             {
                 thrust_info = cur_thruster.Value;
-                if (!__uncontrolled_override_checked[(int) thrust_info.nozzle_direction] && cur_thruster.Key.IsWorking && thrust_info.actual_max_force >= 1.0f)
+                if (!__uncontrolled_override_checked[(int) thrust_info.nozzle_direction] && cur_thruster.Key.IsWorking)
                 {
-                    thrust_override_value = cur_thruster.Key.ThrustOverride / thrust_info.actual_max_force;
+                    thrust_override_value = cur_thruster.Key.CurrentStrength;
                     if (thrust_override_value > 0.01f)
                         __thrust_override_vector[(int) thrust_info.nozzle_direction] = thrust_override_value;
                     __uncontrolled_override_checked[(int) thrust_info.nozzle_direction] = _is_thrust_verride_active = true;
@@ -287,7 +289,7 @@ namespace ttdtwm
             }
 
             //_are_gyroscopes_saturated = _max_gyro_torque < 1.0f || torque.LengthSquared() / _max_gyro_torque_squared >= 0.75f * 0.75f;
-            if (!_stabilisation_off && _active_control_on && _max_gyro_torque >= 1.0f && _manual_rotation.LengthSquared() <= 0.0001f)
+            if (!_stabilisation_off && _active_control_on && !autopilot_on && _max_gyro_torque >= 1.0f && _manual_rotation.LengthSquared() <= 0.0001f)
             {
                 //float gyro_limit = _gyro_control.ResourceSink.SuppliedRatio * (_max_gyro_torque - _gyro_control.Torque.Length());
                 float   inverse_angular_acceleration = _spherical_moment_of_inertia / _max_gyro_torque;
@@ -1213,11 +1215,6 @@ namespace ttdtwm
             thrust_info.next_tandem_thruster = thrust_info.prev_tandem_thruster = thrust_info;
         }
 
-        private void on_thrust_override_changed(float dummy)
-        {
-            check_override_on_uncontrolled();
-        }
-
         private void check_thruster_control_changed()
         {
             MyThrust      cur_thruster;
@@ -1246,7 +1243,6 @@ namespace ttdtwm
                     {
                         if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
                             cur_thruster.SetValueFloat("Override", 0.0f);
-                        cur_thruster.ThrustOverrideChanged += on_thrust_override_changed;
                         remove_thruster_from_lists(cur_thrust_info);
                         cur_thrust_info.thrust_limit = 1.0f;
                         cur_thrust_info.enable_limit = cur_thrust_info.enable_rotation = cur_thrust_info.active_control_on = false;
@@ -1285,7 +1281,6 @@ namespace ttdtwm
                 contains_STAT = _thruster_name.ContainsSTATTag();
                 if (cur_thruster.IsWorking  && cur_thrust_info.actual_max_force > 0.01f * cur_thrust_info.max_force && (contains_THR || contains_RCS || contains_STAT))
                 {
-                    cur_thruster.ThrustOverrideChanged -= on_thrust_override_changed;
                     dir_index = (int) cur_thrust_info.nozzle_direction;
                     _controlled_thrusters[dir_index].Add(cur_thruster, cur_thrust_info);
                     _uncontrolled_thrusters.Remove(cur_thruster);
@@ -1304,7 +1299,6 @@ namespace ttdtwm
                     update_reference_vectors_for_CoM_mode();
                 _calibration_scheduled = true;
                 _use_triangular_mode   = false;
-                check_override_on_uncontrolled();
                 log_ECU_action("check_thruster_control_changed", string.Format("{0}/{1}/{2}/{3}/{4}/{5} kN",
                     _max_force[(int) thrust_dir.fore     ] / 1000.0f,
                     _max_force[(int) thrust_dir.aft      ] / 1000.0f,
@@ -1354,7 +1348,6 @@ namespace ttdtwm
             new_thruster.enable_limit         = new_thruster.enable_rotation = new_thruster.active_control_on = false;
             new_thruster.opposing_thruster    = null;
             new_thruster.next_tandem_thruster = new_thruster.prev_tandem_thruster = new_thruster;
-            thruster.ThrustOverrideChanged   += on_thrust_override_changed;
             _uncontrolled_thrusters.Add(thruster, new_thruster);
             //log_ECU_action("assign_thruster", string.Format("{0} ({1}) [{2}]\n\t\t\tCentre position: {3}",
             //    ((PB.IMyTerminalBlock) thruster).CustomName, new_thruster.nozzle_direction.ToString(), thruster.EntityId, 
@@ -1368,12 +1361,10 @@ namespace ttdtwm
 
             if (_thrust_manager_task.valid && !_thrust_manager_task.IsComplete)
                 _thrust_manager_task.Wait();
-            thruster.ThrustOverrideChanged -= on_thrust_override_changed;
             if (_uncontrolled_thrusters.ContainsKey(thruster))
             {
                 thruster_found = true;
                 _uncontrolled_thrusters.Remove(thruster);
-                check_override_on_uncontrolled();
                 //log_ECU_action("dispose_thruster", string.Format("{0} ({1}) [{2}]", ((PB.IMyTerminalBlock) thruster).CustomName, get_nozzle_orientation(thruster).ToString(), thruster.EntityId));
             }
             else
@@ -1456,7 +1447,13 @@ namespace ttdtwm
                     }
                 }
             }
-            if (num_overriden_gyroscopes > 0)
+
+            if (autopilot_on)
+            {
+                _gyro_override           = Vector3.Zero;
+                _is_gyro_override_active = true;
+            }
+            else if (num_overriden_gyroscopes > 0)
             {
                 _gyro_override          /= num_overriden_gyroscopes;
                 _is_gyro_override_active = true;
@@ -1505,7 +1502,12 @@ namespace ttdtwm
                 _landing_mode_on = _RC_landing_mode_on = __controller_name.ContainsLANDINGTag();
             else
                 _landing_mode_on = !RC_block_present || _RC_landing_mode_on;
+       }
 
+        public void check_autopilot(PB.IMyRemoteControl RC_block)
+        {
+            var RC_block_proper = (MyRemoteControl) RC_block;
+            autopilot_on       |= ((MyObjectBuilder_RemoteControl) RC_block_proper.GetObjectBuilderCubeBlock()).AutoPilotEnabled;
         }
 
         public void reset_user_input()
@@ -1580,12 +1582,15 @@ namespace ttdtwm
             refresh_gyro_info();
             if (_thrust_manager_task.valid && !_thrust_manager_task.IsComplete)
                 _thrust_manager_task.Wait();
-            if (  !_is_thrust_verride_active && !_is_gyro_override_active && _manual_rotation.LengthSquared() < 0.0001f && _manual_thrust.LengthSquared() < 0.0001f
-                && _grid.Physics.AngularVelocity.LengthSquared() < 1.0E-6f && _grid.Physics.Gravity.LengthSquared() < 0.01f
+            check_override_on_uncontrolled();
+            if (  autopilot_on || !_is_thrust_verride_active && !_is_gyro_override_active && _manual_rotation.LengthSquared() < 0.0001f 
+                && _manual_thrust.LengthSquared() < 0.0001f && _grid.Physics.AngularVelocity.LengthSquared() < 1.0E-6f && _grid.Physics.Gravity.LengthSquared() < 0.01f
                 && (!linear_dampers_on || _speed < 0.01f))
             {
                 thrust_reduction = 0;
                 apply_thrust_settings(reset_all_thrusters: true);
+                if (autopilot_on)
+                    calculate_and_apply_torque(Vector3.Zero);
             }
             else
             {
