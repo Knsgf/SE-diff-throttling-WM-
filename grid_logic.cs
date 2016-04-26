@@ -390,7 +390,7 @@ namespace ttdtwm
                 IMyPlayer controlling_player = get_controlling_player();
                 if (controlling_player == null)
                 {
-                    _ECU.reset_user_input();
+                    _ECU.reset_user_input(reset_gyros_only: false);
                     _prev_manual_thrust = _prev_manual_rotation = Vector3UByte.Zero;
                 }
                 else if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))

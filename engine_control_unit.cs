@@ -467,7 +467,7 @@ namespace ttdtwm
             decompose_vector(control, __control_vector);
             sbyte control_scheme    = get_current_control_scheme();
             float gravity_magnitude = local_gravity_vector.Length();
-            _stabilisation_off      = _is_gyro_override_active;
+            _stabilisation_off      = false;
 
             if (!linear_dampers_on)
             {
@@ -894,11 +894,13 @@ namespace ttdtwm
                         _current_trim[dir_index] = _last_trim[dir_index] = 0.0f;
                     else if (_enable_integral[dir_index])
                     {
-                        if (_restrict_integral[dir_index] && __angular_velocity[dir_index] < 0.001f)
+                        if (_restrict_integral[dir_index] && __angular_velocity[dir_index] < 0.01f)
                         {
                             _restrict_integral[dir_index] = false;
                             update_inverse_world_matrix   = true;
                         }
+                        else if (_is_gyro_override_active && __angular_velocity[dir_index] > 0.2f)
+                            _restrict_integral[dir_index] = !_stabilisation_off && _active_control_on;
 
                         if (!_restrict_integral[dir_index] || __angular_acceleration[opposite_dir] < 0.05f)
                         {
@@ -977,17 +979,22 @@ namespace ttdtwm
             Vector3 local_gravity         = Vector3.Transform(_grid.Physics.Gravity, inverse_world_rotation);
             _local_angular_velocity       = Vector3.Transform(_grid.Physics.AngularVelocity, inverse_world_rotation);
             if (_is_gyro_override_active)
-                _manual_rotation = _gyro_override - _local_angular_velocity;
+            {
+                //_manual_rotation = _gyro_override - _local_angular_velocity;
+                _local_angular_velocity -= _gyro_override;
+            }
 
             sbyte control_scheme = initialise_linear_controls(local_linear_velocity, local_gravity);
             bool  update_inverse_world_matrix;
-            if (!_is_gyro_override_active)
+            //if (!_is_gyro_override_active)
                 update_inverse_world_matrix = adjust_trim_setting(control_scheme, out desired_angular_velocity);
+            /*
             else
             {
                 desired_angular_velocity    = _gyro_override;
                 update_inverse_world_matrix = true;
             }
+            */
 
             // Update fixed inverse rotation matrix when angle exceeds 11 degrees or speed is low 
             // (decoupling inertia dampers' axes from ship orientation isn't needed at low velocities)
@@ -1258,7 +1265,7 @@ namespace ttdtwm
                         if (_uncontrolled_thrusters.ContainsKey(cur_thruster))
                         {
                             cur_thrust_info = _uncontrolled_thrusters[cur_thruster];
-                            if (cur_thrust_info.actual_max_force < 0.01f * cur_thrust_info.max_force)
+                            if (cur_thrust_info.skip || cur_thrust_info.actual_max_force < 0.01f * cur_thrust_info.max_force)
                                 continue;
                             enable_control(cur_thruster, cur_thrust_info);
                             changes_made = true;
@@ -1274,19 +1281,19 @@ namespace ttdtwm
                                     break;
                                 }
                             }
-                            if (cur_thrust_info == null || cur_thrust_info.actual_max_force < 0.01f * cur_thrust_info.max_force)
+                            if (cur_thrust_info == null || cur_thrust_info.skip || cur_thrust_info.actual_max_force < 0.01f * cur_thrust_info.max_force)
                                 continue;
                         }
 
                         use_active_control  = contains_THR || contains_RCS;
                         _active_control_on |= use_active_control;
                         if (cur_thrust_info.active_control_on != use_active_control)
-                            cur_thrust_info.enable_rotation = cur_thrust_info.active_control_on |= use_active_control;
-                        cur_thrust_info.is_RCS |= contains_RCS;
+                            cur_thrust_info.enable_rotation = cur_thrust_info.active_control_on = use_active_control;
+                        cur_thrust_info.is_RCS = contains_RCS;
                         if (cur_thrust_info.enable_limit != contains_STAT)
                         {
-                            cur_thrust_info.enable_limit |= contains_STAT;
-                            _calibration_scheduled       |= contains_STAT;
+                            cur_thrust_info.enable_limit = contains_STAT;
+                            _calibration_scheduled      |= contains_STAT;
                         }
                         cur_thrust_info.skip = true;
                     }
@@ -1389,11 +1396,8 @@ namespace ttdtwm
         {
             int dir_index = (int) cur_thrust_info.nozzle_direction;
 
-            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
-                cur_thruster.SetValueFloat("Override", 0.0f);
             remove_thruster_from_lists(cur_thrust_info);
             cur_thrust_info.thrust_limit = 1.0f;
-            cur_thrust_info.enable_limit = cur_thrust_info.enable_rotation = cur_thrust_info.active_control_on = false;
             _max_force[dir_index]       -= cur_thrust_info.max_force;
             _uncontrolled_thrusters.Add(cur_thruster, cur_thrust_info);
             _controlled_thrusters[dir_index].Remove(cur_thruster);
@@ -1547,7 +1551,8 @@ namespace ttdtwm
             }
             else if (_is_gyro_override_active)
             {
-                reset_user_input();
+                reset_ECU();
+                reset_user_input(reset_gyros_only: true);
                 _is_gyro_override_active = false;
             }
         }
@@ -1597,10 +1602,10 @@ namespace ttdtwm
             autopilot_on       |= ((MyObjectBuilder_RemoteControl) RC_block_proper.GetObjectBuilderCubeBlock()).AutoPilotEnabled;
         }
 
-        public void reset_user_input()
+        public void reset_user_input(bool reset_gyros_only)
         {
-            _manual_thrust        = _manual_rotation = _target_rotation = Vector3.Zero;
-            _under_player_control = false;
+            _manual_thrust         = _manual_rotation = _target_rotation = Vector3.Zero;
+            _under_player_control &= reset_gyros_only;
         }
 
         public void translate_linear_input(Vector3 input_thrust, VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)
@@ -1608,7 +1613,7 @@ namespace ttdtwm
             var controller = current_controller as MyShipController;
             if (controller == null || controller.CubeGrid != _grid)
             {
-                reset_user_input();
+                reset_user_input(reset_gyros_only: false);
                 return;
             }
 
@@ -1623,7 +1628,7 @@ namespace ttdtwm
             var controller = current_controller as MyShipController;
             if (controller == null || controller.CubeGrid != _grid)
             {
-                reset_user_input();
+                reset_user_input(reset_gyros_only: false);
                 return;
             }
 
@@ -1734,6 +1739,18 @@ namespace ttdtwm
             if (_grid.Physics == null || _thrust_manager_task.valid && !_thrust_manager_task.IsComplete)
                 return;
 
+            thruster_info cur_thrust_info;
+            foreach (var cur_thruster in _uncontrolled_thrusters)
+            {
+                cur_thrust_info = cur_thruster.Value;
+
+                if (cur_thrust_info.enable_rotation || cur_thrust_info.enable_limit)
+                {
+                    if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+                        cur_thruster.Key.SetValueFloat("Override", 0.0f);
+                    cur_thrust_info.enable_limit = cur_thrust_info.enable_rotation = cur_thrust_info.active_control_on = cur_thrust_info.is_RCS = false;
+                }
+            }
             _thrust_manager_task          = MyAPIGateway.Parallel.StartBackground(start_2s_manager_thread);
             _inverse_world_rotation_fixed = _inverse_world_transform.GetOrientation();
         }
