@@ -361,16 +361,16 @@ namespace ttdtwm
                     }
                     else
                     {
-                        _thruster_infos[index].thrust_limit = (_linear_solver.items[index].max_value > 0.0f)
+                        _thruster_infos[index].thrust_limit = (_linear_solver.items[index].max_value > 1.0f)
                             ? (_linear_solver.items[index].result / _linear_solver.items[index].max_value) : 1.0f;
                         _thruster_infos[index].enable_rotation = _thruster_infos[index].active_control_on;
                     }
-                    //log_ECU_action("perform_linear_calibration", string.Format("{0} kN ({1})", __linear_solver.items[index].result / 1000.0f, cur_direction));
+                    //log_ECU_action("perform_linear_calibration", string.Format("{0} kN ({1})", _linear_solver.items[index].result / 1000.0f, cur_direction));
                 }
 
                 /*
                 log_ECU_action("perform_linear_calibration", is_solution_good
-                    ? string.Format("successfully calibrated {0} thrusters on {1} side", __thruster_infos.Count, cur_direction)
+                    ? string.Format("successfully calibrated {0} thrusters on {1} side", _thruster_infos.Count, cur_direction)
                     : string.Format("calibration on {0} side failed", cur_direction));
                 */
             }
@@ -1433,6 +1433,7 @@ namespace ttdtwm
             var new_thruster = new thruster_info();
             new_thruster.grid_centre_pos      = (thruster.Min + thruster.Max) * (_grid.GridSize / 2.0f);
             new_thruster.max_force            = new_thruster.actual_max_force = thruster.BlockDefinition.ForceMagnitude;
+            new_thruster.CoM_offset           = new_thruster.reference_vector = new_thruster.grid_centre_pos - _grid_CoM_location;
             new_thruster.static_moment        = new_thruster.grid_centre_pos * new_thruster.max_force;
             new_thruster.nozzle_direction     = get_nozzle_orientation(thruster);
             new_thruster.thrust_limit         = 1.0f;

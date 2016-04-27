@@ -32,7 +32,7 @@ namespace ttdtwm
                 for (int cur_colum = 0; cur_colum < width; ++cur_colum)
                 {
                     char non_zero_symbol = (_tableau[cur_row][cur_colum] != 0.0 && Math.Abs(_tableau[cur_row][cur_colum]) < GUARD_VALUE) ? '*' : ' ';
-                    row.AppendFormat("{0,10:F2}{1}", _tableau[cur_row][cur_colum], non_zero_symbol);
+                    row.AppendFormat("{0,10:G2}{1}", _tableau[cur_row][cur_colum], non_zero_symbol);
                 }
                 MyLog.Default.WriteLine(row.ToString());
             }
