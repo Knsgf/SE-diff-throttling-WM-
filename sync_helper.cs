@@ -1,9 +1,12 @@
 ﻿using System.Collections.Generic;
 
 using Sandbox.Engine.Utils;
+//using Sandbox.Game;
 using Sandbox.ModAPI;
+using VRage;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
+//using VRage.ModAPI;
 
 namespace ttdtwm
 {
@@ -14,6 +17,7 @@ namespace ttdtwm
         internal const ushort SHORT_MESSAGE_ID    = 17372;
 
         private static Dictionary<long, grid_logic> entities = new Dictionary<long, grid_logic>();
+        //private static bool F8_pressed = false;
 
         public static bool network_handlers_registered { get; private set; }
         public static bool        is_spectator_mode_on { get; private set; }
@@ -81,26 +85,28 @@ namespace ttdtwm
             if (MyAPIGateway.Session.SessionSettings.EnableSpectator && MyAPIGateway.Input != null)
             {
                 if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_FREE))
-                    is_spectator_mode_on = true;
+                    F8_pressed = true;
                 else if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_NONE)
                          || MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_DELTA)
                          || MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_STATIC))
                 {
-                    is_spectator_mode_on = false;
+                    F8_pressed = false;
                 }
             }
             */
 
+            is_spectator_mode_on = false;
             if (MyAPIGateway.Session.SessionSettings.EnableSpectator)
             {
-                is_spectator_mode_on = MyAPIGateway.Session.CameraController is MySpectatorCameraController;
-                //is_spectator_mode_on = MyAPIGateway.Session.CameraController is IMyEntity || MyAPIGateway.Session.CameraController is IMyPlayer;
-                /*
-                if (MyAPIGateway.Utilities != null)
-                {
-                    MyAPIGateway.Utilities.ShowNotification("Spectator = " + is_spectator_mode_on.ToString(), 16);
-                }
-                */
+                var spectator_controller = MyAPIGateway.Session.CameraController as MySpectatorCameraController;
+                if (spectator_controller != null)
+                    is_spectator_mode_on = spectator_controller.SpectatorCameraMovement == MySpectatorCameraMovementEnum.UserControlled;
+            }
+            //is_spectator_mode_on = F8_pressed && MyAPIGateway.Session != null && MyAPIGateway.Session.SessionSettings.EnableSpectator 
+            //    && !(MyAPIGateway.Session.CameraController is IMyEntity || MyAPIGateway.Session.CameraController is IMyPlayer);
+            if (MyAPIGateway.Utilities != null)
+            {
+                MyAPIGateway.Utilities.ShowNotification("Spectator free = " + is_spectator_mode_on.ToString(), 16);
             }
 
             local_player = MyAPIGateway.Session.LocalHumanPlayer;
