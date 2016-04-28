@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-using Sandbox.Game;
+using Sandbox.Engine.Utils;
 using Sandbox.ModAPI;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
@@ -77,6 +77,7 @@ namespace ttdtwm
 
         public static void handle_60Hz()
         {
+            /*
             if (MyAPIGateway.Session.SessionSettings.EnableSpectator && MyAPIGateway.Input != null)
             {
                 if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_FREE))
@@ -88,8 +89,21 @@ namespace ttdtwm
                     is_spectator_mode_on = false;
                 }
             }
+            */
 
-            local_player     = MyAPIGateway.Session.LocalHumanPlayer;
+            if (MyAPIGateway.Session.SessionSettings.EnableSpectator)
+            {
+                is_spectator_mode_on = MyAPIGateway.Session.CameraController is MySpectatorCameraController;
+                //is_spectator_mode_on = MyAPIGateway.Session.CameraController is IMyEntity || MyAPIGateway.Session.CameraController is IMyPlayer;
+                /*
+                if (MyAPIGateway.Utilities != null)
+                {
+                    MyAPIGateway.Utilities.ShowNotification("Spectator = " + is_spectator_mode_on.ToString(), 16);
+                }
+                */
+            }
+
+            local_player = MyAPIGateway.Session.LocalHumanPlayer;
             local_controller = (local_player == null) ? null : local_player.Controller.ControlledEntity;
         }
     }
