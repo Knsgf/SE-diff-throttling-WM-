@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text;
 
 using Sandbox.Common.ObjectBuilders;
+using Sandbox.Definitions;
 using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
 using Sandbox.ModAPI.Interfaces;
@@ -1403,24 +1404,55 @@ namespace ttdtwm
             _controlled_thrusters[dir_index].Remove(cur_thruster);
         }
 
-        private void refresh_real_max_forces_for_single_direction(Dictionary<MyThrust, thruster_info> thruster_array)
+        private void refresh_real_max_forces_for_single_direction(int dir_index, bool atmosphere_present, float air_density)
         {
-            thruster_info cur_thruster_info;
-            float         thrust_multiplier;
+            thruster_info      cur_thruster_info;
+            float              thrust_multiplier, planetoid_influence;
+            MyThrustDefinition thruster_definition;
 
-            foreach (var cur_thruster in thruster_array)
+            foreach (var cur_thruster in _controlled_thrusters[dir_index])
             {
-                cur_thruster_info = cur_thruster.Value;
-                thrust_multiplier = ((IMyThrust) cur_thruster.Key).ThrustMultiplier;
-                cur_thruster_info.actual_max_force = cur_thruster_info.max_force  * thrust_multiplier;
+                cur_thruster_info   = cur_thruster.Value;
+                thruster_definition = cur_thruster.Key.BlockDefinition;
+
+                if (!atmosphere_present && thruster_definition.NeedsAtmosphereForInfluence)
+                    planetoid_influence = 0.0f;
+                else if (thruster_definition.MaxPlanetaryInfluence <= thruster_definition.MinPlanetaryInfluence)
+                    planetoid_influence = 1.0f;
+                else
+                {
+                    planetoid_influence = (air_density - thruster_definition.MinPlanetaryInfluence) / (thruster_definition.MaxPlanetaryInfluence - thruster_definition.MinPlanetaryInfluence);
+                    if (planetoid_influence < 0.0f)
+                        planetoid_influence = 0.0f;
+                    else if (planetoid_influence > 1.0f)
+                        planetoid_influence = 1.0f;
+                }
+                thrust_multiplier = (1.0f - planetoid_influence) * thruster_definition.EffectivenessAtMinInfluence + planetoid_influence * thruster_definition.EffectivenessAtMaxInfluence;
+
+                cur_thruster_info.actual_max_force = cur_thruster_info.max_force * thrust_multiplier;
             }
         }
 
         private void refresh_real_max_forces()
         {
-            foreach (var cur_direction in _controlled_thrusters)
-                refresh_real_max_forces_for_single_direction(cur_direction);
-            refresh_real_max_forces_for_single_direction(_uncontrolled_thrusters);
+            BoundingBoxD grid_bounding_box = _grid.PositionComp.WorldAABB;
+            MyPlanet     closest_planetoid = MyGamePruningStructure.GetClosestPlanet(ref grid_bounding_box);
+            bool         atmosphere_present;
+            float        air_density;
+
+            if (closest_planetoid == null)
+            {
+                atmosphere_present = false;
+                air_density        = 0.0f;
+            }
+            else
+            {
+                atmosphere_present = closest_planetoid.HasAtmosphere;
+                air_density        = closest_planetoid.GetAirDensity(grid_bounding_box.Center);
+            }
+
+            for (int dir_index = 0; dir_index < 6; ++dir_index)
+                refresh_real_max_forces_for_single_direction(dir_index, atmosphere_present, air_density);
         }
 
         public void assign_thruster(IMyThrust thruster_ref)
