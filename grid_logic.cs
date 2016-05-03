@@ -29,13 +29,13 @@ namespace ttdtwm
         private IMyCubeGrid                    _grid;
         private HashSet<IMyControllableEntity> _ship_controllers      = new HashSet<IMyControllableEntity>();
         private HashSet<PB.IMyRemoteControl>   _RC_blocks             = new HashSet<PB.IMyRemoteControl>();
-        private IMyHudNotification             _thrust_redction_text  = null, _control_warning_text = null;
+        private IMyHudNotification             _thrust_redction_text  = null, _control_warning_text = null, _vertical_speed_text = null;
         private engine_control_unit            _ECU                   = null;
         private Vector3UByte                   _prev_manual_thrust    = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
         private IMyPlayer                      _prev_player           = null;
 
         private int  _num_thrusters = 0, _prev_thrust_reduction = 0;
-        private bool _ID_on, _control_limit_is_visible = false, _thrust_redction_is_visible = false, _disposed = false, _status_shown = false;
+        private bool _ID_on, _control_limit_is_visible = false, _thrust_redction_is_visible = false, _vertical_speed_is_visible = false, _disposed = false, _status_shown = false;
         private bool _was_in_landing_mode = false, _was_in_CoT_mode = false;
         private bool _announced = false;
 
@@ -452,6 +452,27 @@ namespace ttdtwm
                     }
                 }
 
+                if (_vertical_speed_text != null)
+                {
+                    if (!_ECU.is_under_control_of(sync_helper.local_controller) || Math.Abs(_ECU.vertical_speed) < 0.1f)
+                    {
+                        if (_vertical_speed_is_visible)
+                        {
+                            _vertical_speed_text.Hide();
+                            _vertical_speed_is_visible = false;
+                        }
+                    }
+                    else
+                    {
+                        _vertical_speed_text.Text = string.Format("Vertical speed: {0:F1} m/s", _ECU.vertical_speed);
+                        if (!_vertical_speed_is_visible)
+                        {
+                            _vertical_speed_text.Show();
+                            _vertical_speed_is_visible = true;
+                        }
+                    }
+                }
+
                 if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
                 {
                     send_control_modes_message(force_send: false);
@@ -472,6 +493,7 @@ namespace ttdtwm
                 {
                     _thrust_redction_text = MyAPIGateway.Utilities.CreateNotification("", 0);
                     _control_warning_text = MyAPIGateway.Utilities.CreateNotification("WARNING: Control limit reached", 0, MyFontEnum.Red);
+                    _vertical_speed_text  = MyAPIGateway.Utilities.CreateNotification("", 0);
                 }
 
                 _ECU.handle_2s_period();
