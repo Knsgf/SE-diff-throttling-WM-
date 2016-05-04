@@ -286,18 +286,20 @@ namespace ttdtwm
             //if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
             //    return;
 
+            const float MIN_ANGULAR_ACCELERATION = (float) (0.1 * Math.PI / 180.0);
+
             _torque = Vector3.Zero;
             foreach (var cur_direction in _controlled_thrusters)
             {
                 foreach (var cur_thruster in cur_direction)
                 {
-                    if (cur_thruster.Key.IsWorking)
+                    //if (cur_thruster.Key.IsWorking)
                         _torque += cur_thruster.Value.max_torque * cur_thruster.Key.CurrentStrength;
                 }
             }
             foreach (var cur_thruster in _uncontrolled_thrusters)
             {
-                if (cur_thruster.Key.IsWorking)
+                //if (cur_thruster.Key.IsWorking)
                     _torque += cur_thruster.Value.max_torque * cur_thruster.Key.CurrentStrength;
             }
 
@@ -315,8 +317,11 @@ namespace ttdtwm
             }
             */
 
-            Vector3 world_torque = Vector3.Transform(_torque, _grid.WorldMatrix.GetOrientation());
-            _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, Vector3.Zero, null, world_torque);
+            if (_torque.LengthSquared() > MIN_ANGULAR_ACCELERATION * MIN_ANGULAR_ACCELERATION * _spherical_moment_of_inertia * _spherical_moment_of_inertia)
+            {
+                Vector3 world_torque = Vector3.Transform(_torque, _grid.WorldMatrix.GetOrientation());
+                _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, Vector3.Zero, null, world_torque);
+            }
         }
 
         #endregion
