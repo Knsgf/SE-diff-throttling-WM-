@@ -102,16 +102,8 @@ namespace ttdtwm
                 if (spectator_controller != null)
                     is_spectator_mode_on = spectator_controller.SpectatorCameraMovement == MySpectatorCameraMovementEnum.UserControlled;
             }
-            //is_spectator_mode_on = F8_pressed && MyAPIGateway.Session != null && MyAPIGateway.Session.SessionSettings.EnableSpectator 
-            //    && !(MyAPIGateway.Session.CameraController is IMyEntity || MyAPIGateway.Session.CameraController is IMyPlayer);
-            /*
-            if (MyAPIGateway.Utilities != null)
-            {
-                MyAPIGateway.Utilities.ShowNotification("Spectator free = " + is_spectator_mode_on.ToString(), 16);
-            }
-            */
 
-            local_player = MyAPIGateway.Session.LocalHumanPlayer;
+            local_player     = MyAPIGateway.Session.LocalHumanPlayer;
             local_controller = (local_player == null) ? null : local_player.Controller.ControlledEntity;
         }
     }

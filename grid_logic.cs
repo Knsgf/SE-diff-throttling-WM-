@@ -22,6 +22,7 @@ namespace ttdtwm
         const float MESSAGE_MULTIPLIER = 10.0f, MESSAGE_SHIFT = 128.0f;
         const int   CONTROL_WARNING_OFF = 200, CONTROL_WARNING_ON = 201, CLIENT_ANNOUNCE = 202, SERVER_ACKNOWLEDGE = 203;
         const int   CONTROL_MODE_BASE = 204, LANDING_MODE_ON = 1, COT_MODE_ON = 2;  // 204 - 207
+        const int   CONTROLS_TIMEOUT = 2;
 
         private static byte[] long_message  = new byte[8 + 3];
         private static byte[] short_message = new byte[8 + 1];
@@ -34,7 +35,7 @@ namespace ttdtwm
         private Vector3UByte                   _prev_manual_thrust    = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
         private IMyPlayer                      _prev_player           = null;
 
-        private int  _num_thrusters = 0, _prev_thrust_reduction = 0;
+        private int  _num_thrusters = 0, _prev_thrust_reduction = 0, _zero_controls_counter = 0;
         private bool _ID_on, _control_limit_is_visible = false, _thrust_redction_is_visible = false, _vertical_speed_is_visible = false, _disposed = false, _status_shown = false;
         private bool _was_in_landing_mode = false, _was_in_CoT_mode = false;
         private bool _announced = false;
@@ -213,6 +214,7 @@ namespace ttdtwm
             manual_thrust.Y = (argument[ 9] - MESSAGE_SHIFT) / MESSAGE_MULTIPLIER;
             manual_thrust.Z = (argument[10] - MESSAGE_SHIFT) / MESSAGE_MULTIPLIER;
             instance._ECU.translate_linear_input(manual_thrust, controlling_player.Controller.ControlledEntity);
+            instance._zero_controls_counter = 0;
         }
 
         internal static void rotation_message_handler(byte[] argument)
@@ -228,6 +230,7 @@ namespace ttdtwm
             manual_rotation.Y = (argument[ 9] - MESSAGE_SHIFT) / MESSAGE_MULTIPLIER;
             manual_rotation.Z = (argument[10] - MESSAGE_SHIFT) / MESSAGE_MULTIPLIER;
             instance._ECU.translate_rotation_input(manual_rotation, controlling_player.Controller.ControlledEntity);
+            instance._zero_controls_counter = 0;
         }
 
         #endregion
@@ -380,6 +383,7 @@ namespace ttdtwm
             send_rotation_message(manual_rotation);
             _ECU.translate_linear_input  (manual_thrust  , controller);
             _ECU.translate_rotation_input(manual_rotation, controller);
+            _zero_controls_counter = 0;
         }
 
         public void handle_60Hz()
@@ -391,15 +395,16 @@ namespace ttdtwm
                 if (controlling_player == null)
                 {
                     _ECU.reset_user_input(reset_gyros_only: false);
-                    _prev_manual_thrust = _prev_manual_rotation = Vector3UByte.Zero;
+                    _prev_manual_thrust = _prev_manual_rotation = new Vector3UByte(128, 128, 128);
                 }
                 else if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
                     handle_user_input(controlling_player.Controller.ControlledEntity);
 
+                _ID_on = false;
                 foreach (var cur_controller in _ship_controllers)
                 {
-                    _ID_on = cur_controller.EnabledDamping;
-                    break;
+                    _ID_on |= cur_controller.EnabledDamping;
+                    //break;
                 }
                 _ECU.linear_dampers_on = _ID_on;
                 _ECU.handle_60Hz();
@@ -498,8 +503,18 @@ namespace ttdtwm
 
                 _ECU.handle_2s_period();
 
-                if (!_announced && MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
-                    send_client_announce();
+                if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
+                {
+                    if (!_announced)
+                        send_client_announce();
+                    _prev_manual_rotation = _prev_manual_thrust = new Vector3UByte(128, 128, 128);
+                }
+                else if (_zero_controls_counter++ >= CONTROLS_TIMEOUT)
+                {
+                    _ECU.reset_user_input(reset_gyros_only: false);
+                    _prev_manual_rotation  = _prev_manual_thrust = new Vector3UByte(128, 128, 128);
+                    _zero_controls_counter = 0;
+                }
             }
         }
 
