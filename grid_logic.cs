@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Text;
 
 using Sandbox.Game;
 using Sandbox.Game.Gui;
@@ -20,25 +21,89 @@ namespace ttdtwm
         #region fields
 
         const float MESSAGE_MULTIPLIER = 10.0f, MESSAGE_SHIFT = 128.0f;
-        const int   CONTROL_WARNING_OFF = 200, CONTROL_WARNING_ON = 201, CLIENT_ANNOUNCE = 202, SERVER_ACKNOWLEDGE = 203;
-        const int   CONTROL_MODE_BASE = 204, LANDING_MODE_ON = 1, COT_MODE_ON = 2;  // 204 - 207
+        const int   CONTROL_WARNING_OFF = 200, CONTROL_WARNING_ON = 201/*, CLIENT_ANNOUNCE = 202, SERVER_ACKNOWLEDGE = 203*/;
+        //const int   CONTROL_MODE_BASE = 204, LANDING_MODE_ON = 1, COT_MODE_ON = 2;  // 204 - 207
         const int   CONTROLS_TIMEOUT = 2;
 
-        private static byte[] long_message  = new byte[8 + 3];
-        private static byte[] short_message = new byte[8 + 1];
+        private static byte[] __long_message  = new byte[8 + 3];
+        private static byte[] __short_message = new byte[8 + 1];
+
+        //private static IMyTerminalControlOnOffSwitch __switch;
+        //private static bool __switch_value = false;
+        private static StringBuilder __controller_name = new StringBuilder();
 
         private IMyCubeGrid                    _grid;
-        private HashSet<IMyControllableEntity> _ship_controllers      = new HashSet<IMyControllableEntity>();
-        private HashSet<PB.IMyRemoteControl>   _RC_blocks             = new HashSet<PB.IMyRemoteControl>();
-        private IMyHudNotification             _thrust_redction_text  = null, _control_warning_text = null, _vertical_speed_text = null;
-        private engine_control_unit            _ECU                   = null;
-        private Vector3UByte                   _prev_manual_thrust    = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
-        private IMyPlayer                      _prev_player           = null;
+        private HashSet<IMyControllableEntity> _ship_controllers     = new HashSet<IMyControllableEntity>();
+        private HashSet<PB.IMyRemoteControl>   _RC_blocks            = new HashSet<PB.IMyRemoteControl>();
+        private IMyHudNotification             _thrust_redction_text = null, _control_warning_text = null, _vertical_speed_text = null;
+        private engine_control_unit            _ECU                  = null;
+        private Vector3UByte                   _prev_manual_thrust   = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
+        private IMyPlayer                      _prev_player          = null;
 
         private int  _num_thrusters = 0, _prev_thrust_reduction = 0, _zero_controls_counter = 0;
-        private bool _ID_on, _control_limit_is_visible = false, _thrust_redction_is_visible = false, _vertical_speed_is_visible = false, _disposed = false, _status_shown = false;
-        private bool _was_in_landing_mode = false, _was_in_CoT_mode = false;
-        private bool _announced = false;
+        private bool _control_limit_is_visible = false, _thrust_redction_is_visible = false, _vertical_speed_is_visible = false, _disposed = false, _status_shown = false;
+        private bool _was_in_landing_mode = false, _was_in_CoT_mode = false, _ID_on, _force_CoT_mode_on, _landing_mode_on;
+        //private bool _announced = false;
+
+        #endregion
+
+        #region Properties
+
+        public bool is_CoT_mode_available
+        {
+            get
+            {
+                return _num_thrusters > 0 && _ECU != null && !_grid.IsStatic && _grid.Physics != null;
+            }
+        }
+
+        public bool CoT_mode_forced
+        {
+            get
+            {
+                return is_CoT_mode_available && _ECU.CoT_mode_forced;
+            }
+            set
+            {
+                IMyTerminalBlock controller_terminal;
+
+                if (_ECU == null)
+                    return;
+                foreach (var cur_controller in _ship_controllers)
+                {
+                    controller_terminal = (IMyTerminalBlock) cur_controller;
+                    controller_terminal.SetCustomName(value ? controller_terminal.CustomName.AddCOTTag() : controller_terminal.CustomName.RemoveCOTTag());
+                }
+            }
+        }
+
+        public bool is_landing_mode_available
+        {
+            get
+            {
+                return is_CoT_mode_available && _grid.Physics.Gravity.LengthSquared() > 0.01f;
+            }
+        }
+
+        public bool landing_mode_on
+        {
+            get
+            {
+                return is_landing_mode_available && _ECU.landing_mode_on;
+            }
+            set
+            {
+                IMyTerminalBlock controller_terminal;
+
+                if (_ECU == null)
+                    return;
+                foreach (var cur_controller in _ship_controllers)
+                {
+                    controller_terminal = (IMyTerminalBlock) cur_controller;
+                    controller_terminal.SetCustomName(value ? controller_terminal.CustomName.AddLANDINGTag() : controller_terminal.CustomName.RemoveLANDINGTag());
+                }
+            }
+        }
 
         #endregion
 
@@ -178,13 +243,14 @@ namespace ttdtwm
                     instance.display_control_warning(contents == CONTROL_WARNING_ON);
                     break;
 
+                /*
                 case CONTROL_MODE_BASE:
                 case CONTROL_MODE_BASE + LANDING_MODE_ON:
                 case CONTROL_MODE_BASE + COT_MODE_ON:
                 case CONTROL_MODE_BASE + COT_MODE_ON + LANDING_MODE_ON:
                     int flags = contents - CONTROL_MODE_BASE;
                     instance._ECU.landing_mode_on = (flags & LANDING_MODE_ON) != 0;
-                    instance._ECU.CoT_mode_on     = (flags &     COT_MODE_ON) != 0;
+                    instance._ECU.CoT_mode_forced = (flags &     COT_MODE_ON) != 0;
                     //instance.log_grid_action("short_message_handler", "landing mode = " + ((contents == LANDING_MODE_ON) ? "on" : "off"));
                     break;
 
@@ -198,6 +264,7 @@ namespace ttdtwm
                     instance._announced = true;
                     //instance.log_grid_action("short_message_handler", "announce complete");
                     break;
+                */
             }
         }
 
@@ -245,12 +312,12 @@ namespace ttdtwm
             Vector3UByte packed_vector = Vector3UByte.Round(manual_thrust * MESSAGE_MULTIPLIER + Vector3.One * MESSAGE_SHIFT);
             if (packed_vector == _prev_manual_thrust)
                 return;
-            sync_helper.encode_entity_id(_grid, long_message);
-            long_message[ 8] = packed_vector.X;
-            long_message[ 9] = packed_vector.Y;
-            long_message[10] = packed_vector.Z;
+            sync_helper.encode_entity_id(_grid, __long_message);
+            __long_message[ 8] = packed_vector.X;
+            __long_message[ 9] = packed_vector.Y;
+            __long_message[10] = packed_vector.Z;
             _prev_manual_thrust = packed_vector;
-            MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.LINEAR_MESSAGE_ID, long_message);
+            MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.LINEAR_MESSAGE_ID, __long_message);
         }
 
         private void send_rotation_message(Vector3 manual_rotation)
@@ -261,12 +328,12 @@ namespace ttdtwm
             Vector3UByte packed_vector = Vector3UByte.Round(manual_rotation * MESSAGE_MULTIPLIER + Vector3.One * MESSAGE_SHIFT);
             if (packed_vector == _prev_manual_rotation)
                 return;
-            sync_helper.encode_entity_id(_grid, long_message);
-            long_message[ 8] = packed_vector.X;
-            long_message[ 9] = packed_vector.Y;
-            long_message[10] = packed_vector.Z;
+            sync_helper.encode_entity_id(_grid, __long_message);
+            __long_message[ 8] = packed_vector.X;
+            __long_message[ 9] = packed_vector.Y;
+            __long_message[10] = packed_vector.Z;
             _prev_manual_rotation = packed_vector;
-            MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.ROTATION_MESSAGE_ID, long_message);
+            MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.ROTATION_MESSAGE_ID, __long_message);
         }
 
         private void send_control_limit_message(IMyPlayer controlling_player)
@@ -276,32 +343,33 @@ namespace ttdtwm
 
             if (controlling_player != null && (controlling_player != _prev_player || _control_limit_is_visible != _ECU.control_limit_reached))
             {
-                sync_helper.encode_entity_id(_grid, short_message);
-                short_message[8] = (byte) (_ECU.control_limit_reached ? CONTROL_WARNING_ON : CONTROL_WARNING_OFF);
+                sync_helper.encode_entity_id(_grid, __short_message);
+                __short_message[8] = (byte) (_ECU.control_limit_reached ? CONTROL_WARNING_ON : CONTROL_WARNING_OFF);
                 _control_limit_is_visible = _ECU.control_limit_reached;
                 if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
                     display_control_warning(_ECU.control_limit_reached);
                 else if (MyAPIGateway.Multiplayer.IsServer)
-                    MyAPIGateway.Multiplayer.SendMessageTo(sync_helper.SHORT_MESSAGE_ID, short_message, controlling_player.SteamUserId);
+                    MyAPIGateway.Multiplayer.SendMessageTo(sync_helper.SHORT_MESSAGE_ID, __short_message, controlling_player.SteamUserId);
             }
         }
 
+        /*
         private void send_control_modes_message(bool force_send)
         {
             if (_ECU == null || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer)
                 return;
 
-            if (force_send || _was_in_landing_mode != _ECU.landing_mode_on || _was_in_CoT_mode != _ECU.CoT_mode_on)
+            if (force_send || _was_in_landing_mode != _ECU.landing_mode_on || _was_in_CoT_mode != _ECU.CoT_mode_forced)
             {
-                sync_helper.encode_entity_id(_grid, short_message);
-                short_message[8] = CONTROL_MODE_BASE;
+                sync_helper.encode_entity_id(_grid, __short_message);
+                __short_message[8] = CONTROL_MODE_BASE;
                 if (_ECU.landing_mode_on)
-                    short_message[8] += LANDING_MODE_ON;
-                if (_ECU.CoT_mode_on)
-                    short_message[8] += COT_MODE_ON;
+                    __short_message[8] += LANDING_MODE_ON;
+                if (_ECU.CoT_mode_forced)
+                    __short_message[8] += COT_MODE_ON;
                 _was_in_landing_mode = _ECU.landing_mode_on;
-                _was_in_CoT_mode     = _ECU.CoT_mode_on;
-                MyAPIGateway.Multiplayer.SendMessageToOthers(sync_helper.SHORT_MESSAGE_ID, short_message);
+                _was_in_CoT_mode     = _ECU.CoT_mode_forced;
+                MyAPIGateway.Multiplayer.SendMessageToOthers(sync_helper.SHORT_MESSAGE_ID, __short_message);
             }
         }
 
@@ -309,9 +377,9 @@ namespace ttdtwm
         {
             if (!_announced && MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
             {
-                sync_helper.encode_entity_id(_grid, short_message);
-                short_message[8] = CLIENT_ANNOUNCE;
-                MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.SHORT_MESSAGE_ID, short_message);
+                sync_helper.encode_entity_id(_grid, __short_message);
+                __short_message[8] = CLIENT_ANNOUNCE;
+                MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.SHORT_MESSAGE_ID, __short_message);
             }
         }
 
@@ -319,11 +387,12 @@ namespace ttdtwm
         {
             if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
             {
-                sync_helper.encode_entity_id(_grid, short_message);
-                short_message[8] = SERVER_ACKNOWLEDGE;
-                MyAPIGateway.Multiplayer.SendMessageToOthers(sync_helper.SHORT_MESSAGE_ID, short_message);
+                sync_helper.encode_entity_id(_grid, __short_message);
+                __short_message[8] = SERVER_ACKNOWLEDGE;
+                MyAPIGateway.Multiplayer.SendMessageToOthers(sync_helper.SHORT_MESSAGE_ID, __short_message);
             }
         }
+        */
 
         private void send_thrust_reduction_message(IMyPlayer controlling_player)
         {
@@ -332,15 +401,15 @@ namespace ttdtwm
 
             if (controlling_player != null && (controlling_player != _prev_player || _prev_thrust_reduction != _ECU.thrust_reduction))
             {
-                sync_helper.encode_entity_id(_grid, short_message);
-                short_message[8] = (byte) _ECU.thrust_reduction;
-                if (short_message[8] > 100)
-                    short_message[8] = 100;
-                _prev_thrust_reduction = short_message[8];
+                sync_helper.encode_entity_id(_grid, __short_message);
+                __short_message[8] = (byte) _ECU.thrust_reduction;
+                if (__short_message[8] > 100)
+                    __short_message[8] = 100;
+                _prev_thrust_reduction = __short_message[8];
                 if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
-                    display_thrust_reduction(short_message[8]);
+                    display_thrust_reduction(__short_message[8]);
                 else if (MyAPIGateway.Multiplayer.IsServer)
-                    MyAPIGateway.Multiplayer.SendMessageTo(sync_helper.SHORT_MESSAGE_ID, short_message, controlling_player.SteamUserId);
+                    MyAPIGateway.Multiplayer.SendMessageTo(sync_helper.SHORT_MESSAGE_ID, __short_message, controlling_player.SteamUserId);
             }
         }
 
@@ -400,12 +469,17 @@ namespace ttdtwm
                 else if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
                     handle_user_input(controlling_player.Controller.ControlledEntity);
 
-                _ID_on = false;
+                _ID_on = _force_CoT_mode_on = _landing_mode_on = false;
                 foreach (var cur_controller in _ship_controllers)
                 {
-                    _ID_on |= cur_controller.EnabledDamping;
-                    //break;
+                    ((IMyTerminalBlock) cur_controller).CustomName.ToUpperTo(__controller_name);
+                    _force_CoT_mode_on = is_CoT_mode_available     && __controller_name.ContainsCOTTag();
+                    _landing_mode_on   = is_landing_mode_available && __controller_name.ContainsLANDINGTag();
+                    _ID_on             = cur_controller.EnabledDamping;
+                    break;
                 }
+                _ECU.CoT_mode_forced   = _force_CoT_mode_on;
+                _ECU.landing_mode_on   = _landing_mode_on;
                 _ECU.linear_dampers_on = _ID_on;
                 _ECU.handle_60Hz();
             }
@@ -423,11 +497,26 @@ namespace ttdtwm
                 _ECU.handle_4Hz();
 
                 IMyPlayer controlling_player = get_controlling_player();
+                /*
                 if (controlling_player != null)
                     _ECU.select_flight_modes(controlling_player.Controller.ControlledEntity, _RC_blocks.Count > 0);
                 else
                 {
                     _ECU.select_flight_modes(null, _RC_blocks.Count > 0);
+                    if (_control_limit_is_visible)
+                    {
+                        _control_warning_text.Hide();
+                        _control_limit_is_visible = false;
+                    }
+                    if (_thrust_redction_is_visible)
+                    {
+                        _thrust_redction_text.Hide();
+                        _thrust_redction_is_visible = false;
+                    }
+                }
+                */
+                if (controlling_player == null)
+                {
                     if (_control_limit_is_visible)
                     {
                         _control_warning_text.Hide();
@@ -480,7 +569,7 @@ namespace ttdtwm
 
                 if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
                 {
-                    send_control_modes_message(force_send: false);
+                    //send_control_modes_message(force_send: false);
                     send_control_limit_message(   controlling_player);
                     send_thrust_reduction_message(controlling_player);
                 }
@@ -505,8 +594,8 @@ namespace ttdtwm
 
                 if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
                 {
-                    if (!_announced)
-                        send_client_announce();
+                    //if (!_announced)
+                    //    send_client_announce();
                     _prev_manual_rotation = _prev_manual_thrust = new Vector3UByte(128, 128, 128);
                 }
                 else if (_zero_controls_counter++ >= CONTROLS_TIMEOUT)

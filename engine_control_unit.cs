@@ -158,12 +158,12 @@ namespace ttdtwm
             }
             set
             {
-                if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
+                //if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
                     _landing_mode_on = value;
             }
         }
 
-        public bool CoT_mode_on
+        public bool CoT_mode_forced
         {
             get
             {
@@ -171,7 +171,7 @@ namespace ttdtwm
             }
             set
             {
-                if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
+                //if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
                     _force_CoT_mode = value;
             }
         }
@@ -626,7 +626,7 @@ namespace ttdtwm
                 float braking_force = __braking_vector[dir_index] + _grid.Physics.Mass * _linear_integral[dir_index];
 
                 if (_max_force[opposite_dir] < 1.0f)
-                    braking_force -= _grid.Physics.Mass * _linear_integral[dir_index];
+                    braking_force -= _grid.Physics.Mass * _linear_integral[opposite_dir];
                 __control_vector[dir_index] += braking_force / _max_force[dir_index];
                 if (__control_vector[dir_index] < 0.0f)
                     __control_vector[dir_index] = 0.0f;
@@ -696,13 +696,13 @@ namespace ttdtwm
                 cur_thruster_info.is_reduced = false;
                 if (cur_thruster_info.skip)
                     continue;
-                cur_thruster_info.skip |= enforce_thrust_limit && cur_thruster_info.opposing_thruster != null;
+                //cur_thruster_info.skip |= enforce_thrust_limit && cur_thruster_info.opposing_thruster != null;
 
                 decompose_vector(Vector3.Cross(angular_velocity_diff, cur_thruster_info.reference_vector), linear_component);
                 if (linear_component[cur_dir] > 0.0f)
                 {
-                    if (cur_thruster_info.skip)
-                        continue;
+                    //if (cur_thruster_info.skip)
+                    //    continue;
 
                     cur_thruster_info.current_setting += damping * linear_component[cur_dir] + max_linear_opposition * (1.0f - __thrust_limits[cur_dir]);
                     if (enforce_thrust_limit && cur_thruster_info.active_control_on && !cur_thruster_info.is_RCS)
@@ -1286,6 +1286,7 @@ namespace ttdtwm
             bool          changes_made = false, contains_THR, contains_RCS, contains_STAT, use_active_control;
             int           dir_index;
 
+            /*
             foreach (var cur_direction in _controlled_thrusters)
             {
                 foreach (var cur_thruster_entry in cur_direction)
@@ -1296,8 +1297,10 @@ namespace ttdtwm
                 cur_thruster_info      = cur_thruster_entry.Value;
                 cur_thruster_info.skip = cur_thruster_info.actual_max_force < 0.01f * cur_thruster_info.max_force || !cur_thruster_entry.Key.IsWorking;
             }
+            */
 
             _active_control_on = false;
+            /*
             List<MyObjectBuilder_BlockGroup> all_groups = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).BlockGroups;
             foreach (var cur_group in all_groups)
             {
@@ -1354,6 +1357,7 @@ namespace ttdtwm
                     }
                 }
             }
+            */
 
             for (dir_index = 0; dir_index < 6; ++dir_index)
             {
@@ -1366,8 +1370,8 @@ namespace ttdtwm
                 for (int index = 0; index < _thrusters_copy.Count; ++index)
                 {
                     cur_thruster_info = _thruster_infos[index];
-                    if (cur_thruster_info.skip)
-                        continue;
+                    //if (cur_thruster_info.skip)
+                    //    continue;
                     cur_thruster = _thrusters_copy[index];
                     ((PB.IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
                     contains_THR  = _thruster_name.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
@@ -1401,14 +1405,14 @@ namespace ttdtwm
             for (int index = 0; index < _thrusters_copy.Count; ++index)
             {
                 cur_thruster_info = _thruster_infos[index];
-                if (cur_thruster_info.skip)
-                    continue;
+                //if (cur_thruster_info.skip)
+                //    continue;
                 cur_thruster = _thrusters_copy[index];
                 ((PB.IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
                 contains_THR  = _thruster_name.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
                 contains_RCS  = _thruster_name.ContainsRCSTag();
                 contains_STAT = _thruster_name.ContainsSTATTag();
-                if (contains_THR || contains_RCS || contains_STAT)
+                if ((contains_THR || contains_RCS || contains_STAT) && cur_thruster_info.actual_max_force > 0.01f * cur_thruster_info.max_force && cur_thruster.IsWorking)
                 {
                     enable_control(cur_thruster, cur_thruster_info);
                     cur_thruster_info.enable_rotation = cur_thruster_info.active_control_on = contains_THR || contains_RCS;
@@ -1683,6 +1687,7 @@ namespace ttdtwm
             return controller != null && controller.CubeGrid == _grid;
         }
 
+        /*
         public void select_flight_modes(VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller, bool RC_block_present)
         {
             if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
@@ -1701,6 +1706,7 @@ namespace ttdtwm
             else
                 _landing_mode_on = !RC_block_present || _RC_landing_mode_on;
        }
+       */
 
         public void check_autopilot(PB.IMyRemoteControl RC_block)
         {

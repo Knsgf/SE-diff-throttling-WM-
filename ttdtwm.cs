@@ -1,29 +1,43 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 using Sandbox.ModAPI;
+using Sandbox.ModAPI.Interfaces.Terminal;
+using VRage.Game;
 using VRage.Game.Components;
 using VRage.Game.ModAPI;
 using VRage.ModAPI;
 using VRage.Utils;
+
+using PB = Sandbox.ModAPI.Ingame;
 
 namespace ttdtwm
 {
     [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation)]
     public class session_handler: MySessionComponentBase
     {
-        private delegate void grid_handler();
+        #region fields
 
         private Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
-        private grid_handler _grids_handle_60Hz = null, _grids_handle_4Hz = null, _grids_handle_2s_period = null;
+        private Action _grids_handle_60Hz = null, _grids_handle_4Hz = null, _grids_handle_2s_period = null;
 
         private int  _count15 = 0, _count8 = 0;
-        private bool _entity_events_set = false, _announced = false;
+        private bool _entity_events_set = false, _announced = false, _panel_controls_set = false, switch_ = false;
+
+        #endregion
+
+        #region debug
 
         private void log_session_action(string method_name, string message)
         {
             MyLog.Default.WriteLine(string.Format("TTDTWM\tsession_handler.{0}(): {1}\n\t\tTotal grids: {2}", method_name, message, _grids.Count));
         }
+
+        #endregion
+
+        #region event handlers
 
         private void on_entity_added(IMyEntity entity)
         {
@@ -52,6 +66,126 @@ namespace ttdtwm
             }
         }
 
+        private bool is_grid_CoT_mode_on(IMyTerminalBlock controller)
+        {
+            IMyCubeGrid grid = (IMyCubeGrid) controller.CubeGrid;
+            return _grids[grid].CoT_mode_forced;
+        }
+
+        private bool is_grid_CoT_mode_available(IMyTerminalBlock controller)
+        {
+            IMyCubeGrid grid = (IMyCubeGrid) controller.CubeGrid;
+            return _grids[grid].is_CoT_mode_available;
+        }
+
+        private void set_grid_CoT_mode(IMyTerminalBlock controller, bool new_state)
+        {
+            IMyCubeGrid grid = (IMyCubeGrid) controller.CubeGrid;
+            _grids[grid].CoT_mode_forced = new_state;
+        }
+
+        private bool is_grid_landing_mode_on(IMyTerminalBlock controller)
+        {
+            IMyCubeGrid grid = (IMyCubeGrid) controller.CubeGrid;
+            return _grids[grid].landing_mode_on;
+        }
+
+        private bool is_grid_landing_mode_available(IMyTerminalBlock controller)
+        {
+            IMyCubeGrid grid = (IMyCubeGrid) controller.CubeGrid;
+            return _grids[grid].is_landing_mode_available;
+        }
+
+        private void set_grid_landing_mode(IMyTerminalBlock controller, bool new_state)
+        {
+            IMyCubeGrid grid = (IMyCubeGrid) controller.CubeGrid;
+            _grids[grid].landing_mode_on = new_state;
+        }
+
+        #endregion
+
+        #region UI helpers
+
+        private void create_toggle<_block_>(string id, string title, string enabled_text, string disabled_text, Action<IMyTerminalBlock> action, Func<IMyTerminalBlock, bool> getter, Func<IMyTerminalBlock, bool> state)
+        {
+            var toggle_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id);
+
+            toggle_action.Action = action;
+            if (state != null)
+                toggle_action.Enabled = state;
+            toggle_action.Name = new StringBuilder(title);
+            toggle_action.ValidForGroups = true;
+            toggle_action.Writer = delegate (IMyTerminalBlock block, StringBuilder output)
+            {
+                output.Clear();
+                output.Append(getter(block) ? enabled_text : disabled_text);
+            };
+            MyAPIGateway.TerminalControls.AddAction<_block_>(toggle_action);
+        }
+
+        private void create_checkbox<_block_>(string id, string title, string tooltip, string toolbar_enabled_text, string toolbar_disabled_text,
+            Func<IMyTerminalBlock, bool> getter, Action<IMyTerminalBlock, bool> setter, Func<IMyTerminalBlock, bool> state)
+        {
+            var panel_checkbox = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, _block_>(id);
+
+            panel_checkbox.Getter = getter;
+            panel_checkbox.Setter = setter;
+            if (state != null)
+                panel_checkbox.Enabled = state;
+            panel_checkbox.Title = MyStringId.GetOrCompute(title);
+            if (tooltip != null)
+                panel_checkbox.Tooltip = MyStringId.GetOrCompute(tooltip);
+            panel_checkbox.SupportsMultipleBlocks = true;
+            MyAPIGateway.TerminalControls.AddControl<_block_>(panel_checkbox);
+
+
+            create_toggle<_block_>(id + "Toggle", title + " On/Off", toolbar_enabled_text, toolbar_disabled_text,
+                delegate (IMyTerminalBlock block)
+                {
+                    setter(block, !getter(block));
+                },
+                getter, state);
+        }
+
+        private void create_switch<_block_>(string id, string title, string tooltip, string enabled_text, string disabled_text, string toolbar_enabled_text, string toolbar_disabled_text,
+            Func<IMyTerminalBlock, bool> getter, Action<IMyTerminalBlock, bool> setter, Func<IMyTerminalBlock, bool> state)
+        {
+            var panel_switch = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlOnOffSwitch, _block_>(id);
+
+            panel_switch.Getter = getter;
+            panel_switch.Setter = setter;
+            if (state != null)
+                panel_switch.Enabled = state;
+            panel_switch.Title = MyStringId.GetOrCompute(title);
+            if (tooltip != null)
+                panel_switch.Tooltip = MyStringId.GetOrCompute(tooltip);
+            panel_switch.OnText  = MyStringId.GetOrCompute( enabled_text);
+            panel_switch.OffText = MyStringId.GetOrCompute(disabled_text);
+            panel_switch.SupportsMultipleBlocks = true;
+            MyAPIGateway.TerminalControls.AddControl<_block_>(panel_switch);
+
+            create_toggle<_block_>(id + "OnOff", title + " On/Off", toolbar_enabled_text, toolbar_disabled_text,
+                delegate (IMyTerminalBlock block)
+                {
+                    setter(block, !getter(block));
+                },
+                getter, state);
+            create_toggle<_block_>(id + "OnOff_On", title + " On", toolbar_enabled_text, toolbar_disabled_text,
+                delegate (IMyTerminalBlock block)
+                {
+                    setter(block, true);
+                },
+                getter, state);
+            create_toggle<_block_>(id + "OnOff_Off", title + " Off", toolbar_enabled_text, toolbar_disabled_text,
+                delegate (IMyTerminalBlock block)
+                {
+                    setter(block, false);
+                },
+                getter, state);
+        }
+
+        #endregion
+
         private void try_register_handlers()
         {
             if (!sync_helper.network_handlers_registered)
@@ -65,6 +199,23 @@ namespace ttdtwm
                 MyAPIGateway.Entities.OnEntityAdd    += on_entity_added;
                 MyAPIGateway.Entities.OnEntityRemove += on_entity_removed;
                 _entity_events_set = true;
+            }
+            if (!_panel_controls_set && MyAPIGateway.TerminalControls != null)
+            {
+                var cockpit_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, PB.IMyCockpit>("TTDTWM_LINE1");
+                MyAPIGateway.TerminalControls.AddControl<PB.IMyCockpit>(cockpit_line);
+                create_checkbox<PB.IMyCockpit>("ForceCoTMode", "Force CoT mode", null,               "CoT",   "Auto",     is_grid_CoT_mode_on,     set_grid_CoT_mode,     is_grid_CoT_mode_available);
+                create_switch  <PB.IMyCockpit>( "LandingMode",   "Landing mode", null, "On", "Off", "Land", "Flight", is_grid_landing_mode_on, set_grid_landing_mode, is_grid_landing_mode_available);
+
+                var RC_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, PB.IMyRemoteControl>("TTDTWM_LINE1");
+                MyAPIGateway.TerminalControls.AddControl<PB.IMyRemoteControl>(RC_line);
+                create_checkbox<PB.IMyRemoteControl>("ForceCoTMode", "Force CoT mode", null,               "CoT",   "Auto",     is_grid_CoT_mode_on,     set_grid_CoT_mode,     is_grid_CoT_mode_available);
+                create_switch  <PB.IMyRemoteControl>( "LandingMode",   "Landing mode", null, "On", "Off", "Land", "Flight", is_grid_landing_mode_on, set_grid_landing_mode, is_grid_landing_mode_available);
+
+                create_switch<IMyThrust>("ActiveControl",        "Active Control", null, "On", "Off", "On", "Off", thruster_tagger.is_under_active_control, thruster_tagger.set_active_control, thruster_tagger.is_active_control_available);
+                create_switch<IMyThrust>(     "AntiSlip",       "Slip Prevention", null, "On", "Off", "On", "Off", thruster_tagger.is_anti_slip           , thruster_tagger.set_anti_slip     , thruster_tagger.is_anti_slip_available     );
+                create_switch<IMyThrust>(  "StaticLimit", "Passive Stabilisation", null, "On", "Off", "On", "Off", thruster_tagger.is_thrust_limited      , thruster_tagger.set_thrust_limited, thruster_tagger.is_thrust_limiter_available);
+                _panel_controls_set = true;
             }
         }
 

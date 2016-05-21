@@ -21,7 +21,7 @@ namespace ttdtwm
 
         public List<solver_entry> items { get; private set; }
 
-        private void log_tableau(int height, int width)
+        private void log_tableau(int height, int width, int pivot_row, int pivot_column)
         {
             StringBuilder row = new StringBuilder();
 
@@ -32,6 +32,9 @@ namespace ttdtwm
                 for (int cur_colum = 0; cur_colum < width; ++cur_colum)
                 {
                     char non_zero_symbol = (_tableau[cur_row][cur_colum] != 0.0 && Math.Abs(_tableau[cur_row][cur_colum]) < GUARD_VALUE) ? '*' : ' ';
+
+                    if (non_zero_symbol == ' ' && (cur_row == pivot_row || cur_colum == pivot_column))
+                        non_zero_symbol = '#';
                     row.AppendFormat("{0,10:G2}{1}", _tableau[cur_row][cur_colum], non_zero_symbol);
                 }
                 MyLog.Default.WriteLine(row.ToString());
@@ -76,9 +79,13 @@ namespace ttdtwm
 
         private bool solve(int height, int width)
         {
+            const uint MAX_ITERATIONS = 50;
+
+            uint iterations = 0;
+
             while (true)
             {
-                //log_tableau(height, width);
+                //MyLog.Default.WriteLine(string.Format("Iteration #{0}/{1}", iterations, max_iterations));
 
                 double min_column_value = 0.0;
                 int    pivot_column     = -1, cur_column;
@@ -90,8 +97,11 @@ namespace ttdtwm
                         pivot_column     = cur_column;
                     }
                 }
-                if (pivot_column < 0)
+                if (pivot_column < 0 || ++iterations >= MAX_ITERATIONS)
+                {
+                    //log_tableau(height, width, -1, -1);
                     return true;
+                }
 
                 double min_ratio = double.MaxValue, cur_ratio;
                 int    pivot_row = -1, cur_row;
@@ -108,7 +118,12 @@ namespace ttdtwm
                     }
                 }
                 if (pivot_row < 0)
+                {
+                    //log_tableau(height, width, -1, pivot_column);
                     return false;
+                }
+
+                //log_tableau(height, width, pivot_row, pivot_column);
 
                 double divider = _tableau[pivot_row][pivot_column], multiplier;
                 for (cur_column = 0; cur_column < width; ++cur_column)
