@@ -16,7 +16,7 @@ using PB = Sandbox.ModAPI.Ingame;
 
 namespace ttdtwm
 {
-    class grid_logic: IDisposable
+    sealed class grid_logic: IDisposable
     {
         #region fields
 
@@ -28,8 +28,6 @@ namespace ttdtwm
         private static byte[] __long_message  = new byte[8 + 3];
         private static byte[] __short_message = new byte[8 + 1];
 
-        //private static IMyTerminalControlOnOffSwitch __switch;
-        //private static bool __switch_value = false;
         private static StringBuilder __controller_name = new StringBuilder();
 
         private IMyCubeGrid                    _grid;
@@ -497,24 +495,6 @@ namespace ttdtwm
                 _ECU.handle_4Hz();
 
                 IMyPlayer controlling_player = get_controlling_player();
-                /*
-                if (controlling_player != null)
-                    _ECU.select_flight_modes(controlling_player.Controller.ControlledEntity, _RC_blocks.Count > 0);
-                else
-                {
-                    _ECU.select_flight_modes(null, _RC_blocks.Count > 0);
-                    if (_control_limit_is_visible)
-                    {
-                        _control_warning_text.Hide();
-                        _control_limit_is_visible = false;
-                    }
-                    if (_thrust_redction_is_visible)
-                    {
-                        _thrust_redction_text.Hide();
-                        _thrust_redction_is_visible = false;
-                    }
-                }
-                */
                 if (controlling_player == null)
                 {
                     if (_control_limit_is_visible)
@@ -542,7 +522,6 @@ namespace ttdtwm
                     {
                         MyAPIGateway.Utilities.ShowNotification(_ECU.landing_mode_on ? "Landing mode engaged" : "Flight mode engaged");
                         _status_shown = true;
-                        //_was_in_landing_mode = _ECU.landing_mode_on;
                     }
                 }
 

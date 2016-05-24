@@ -18,16 +18,16 @@ using PB = Sandbox.ModAPI.Ingame;
 
 namespace ttdtwm
 {
-    class engine_control_unit
+    sealed class engine_control_unit
     {
         #region fields
 
         const int   NUM_ROTATION_SAMPLES = 6;
-        const float DESCENDING_SPEED     = 0.5f;
+        const float DESCENDING_SPEED     = 0.5f, MIN_OVERRIDE = 1.01f;
         const bool  DEBUG_THR_ALWAYS_ON  = false;
 
         enum thrust_dir { fore = 0, aft = 3, starboard = 1, port = 4, dorsal = 2, ventral = 5 };
-        class thruster_info     // Technically a struct
+        sealed class thruster_info     // Technically a struct
         {
             public float         max_force, actual_max_force;
             public Vector3       max_torque, grid_centre_pos, static_moment, CoM_offset, reference_vector;
@@ -40,13 +40,29 @@ namespace ttdtwm
 
         private static readonly Vector3I[] _thrust_forward_vectors;
 
-        private /*static*/ StringBuilder  _group_name       = new StringBuilder();
-        private /*static*/ StringBuilder  _thruster_name    = new StringBuilder();
-        private     static StringBuilder  __controller_name = new StringBuilder();
-        private /*static*/ simplex_solver _linear_solver    = new simplex_solver();
+        private /*static*/ StringBuilder    _group_name       = new StringBuilder();
+        private /*static*/ StringBuilder    _thruster_name    = new StringBuilder();
+        private /*static*/ simplex_solver[] _linear_solvers =
+        {
+            new simplex_solver(),   // fore
+            new simplex_solver(),   // starboard
+            new simplex_solver(),   // dorsal
+            new simplex_solver(),   // aft
+            new simplex_solver(),   // port
+            new simplex_solver()    // ventral
+        };
+        private readonly Action[] _solver_starters;
 
-        private /*static*/ List<     MyThrust> _thrusters_copy = new List<     MyThrust>();
-        private /*static*/ List<thruster_info> _thruster_infos = new List<thruster_info>();
+        private /*static*/ List<MyThrust> _thrusters_copy = new List<MyThrust>();
+        private /*static*/ List<thruster_info>[] _thruster_infos =
+        {
+            new List<thruster_info>(),  // fore
+            new List<thruster_info>(),  // starboard
+            new List<thruster_info>(),  // dorsal
+            new List<thruster_info>(),  // aft
+            new List<thruster_info>(),  // port
+            new List<thruster_info>()   // ventral
+        };
 
         private static float[] __control_vector  = new float[6], __control_vector_copy = new float[6];
         private static float[] __braking_vector  = new float[6];
@@ -71,8 +87,7 @@ namespace ttdtwm
         private static float[] __nominal_acceleration = new float[6];
         private static float[] __thrust_limits        = new float[6];
 
-        private static Vector3?[] __new_active_CoT     = new Vector3?[6];
-        private static float[]    __new_active_setting = new float[6];
+        private static Vector3?[] __new_active_CoT = new Vector3?[6];
 
         private static float[] __local_gravity_inv         = new float[6];
         private static float[] __local_linear_velocity_inv = new float[6];
@@ -96,25 +111,27 @@ namespace ttdtwm
 
         private HashSet<MyGyro> _gyroscopes = new HashSet<MyGyro>();
 
-        private bool     _status_displayed = false, _RC_status_displayed = false, _calibration_scheduled = true;
+        private bool     _calibration_scheduled = false, _calibration_in_progress = false;
         private Vector3D _grid_CoM_location = Vector3D.Zero, _prev_position = Vector3D.Zero;
         private MatrixD  _inverse_world_transform;
         private Matrix   _inverse_world_rotation_fixed;
         private float    _max_gyro_torque = 0.0f, _spherical_moment_of_inertia = 1.0f;
         private Task     _thrust_manager_task;
+        private Task[]   _calibration_tasks = new Task[6];
 
         private  bool[]    _enable_integral   = { false, false, false, false, false, false };
         private  bool[]    _restrict_integral = { false, false, false, false, false, false };
+        private  bool[]    _is_solution_good  = { false, false, false, false, false, false };
         private float[]    _current_trim      = new float[6];
         private float[]    _last_trim         = new float[6];
         private Vector3?[] _active_CoT        = new Vector3?[6];
-        private float[]    _active_setting    = new float[6];
         private Vector3    _local_angular_velocity, _prev_angular_velocity = Vector3.Zero, _torque, _manual_rotation, _prev_rotation = Vector3.Zero, _target_rotation, _gyro_override = Vector3.Zero;
-        private bool       _current_mode_is_CoT = false, _new_mode_is_CoT = false, _force_CoT_mode = false, _is_gyro_override_active = false, _use_triangular_mode = false, _request_triangular_mode = false;
+        private bool       _current_mode_is_CoT = false, _new_mode_is_CoT = false, _force_CoT_mode = false, _is_gyro_override_active = false;
         private sbyte      _last_control_scheme = -1;
         private bool       _stabilisation_off = true, _all_engines_off = false, _active_control_on = false, _under_player_control = false, _force_override_refresh = false;
+        private float      _angular_speed;
 
-        private  bool   _integral_cleared = false, _landing_mode_on = false, _RC_landing_mode_on = false, _is_thrust_verride_active = false;
+        private  bool   _integral_cleared = false, _landing_mode_on = false, _is_thrust_verride_active = false;
         private  bool[] _enable_linear_integral = {  true,  true,  true,  true,  true,  true };
         private float[] _linear_integral        = {  0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f };
         private float   _speed, _vertical_speed;
@@ -158,8 +175,7 @@ namespace ttdtwm
             }
             set
             {
-                //if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
-                    _landing_mode_on = value;
+                _landing_mode_on = value;
             }
         }
 
@@ -171,8 +187,7 @@ namespace ttdtwm
             }
             set
             {
-                //if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
-                    _force_CoT_mode = value;
+                _force_CoT_mode = value;
             }
         }
 
@@ -253,7 +268,6 @@ namespace ttdtwm
             for (int dir_index = 0; dir_index < 6; ++dir_index)
                 refresh_thruster_info_for_single_direction(_controlled_thrusters[dir_index]);
             _calibration_scheduled = true;
-            _use_triangular_mode   = false;
         }
 
         private void check_override_on_uncontrolled()
@@ -328,70 +342,128 @@ namespace ttdtwm
 
         #region thrust calibration
 
+        void start_solver(int dir_index)
+        {
+            try
+            {
+                _is_solution_good[dir_index] = _linear_solvers[dir_index].calculate_solution(_thruster_infos[dir_index].Count);
+            }
+            catch (Exception exp)
+            {
+                MyLog.Default.WriteLine(string.Format("TTDTWM\t\"{0}\" {1}(): {2}\n{3}", _grid.DisplayName, exp.Message, exp.TargetSite, exp.StackTrace));
+                throw;
+            }
+        }
+
+        void start_solver_fore()
+        {
+            start_solver((int) thrust_dir.fore);
+        }
+
+        void start_solver_aft()
+        {
+            start_solver((int) thrust_dir.aft);
+        }
+
+        void start_solver_starboard()
+        {
+            start_solver((int) thrust_dir.starboard);
+        }
+
+        void start_solver_port()
+        {
+            start_solver((int) thrust_dir.port);
+        }
+
+        void start_solver_dorsal()
+        {
+            start_solver((int) thrust_dir.dorsal);
+        }
+
+        void start_solver_ventral()
+        {
+            start_solver((int) thrust_dir.ventral);
+        }
+
         private void perform_linear_calibration()
         {
-            bool  is_solution_good;
             float x = 0.0f, y = 0.0f;
 
+            _calibration_scheduled   = false;
+            _calibration_in_progress = true;
             foreach (thrust_dir cur_direction in Enum.GetValues(typeof(thrust_dir)))
             {
-                _thruster_infos.Clear();
-                _thruster_infos.AddRange(_controlled_thrusters[(int) cur_direction].Values);
+                List<thruster_info> thruster_infos = _thruster_infos[(int) cur_direction];
+                simplex_solver      linear_solver  = _linear_solvers[(int) cur_direction];
 
-                for (int index = 0; index < _thruster_infos.Count; ++index)
+                //thruster_infos.Clear();
+                //thruster_infos.AddRange(_controlled_thrusters[(int) cur_direction].Values);
+
+                for (int index = 0; index < thruster_infos.Count; ++index)
                 {
                     switch (cur_direction)
                     {
                         case thrust_dir.fore:
                         case thrust_dir.aft:
-                            x = _thruster_infos[index].CoM_offset.X;
-                            y = _thruster_infos[index].CoM_offset.Y;
+                            x = thruster_infos[index].CoM_offset.X;
+                            y = thruster_infos[index].CoM_offset.Y;
                             break;
 
                         case thrust_dir.starboard:
                         case thrust_dir.port:
-                            x = _thruster_infos[index].CoM_offset.Y;
-                            y = _thruster_infos[index].CoM_offset.Z;
+                            x = thruster_infos[index].CoM_offset.Y;
+                            y = thruster_infos[index].CoM_offset.Z;
                             break;
 
                         case thrust_dir.dorsal:
                         case thrust_dir.ventral:
-                            x = _thruster_infos[index].CoM_offset.X;
-                            y = _thruster_infos[index].CoM_offset.Z;
+                            x = thruster_infos[index].CoM_offset.X;
+                            y = thruster_infos[index].CoM_offset.Z;
                             break;
                     }
-                    if (index >= _linear_solver.items.Count)
-                        _linear_solver.items.Add(new solver_entry());
-                    _linear_solver.items[index].x = x;
-                    _linear_solver.items[index].y = y;
-                    _linear_solver.items[index].max_value = _thruster_infos[index].max_force;
+                    if (index >= linear_solver.items.Count)
+                        linear_solver.items.Add(new solver_entry());
+                    linear_solver.items[index].x = x;
+                    linear_solver.items[index].y = y;
+                    linear_solver.items[index].max_value = thruster_infos[index].max_force;
                 }
 
-                is_solution_good = _linear_solver.calculate_solution(_thruster_infos.Count);
-                for (int index = 0; index < _thruster_infos.Count; ++index)
+                //log_ECU_action("perform_linear_calibration", "Starting calibration on " + cur_direction.ToString() + " side");
+                _calibration_tasks[(int) cur_direction] = MyAPIGateway.Parallel.Start(_solver_starters[(int) cur_direction]);
+                //_calibration_tasks[(int) cur_direction].Wait();
+            }
+        }
+
+        private void set_up_thrust_limits()
+        {
+            foreach (thrust_dir cur_direction in Enum.GetValues(typeof(thrust_dir)))
+            {
+                List<thruster_info> thruster_infos = _thruster_infos[(int) cur_direction];
+                simplex_solver      linear_solver  = _linear_solvers[(int) cur_direction];
+
+                for (int index = 0; index < thruster_infos.Count; ++index)
                 {
-                    if (!is_solution_good)
+                    if (!_is_solution_good[(int) cur_direction])
                     {
-                        _thruster_infos[index].thrust_limit    = 0.0f;
-                        _thruster_infos[index].enable_rotation = true;
+                        thruster_infos[index].thrust_limit    = 0.0f;
+                        thruster_infos[index].enable_rotation = true;
                     }
                     else
                     {
-                        _thruster_infos[index].thrust_limit = (_linear_solver.items[index].max_value > 1.0f)
-                            ? (_linear_solver.items[index].result / _linear_solver.items[index].max_value) : 1.0f;
-                        _thruster_infos[index].enable_rotation = _thruster_infos[index].active_control_on;
+                        thruster_infos[index].thrust_limit = (linear_solver.items[index].max_value > 1.0f)
+                            ? (linear_solver.items[index].result / linear_solver.items[index].max_value) : 1.0f;
+                        thruster_infos[index].enable_rotation = thruster_infos[index].active_control_on;
                     }
-                    //log_ECU_action("perform_linear_calibration", string.Format("{0} kN ({1})", _linear_solver.items[index].result / 1000.0f, cur_direction));
+                    //log_ECU_action("set_up_thrust_limits", string.Format("{0} kN ({1})", linear_solver.items[index].result / 1000.0f, cur_direction));
                 }
 
                 /*
-                log_ECU_action("perform_linear_calibration", is_solution_good
-                    ? string.Format("successfully calibrated {0} thrusters on {1} side", _thruster_infos.Count, cur_direction)
+                log_ECU_action("set_up_thrust_limits", _is_solution_good[(int) cur_direction]
+                    ? string.Format("successfully calibrated {0} thrusters on {1} side", thruster_infos.Count, cur_direction)
                     : string.Format("calibration on {0} side failed", cur_direction));
                 */
             }
-
-            _calibration_scheduled = false;
+            _calibration_in_progress = false;
         }
 
         #endregion
@@ -417,8 +489,6 @@ namespace ttdtwm
 
         private void apply_thrust_settings(bool reset_all_thrusters)
         {
-            const float MIN_OVERRIDE = 1.1f;
-
             float         setting;
             int           setting_int;
             bool          enforce_min_override, dry_run;
@@ -459,7 +529,8 @@ namespace ttdtwm
                 if (reset_all_thrusters)
                     _current_trim[dir_index] = _last_trim[dir_index] = 0.0f;
 
-                enforce_min_override = __control_vector[dir_index] > 0.01f && _speed > 10.0f * DESCENDING_SPEED 
+                int opposite_dir = (dir_index < 3) ? (dir_index + 3) : (dir_index - 3);
+                enforce_min_override = (_speed >= 0.1f || _angular_speed >= 0.002f) && _max_force[dir_index] > _max_force[opposite_dir] * MIN_OVERRIDE / 100.0f
                     || _landing_mode_on && linear_dampers_on && _vertical_speed > -DESCENDING_SPEED * 0.5f && _vertical_speed < DESCENDING_SPEED * 0.5f;
                 foreach (var cur_thruster in _controlled_thrusters[dir_index])
                 {
@@ -500,7 +571,6 @@ namespace ttdtwm
             const float DAMPING_CONSTANT = -2.0f, INTEGRAL_CONSTANT = 0.05f;
 
             _linear_control = Vector3.Clamp(_manual_thrust + _thrust_override, -Vector3.One, Vector3.One);
-            //_allow_extra_linear_opposition = control.LengthSquared() > 0.75f * 0.75f;
             decompose_vector(_linear_control, __control_vector);
             sbyte control_scheme    = get_current_control_scheme();
             float gravity_magnitude = local_gravity_vector.Length();
@@ -515,9 +585,14 @@ namespace ttdtwm
                     for (int dir_index = 0; dir_index < 6; ++dir_index)
                     {
                         _enable_linear_integral[dir_index] = false;
-                        _linear_integral[dir_index]        = 0.0f;
+                        _linear_integral[dir_index]        = __braking_vector[dir_index] = 0.0f;
                     }
                     _integral_cleared = true;
+                }
+                for (int dir_index = 0, opposite_dir = 3; dir_index < 3; ++dir_index, ++opposite_dir)
+                {
+                    set_brake(   dir_index, opposite_dir);
+                    set_brake(opposite_dir,    dir_index);
                 }
                 _stabilisation_off |= !controls_active && gravity_magnitude > 0.1f && _vertical_speed > -DESCENDING_SPEED * 0.5f && _vertical_speed < DESCENDING_SPEED * 0.5f;
             }
@@ -625,6 +700,12 @@ namespace ttdtwm
             {
                 float braking_force = __braking_vector[dir_index] + _grid.Physics.Mass * _linear_integral[dir_index];
 
+                if (   (_speed >= 0.1f || _angular_speed >= 0.002f) 
+                    && (__braking_vector[dir_index] > 0.0f || __braking_vector[opposite_dir] == 0.0f && _max_force[dir_index] < _max_force[opposite_dir])
+                    &&  _max_force[dir_index] > _max_force[opposite_dir] * MIN_OVERRIDE / 100.0f)
+                {
+                    braking_force += _max_force[opposite_dir] * MIN_OVERRIDE / 100.0f;  // To account for thrust override minimum
+                }
                 if (_max_force[opposite_dir] < 1.0f)
                     braking_force -= _grid.Physics.Mass * _linear_integral[opposite_dir];
                 __control_vector[dir_index] += braking_force / _max_force[dir_index];
@@ -635,8 +716,6 @@ namespace ttdtwm
                     __control_vector[dir_index]        = 1.0f;
                     _enable_linear_integral[dir_index] = _enable_linear_integral[opposite_dir] = false;
                 }
-                //if (__control_vector[dir_index] > 0.75f)
-                //    _allow_extra_linear_opposition = true;
             }
         }
 
@@ -668,43 +747,37 @@ namespace ttdtwm
 
         private void adjust_thrust_for_steering(int cur_dir, int opposite_dir, Vector3 desired_angular_velocity)
         {
-            const float DAMPING_CONSTANT = 5.0f, MIN_LINEAR_OPPOSITION = 0.1f, MAX_LINEAR_OPPOSITION = 0.9f;
+            const float DAMPING_CONSTANT = 2.0f, MIN_LINEAR_OPPOSITION = 0.1f, MAX_LINEAR_OPPOSITION = 0.9f;
 
             if (_max_force[cur_dir] <= 1.0f)
             {
-                __new_active_CoT[    cur_dir] = null;
-                __new_active_setting[cur_dir] = 0.0f;
+                __new_active_CoT[cur_dir] = null;
                 return;
             }
 
             Vector3 angular_velocity_diff = desired_angular_velocity - _local_angular_velocity, total_static_moment = Vector3.Zero;
             float   max_linear_opposition, damping = DAMPING_CONSTANT * _grid.Physics.Mass / _max_force[cur_dir], current_limit = __thrust_limits[cur_dir], 
-                    angular_velocity_diff_magnitude = angular_velocity_diff.Length(), total_force = 0.0f;
+                    angular_velocity_diff_magnitude = angular_velocity_diff.Length(), total_force = 0.0f, control;
             float[] linear_component = __linear_component[cur_dir];
-            bool    enforce_thrust_limit = !_current_mode_is_CoT && __control_vector[opposite_dir] > 0.01f, rotational_thrusters_active = false, THR_mode_used;
+            bool    enforce_thrust_limit = !_current_mode_is_CoT && __control_vector[opposite_dir] > 0.01f, THR_mode_used;
 
             max_linear_opposition = MAX_LINEAR_OPPOSITION * (1.0f - __control_vector[opposite_dir]) +  MIN_LINEAR_OPPOSITION * __control_vector[opposite_dir];
-            //max_linear_opposition = MIN_LINEAR_OPPOSITION * __control_vector[opposite_dir];
-            //if (_allow_extra_linear_opposition)
-            //    max_linear_opposition += MAX_LINEAR_OPPOSITION * (1.0f - __control_vector[opposite_dir]);
             if (_max_force[opposite_dir] < _max_force[cur_dir])
                 max_linear_opposition *= _max_force[opposite_dir] / _max_force[cur_dir];
 
-            __new_active_setting[cur_dir] = 0.0f;
             foreach (var cur_thruster_info in _controlled_thrusters[cur_dir].Values)
             {
                 cur_thruster_info.is_reduced = false;
                 if (cur_thruster_info.skip)
                     continue;
-                //cur_thruster_info.skip |= enforce_thrust_limit && cur_thruster_info.opposing_thruster != null;
 
                 decompose_vector(Vector3.Cross(angular_velocity_diff, cur_thruster_info.reference_vector), linear_component);
                 if (linear_component[cur_dir] > 0.0f)
                 {
-                    //if (cur_thruster_info.skip)
-                    //    continue;
-
-                    cur_thruster_info.current_setting += damping * linear_component[cur_dir] + max_linear_opposition * (1.0f - __thrust_limits[cur_dir]);
+                    control = linear_component[cur_dir];
+                    //if (control > 1.0f)
+                    //    control = 1.0f;
+                    cur_thruster_info.current_setting += damping * control + max_linear_opposition * (1.0f - __thrust_limits[cur_dir]);
                     if (enforce_thrust_limit && cur_thruster_info.active_control_on && !cur_thruster_info.is_RCS)
                     {
                         // Limit thrusters opposing player/ID linear input
@@ -714,77 +787,66 @@ namespace ttdtwm
                     if (cur_thruster_info.current_setting > 1.0f)
                         cur_thruster_info.current_setting = 1.0f;
 
-                    if (_use_triangular_mode)
+                    if (_force_CoT_mode)
                     {
                         total_static_moment += cur_thruster_info.current_setting * cur_thruster_info.static_moment;
                         total_force         += cur_thruster_info.current_setting * cur_thruster_info.max_force;
                     }
-                    if (__new_active_setting[cur_dir] < cur_thruster_info.current_setting)
-                        __new_active_setting[cur_dir] = cur_thruster_info.current_setting;
-                    if (cur_thruster_info.current_setting >= MIN_LINEAR_OPPOSITION)
-                        rotational_thrusters_active = true;
                 }
                 else if (linear_component[opposite_dir] > 0.0f)
                 {
-                    THR_mode_used                      = cur_thruster_info.active_control_on && !cur_thruster_info.is_RCS;
-                    cur_thruster_info.is_reduced       = true;
-                    cur_thruster_info.current_setting -= damping * linear_component[opposite_dir];
-                    if (cur_thruster_info.current_setting < MIN_LINEAR_OPPOSITION)
-                        cur_thruster_info.current_setting = 0.0f;
-                    else
-                        rotational_thrusters_active = true;
+                    THR_mode_used                = cur_thruster_info.active_control_on && !cur_thruster_info.is_RCS;
+                    cur_thruster_info.is_reduced = true;
+
+                    control = linear_component[opposite_dir];
+                    //if (control > 1.0f)
+                    //    control = 1.0f;
+                    cur_thruster_info.current_setting -= damping * control;
                     if (THR_mode_used)
                         cur_thruster_info.current_setting += 0.6f * cur_thruster_info.thrust_limit * __control_vector[cur_dir] * (1.0f - cur_thruster_info.current_setting);
-                    if (cur_thruster_info.current_setting > current_limit)
+                    if (cur_thruster_info.current_setting < 0.0f)
+                        cur_thruster_info.current_setting = 0.0f;
+                    else if (cur_thruster_info.current_setting > current_limit)
                         cur_thruster_info.current_setting = current_limit;
                     if (enforce_thrust_limit && THR_mode_used && cur_thruster_info.current_setting > max_linear_opposition)
                     {
                         // Limit thrusters opposing player/ID linear input
                         cur_thruster_info.current_setting = max_linear_opposition;
                     }
+
+                    if (_force_CoT_mode)
+                    {
+                        total_static_moment += cur_thruster_info.current_setting * cur_thruster_info.static_moment;
+                        total_force         += cur_thruster_info.current_setting * cur_thruster_info.max_force;
+                    }
                 }
             }
 
             __new_active_CoT[cur_dir] = (total_force < 1.0f) ? null : ((Vector3?) (total_static_moment / total_force));
 
-            if (!rotational_thrusters_active && angular_velocity_diff_magnitude > 0.001f && _active_setting[opposite_dir] > 0.1f)
+            if (_force_CoT_mode && _active_CoT[opposite_dir] != null)
             {
-                float triangular_limit = 1.0f - Math.Abs(Vector3.Dot(angular_velocity_diff, _thrust_forward_vectors[cur_dir])) / angular_velocity_diff_magnitude;
-                if (triangular_limit > 0.1f)
+                var opposite_CoT = (Vector3) _active_CoT[opposite_dir];
+
+                foreach (var cur_thruster_info in _controlled_thrusters[cur_dir].Values)
                 {
-                    _request_triangular_mode = true;
-                    if (_active_CoT[opposite_dir] != null)
+                    if (cur_thruster_info.skip || !cur_thruster_info.is_reduced && cur_thruster_info.current_setting > 0.5f)
+                        continue;
+
+                    decompose_vector(Vector3.Cross(angular_velocity_diff, cur_thruster_info.grid_centre_pos - opposite_CoT), linear_component);
+                    if (linear_component[cur_dir] > 0.0f)
                     {
-                        var opposite_CoT = (Vector3) _active_CoT[opposite_dir];
-
-                        float neutral_setting = triangular_limit * _active_setting[opposite_dir] * angular_velocity_diff_magnitude / 0.2f;
-                        if (enforce_thrust_limit && neutral_setting > max_linear_opposition)
-                            neutral_setting = max_linear_opposition;
-                        if (neutral_setting > __thrust_limits[cur_dir])
-                            neutral_setting = __thrust_limits[cur_dir];
-                        if (neutral_setting < MIN_LINEAR_OPPOSITION)
-                            neutral_setting = 0.0f;
-
-                        foreach (var cur_thruster_info in _controlled_thrusters[cur_dir].Values)
+                        control = linear_component[cur_dir];
+                        //if (control > 1.0f)
+                        //    control = 1.0f;
+                        cur_thruster_info.current_setting += damping * control;
+                        if (cur_thruster_info.current_setting > 1.0f)
+                            cur_thruster_info.current_setting = 1.0f;
+                        if (__control_vector[opposite_dir] > 0.01f && cur_thruster_info.active_control_on && !cur_thruster_info.is_RCS)
                         {
-                            if (cur_thruster_info.skip)
-                                continue;
-
-                            decompose_vector(Vector3.Cross(angular_velocity_diff, cur_thruster_info.grid_centre_pos - opposite_CoT), linear_component);
-                            if (linear_component[cur_dir] > 0.0f)
-                            {
-                                cur_thruster_info.current_setting += damping * linear_component[cur_dir];
-                                if (cur_thruster_info.current_setting > 1.0f)
-                                    cur_thruster_info.current_setting = 1.0f;
-                                else if (cur_thruster_info.current_setting < 0.5f)
-                                    cur_thruster_info.current_setting = neutral_setting;
-                                if (__control_vector[opposite_dir] > 0.01f && cur_thruster_info.active_control_on && !cur_thruster_info.is_RCS)
-                                {
-                                    // Limit thrusters opposing player/ID linear input
-                                    if (cur_thruster_info.current_setting > max_linear_opposition)
-                                        cur_thruster_info.current_setting = max_linear_opposition;
-                                }
-                            }
+                            // Limit thrusters opposing player/ID linear input
+                            if (cur_thruster_info.current_setting > max_linear_opposition)
+                                cur_thruster_info.current_setting = max_linear_opposition;
                         }
                     }
                 }
@@ -1065,6 +1127,7 @@ namespace ttdtwm
             _local_angular_velocity = Vector3.Transform(_grid.Physics.AngularVelocity, inverse_world_rotation);
             if (_is_gyro_override_active)
                 _local_angular_velocity -= _gyro_override;
+            _angular_speed = _local_angular_velocity.Length();
 
             sbyte control_scheme = initialise_linear_controls(local_linear_velocity, local_gravity);
             bool  update_inverse_world_matrix;
@@ -1075,8 +1138,7 @@ namespace ttdtwm
             if (update_inverse_world_matrix || _speed <= 20.0f || Vector3.Dot(_inverse_world_rotation_fixed.Forward, inverse_world_rotation.Forward) < 0.98f)
                 _inverse_world_rotation_fixed = inverse_world_rotation;
 
-            _new_mode_is_CoT                = true; 
-            //_allow_extra_linear_opposition |= _manual_rotation.LengthSquared() > 0.0001f || _local_angular_velocity.LengthSquared() > 0.0003f;
+            _new_mode_is_CoT = true; 
 
             //int counter = 6;
             Action<int> set_up_thrusters = delegate (int dir_index)
@@ -1107,7 +1169,6 @@ namespace ttdtwm
                 //--counter;
             };
 
-            _request_triangular_mode = false;
             //if (MyAPIGateway.Parallel != null)
             MyAPIGateway.Parallel.For(0, 6, set_up_thrusters);
             //else
@@ -1119,9 +1180,7 @@ namespace ttdtwm
             */
             //if (counter > 0)
             //    throw new Exception("Non-blocking execution detected");
-            _use_triangular_mode = _request_triangular_mode;
-            Array.Copy(__new_active_CoT    , _active_CoT    , 6);
-            Array.Copy(__new_active_setting, _active_setting, 6);
+            Array.Copy(__new_active_CoT, _active_CoT, 6);
 
             normalise_thrust();
             apply_thrust_settings(reset_all_thrusters: false);
@@ -1219,8 +1278,8 @@ namespace ttdtwm
                     {
                         examined_thruster_info.opposing_thruster = cur_thruster_info;
                         //log_ECU_action("find_tandem_and_opposite_thrusters", string.Format("opposing thruster found \"{0}\" [{1}] for \"{2}\" [{3}]",
-                        //    ((PB.IMyTerminalBlock)cur_thruster.Key).CustomName, cur_thruster.Key.EntityId,
-                        //    ((PB.IMyTerminalBlock)        thruster).CustomName,         thruster.EntityId));
+                        //    ((PB.IMyTerminalBlock) cur_thruster.Key).CustomName, cur_thruster.Key.EntityId,
+                        //    ((PB.IMyTerminalBlock)         thruster).CustomName,         thruster.EntityId));
                         break;
                     }
                 }
@@ -1281,102 +1340,61 @@ namespace ttdtwm
 
         private void check_thruster_control_changed()
         {
-            MyThrust      cur_thruster;
-            thruster_info cur_thruster_info;
-            bool          changes_made = false, contains_THR, contains_RCS, contains_STAT, use_active_control;
-            int           dir_index;
+            List<thruster_info> thruster_infos;
+            MyThrust            cur_thruster;
+            thruster_info       cur_thruster_info;
+            bool                changes_made = false, contains_THR, contains_RCS, contains_STAT, use_active_control;
+            int                 dir_index;
 
-            /*
-            foreach (var cur_direction in _controlled_thrusters)
+            if (_calibration_in_progress)
             {
-                foreach (var cur_thruster_entry in cur_direction)
-                    cur_thruster_entry.Value.skip = false;
-            }
-            foreach (var cur_thruster_entry in _uncontrolled_thrusters)
-            {
-                cur_thruster_info      = cur_thruster_entry.Value;
-                cur_thruster_info.skip = cur_thruster_info.actual_max_force < 0.01f * cur_thruster_info.max_force || !cur_thruster_entry.Key.IsWorking;
-            }
-            */
-
-            _active_control_on = false;
-            /*
-            List<MyObjectBuilder_BlockGroup> all_groups = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).BlockGroups;
-            foreach (var cur_group in all_groups)
-            {
-                IMySlimBlock cur_block;
-
-                cur_group.Name.ToUpperTo(_group_name);
-                contains_THR  = _group_name.ContainsTHRTag();
-                contains_RCS  = _group_name.ContainsRCSTag();
-                contains_STAT = _group_name.ContainsSTATTag();
-                if (contains_THR || contains_RCS || contains_STAT)
+                foreach (var cur_task in _calibration_tasks)
                 {
-                    foreach (var cur_block_location in cur_group.Blocks)
-                    {
-                        cur_block = _grid.GetCubeBlock(cur_block_location);
-                        if (cur_block == null || cur_block.FatBlock == null)
-                            continue;
-                        cur_thruster = cur_block.FatBlock as MyThrust;
-                        if (cur_thruster == null)
-                            continue;
-                        if (_uncontrolled_thrusters.ContainsKey(cur_thruster))
-                        {
-                            cur_thruster_info = _uncontrolled_thrusters[cur_thruster];
-                            if (cur_thruster_info.skip)
-                                continue;
-                            enable_control(cur_thruster, cur_thruster_info);
-                            changes_made = true;
-                        }
-                        else
-                        {
-                            cur_thruster_info = null;
-                            foreach (var cur_direction in _controlled_thrusters)
-                            {
-                                if (cur_direction.ContainsKey(cur_thruster))
-                                {
-                                    cur_thruster_info = cur_direction[cur_thruster];
-                                    break;
-                                }
-                            }
-                            if (cur_thruster_info == null || cur_thruster_info.skip || cur_thruster_info.actual_max_force < 0.01f * cur_thruster_info.max_force || !cur_thruster.IsWorking)
-                                continue;
-                        }
+                    if (cur_task.valid && !cur_task.IsComplete)
+                        return;
+                }
+                set_up_thrust_limits();
+            }
 
-                        use_active_control  = contains_THR || contains_RCS;
-                        _active_control_on |= use_active_control;
-                        if (cur_thruster_info.active_control_on != use_active_control)
-                            cur_thruster_info.enable_rotation = cur_thruster_info.active_control_on = use_active_control;
-                        cur_thruster_info.is_RCS = contains_RCS;
-                        if (cur_thruster_info.enable_limit != contains_STAT)
-                        {
-                            cur_thruster_info.enable_limit = contains_STAT;
-                            _calibration_scheduled        |= contains_STAT;
-                        }
-                        cur_thruster_info.skip = true;
-                    }
+            _thrusters_copy.Clear();
+            _thrusters_copy.AddRange(_uncontrolled_thrusters.Keys);
+            thruster_infos = _thruster_infos[0];
+            thruster_infos.Clear();
+            thruster_infos.AddRange(_uncontrolled_thrusters.Values);
+            for (int index = 0; index < _thrusters_copy.Count; ++index)
+            {
+                cur_thruster_info = thruster_infos[index];
+                cur_thruster = _thrusters_copy[index];
+                ((PB.IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
+                contains_THR = _thruster_name.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
+                contains_RCS = _thruster_name.ContainsRCSTag();
+                contains_STAT = _thruster_name.ContainsSTATTag();
+                if ((contains_THR || contains_RCS || contains_STAT) && cur_thruster_info.actual_max_force > 0.01f * cur_thruster_info.max_force && cur_thruster.IsWorking)
+                {
+                    enable_control(cur_thruster, cur_thruster_info);
+                    cur_thruster_info.enable_rotation = cur_thruster_info.active_control_on = contains_THR || contains_RCS;
+                    changes_made = true;
                 }
             }
-            */
 
+            _active_control_on = false;
             for (dir_index = 0; dir_index < 6; ++dir_index)
             {
                 Dictionary<MyThrust, thruster_info> cur_direction = _controlled_thrusters[dir_index];
 
                 _thrusters_copy.Clear();
                 _thrusters_copy.AddRange(cur_direction.Keys);
-                _thruster_infos.Clear();
-                _thruster_infos.AddRange(cur_direction.Values);
+                thruster_infos = _thruster_infos[dir_index];
+                thruster_infos.Clear();
+                thruster_infos.AddRange(cur_direction.Values);
                 for (int index = 0; index < _thrusters_copy.Count; ++index)
                 {
-                    cur_thruster_info = _thruster_infos[index];
-                    //if (cur_thruster_info.skip)
-                    //    continue;
+                    cur_thruster_info = thruster_infos[index];
                     cur_thruster = _thrusters_copy[index];
                     ((PB.IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
                     contains_THR  = _thruster_name.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
                     contains_RCS  = _thruster_name.ContainsRCSTag();
-                    contains_STAT = _thruster_name.ContainsSTATTag();
+                    contains_STAT = !contains_RCS && _thruster_name.ContainsSTATTag();
                     if (!contains_THR && !contains_RCS && !contains_STAT || cur_thruster_info.actual_max_force < 0.01f * cur_thruster_info.max_force || !cur_thruster.IsWorking)
                     {
                         disable_control(cur_thruster, cur_thruster_info);
@@ -1398,28 +1416,6 @@ namespace ttdtwm
                 }
             }
 
-            _thrusters_copy.Clear();
-            _thrusters_copy.AddRange(_uncontrolled_thrusters.Keys);
-            _thruster_infos.Clear();
-            _thruster_infos.AddRange(_uncontrolled_thrusters.Values);
-            for (int index = 0; index < _thrusters_copy.Count; ++index)
-            {
-                cur_thruster_info = _thruster_infos[index];
-                //if (cur_thruster_info.skip)
-                //    continue;
-                cur_thruster = _thrusters_copy[index];
-                ((PB.IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
-                contains_THR  = _thruster_name.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
-                contains_RCS  = _thruster_name.ContainsRCSTag();
-                contains_STAT = _thruster_name.ContainsSTATTag();
-                if ((contains_THR || contains_RCS || contains_STAT) && cur_thruster_info.actual_max_force > 0.01f * cur_thruster_info.max_force && cur_thruster.IsWorking)
-                {
-                    enable_control(cur_thruster, cur_thruster_info);
-                    cur_thruster_info.enable_rotation = cur_thruster_info.active_control_on = contains_THR || contains_RCS;
-                    changes_made = true;
-                }
-            }
-
             if (changes_made)
             {
                 if (_current_mode_is_CoT)
@@ -1427,7 +1423,6 @@ namespace ttdtwm
                 else
                     update_reference_vectors_for_CoM_mode();
                 _calibration_scheduled = true;
-                _use_triangular_mode   = false;
                 /*
                 log_ECU_action("check_thruster_control_changed", string.Format("{0}/{1}/{2}/{3}/{4}/{5} kN",
                     _max_force[(int) thrust_dir.fore     ] / 1000.0f,
@@ -1586,6 +1581,14 @@ namespace ttdtwm
             _grid = (MyCubeGrid) grid_ref;
             _inverse_world_transform      = _grid.PositionComp.WorldMatrixNormalizedInv;
             _inverse_world_rotation_fixed = _inverse_world_transform.GetOrientation();
+
+            _solver_starters = new Action[6];
+            _solver_starters[(int) thrust_dir.fore     ] = start_solver_fore;
+            _solver_starters[(int) thrust_dir.aft      ] = start_solver_aft;
+            _solver_starters[(int) thrust_dir.starboard] = start_solver_starboard;
+            _solver_starters[(int) thrust_dir.port     ] = start_solver_port;
+            _solver_starters[(int) thrust_dir.dorsal   ] = start_solver_dorsal;
+            _solver_starters[(int) thrust_dir.ventral  ] = start_solver_ventral;
         }
 
         #endregion
@@ -1686,27 +1689,6 @@ namespace ttdtwm
             var    controller = current_controller as MyShipController;
             return controller != null && controller.CubeGrid == _grid;
         }
-
-        /*
-        public void select_flight_modes(VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller, bool RC_block_present)
-        {
-            if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
-                return;
-
-            if (current_controller != null)
-            {
-                ((PB.IMyTerminalBlock) current_controller).CustomName.ToUpperTo(__controller_name);
-                _force_CoT_mode = __controller_name.ContainsCOTTag();
-            }
-
-            if (_speed >= DESCENDING_SPEED * 10.0f || _grid.HasMainCockpit() || _grid.Physics == null || _grid.Physics.Gravity.LengthSquared() < 0.0001f)
-                _landing_mode_on = _RC_landing_mode_on = false;
-            else if (current_controller is PB.IMyRemoteControl)
-                _landing_mode_on = _RC_landing_mode_on = __controller_name.ContainsLANDINGTag();
-            else
-                _landing_mode_on = !RC_block_present || _RC_landing_mode_on;
-       }
-       */
 
         public void check_autopilot(PB.IMyRemoteControl RC_block)
         {
@@ -1866,11 +1848,11 @@ namespace ttdtwm
                         cur_thrust_info.enable_limit = cur_thrust_info.enable_rotation = cur_thrust_info.active_control_on = cur_thrust_info.is_RCS = false;
                     }
                 }
-                //check_thruster_control_changed();
-                _thrust_manager_task = MyAPIGateway.Parallel.StartBackground(start_2s_manager_thread);
+                _thrust_manager_task = MyAPIGateway.Parallel.Start(start_2s_manager_thread);
+                //_thrust_manager_task.Wait();
             }
 
-            _inverse_world_rotation_fixed = _inverse_world_transform.GetOrientation();
+            //_inverse_world_rotation_fixed = _inverse_world_transform.GetOrientation();
             _force_override_refresh       = true;
             _prev_rotation                = _manual_rotation;
         }

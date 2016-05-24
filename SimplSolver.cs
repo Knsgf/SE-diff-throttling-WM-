@@ -7,17 +7,17 @@ using VRage.Utils;
 namespace ttdtwm
 {
     // Technically a struct, but C# doesnt' allow to modify fields of a struct which is implemented as property
-    class solver_entry
+    sealed class solver_entry
     {
         public float x, y, max_value, result;
     };
 
-    class simplex_solver
+    sealed class simplex_solver
     {
         const double GUARD_VALUE = 1.0E-6;
 
         private double[][] _tableau;    // ModAPI doesn't like true multidimesional arrays
-        private int  _current_width = 0;
+        private int        _current_width = 0;
 
         public List<solver_entry> items { get; private set; }
 
@@ -44,10 +44,10 @@ namespace ttdtwm
 
         private void fill_tableau(int item_count, int height, int width)
         {
-            if (_current_width >= width)
+            if (_current_width == width)
             {
                 foreach (var cur_row in _tableau)
-                    Array.Clear(cur_row, 0, _current_width);
+                    Array.Clear(cur_row, 0, width);
             }
             else
             {
@@ -79,7 +79,7 @@ namespace ttdtwm
 
         private bool solve(int height, int width)
         {
-            const uint MAX_ITERATIONS = 50;
+            const uint MAX_ITERATIONS = 500;
 
             uint iterations = 0;
 
