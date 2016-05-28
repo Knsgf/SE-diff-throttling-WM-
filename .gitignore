@@ -2,3 +2,4 @@ Properties/
 bin/
 obj/
 *.csproj
+*.TMP
