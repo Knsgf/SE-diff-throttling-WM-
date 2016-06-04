@@ -32,8 +32,7 @@ namespace ttdtwm
             public float         max_force, actual_max_force, actual_min_force;
             public Vector3       max_torque, grid_centre_pos, static_moment, CoM_offset, reference_vector;
             public thrust_dir    nozzle_direction;
-            public float         current_setting, thrust_limit;
-            public int           prev_setting;
+            public float         current_setting, thrust_limit, prev_setting;
             public bool          enable_limit, enable_rotation, active_control_on, is_RCS, skip, is_reduced;
             public thruster_info next_tandem_thruster, prev_tandem_thruster, opposing_thruster;
         };
@@ -492,7 +491,6 @@ namespace ttdtwm
         private void apply_thrust_settings(bool reset_all_thrusters)
         {
             float         setting, setting_ratio;
-            int           setting_int;
             bool          enforce_min_override, dry_run;
             thruster_info cur_thruster_info;
 
@@ -538,15 +536,15 @@ namespace ttdtwm
                 {
                     cur_thruster_info = cur_thruster.Value;
                     if (_force_override_refresh)
-                        cur_thruster_info.prev_setting = (int) Math.Ceiling(cur_thruster.Key.CurrentStrength * 100.0f);
+                        cur_thruster_info.prev_setting = cur_thruster.Key.CurrentStrength * 100.0f;
 
                     if (reset_all_thrusters || cur_thruster_info.actual_max_force < 1.0f || !cur_thruster.Key.IsWorking)
                     {
-                        if (cur_thruster_info.prev_setting != 0 || reset_all_thrusters)
+                        if (cur_thruster_info.prev_setting > 0.0f || reset_all_thrusters)
                         {
                             if (!dry_run)
                                 cur_thruster.Key.SetValueFloat("Override", 0.0f);
-                            cur_thruster_info.current_setting = cur_thruster_info.prev_setting = 0;
+                            cur_thruster_info.current_setting = cur_thruster_info.prev_setting = 0.0f;
                         }
                         continue;
                     }
@@ -554,13 +552,12 @@ namespace ttdtwm
                     setting = cur_thruster_info.current_setting * 100.0f;
                     if (enforce_min_override && setting < MIN_OVERRIDE)
                         setting = MIN_OVERRIDE;
-                    setting_int   = (int) Math.Ceiling(setting);
-                    setting_ratio = (cur_thruster_info.prev_setting == 0) ? 1.0f : (setting / cur_thruster_info.prev_setting);
-                    if (setting_int != cur_thruster_info.prev_setting || setting_ratio <= 0.9f || setting_ratio >= 1.1f)
+                    setting_ratio = (cur_thruster_info.prev_setting == 0.0f) ? 1.0f : (setting / cur_thruster_info.prev_setting);
+                    if (setting_ratio <= 0.9f || setting_ratio >= 1.1f || Math.Abs(setting - cur_thruster_info.prev_setting) >= 1.0f)
                     {
                         if (!dry_run)
                             cur_thruster.Key.SetValueFloat("Override", setting);
-                        cur_thruster_info.prev_setting = setting_int;
+                        cur_thruster_info.prev_setting = setting;
                     }
                 }
             }
@@ -1898,8 +1895,8 @@ namespace ttdtwm
             }
 
             //_inverse_world_rotation_fixed = _inverse_world_transform.GetOrientation();
-            _force_override_refresh       = true;
-            _prev_rotation                = _manual_rotation;
+            _force_override_refresh = true;
+            _prev_rotation          = _manual_rotation;
         }
     }
 }

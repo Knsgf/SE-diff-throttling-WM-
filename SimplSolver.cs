@@ -82,18 +82,20 @@ namespace ttdtwm
             const uint MAX_ITERATIONS = 500;
 
             uint iterations = 0;
+            int  last_row = height - 1, last_column = width - 1;
 
             while (true)
             {
                 //MyLog.Default.WriteLine(string.Format("Iteration #{0}/{1}", iterations, max_iterations));
 
-                double min_column_value = 0.0;
-                int    pivot_column     = -1, cur_column;
-                for (cur_column = 0; cur_column < width - 1; ++cur_column)
+                double[] bottom_row_ref   = _tableau[last_row];
+                double   min_column_value = 0.0;
+                int      pivot_column     = -1, cur_column;
+                for (cur_column = 0; cur_column < last_column; ++cur_column)
                 {
-                    if (min_column_value > _tableau[height - 1][cur_column])
+                    if (min_column_value > bottom_row_ref[cur_column])
                     {
-                        min_column_value = _tableau[height - 1][cur_column];
+                        min_column_value = bottom_row_ref[cur_column];
                         pivot_column     = cur_column;
                     }
                 }
@@ -103,13 +105,15 @@ namespace ttdtwm
                     return true;
                 }
 
-                double min_ratio = double.MaxValue, cur_ratio;
-                int    pivot_row = -1, cur_row;
-                for (cur_row = 0; cur_row < height - 1; ++cur_row)
+                double[] cur_row_ref;
+                double   min_ratio = double.MaxValue, cur_ratio;
+                int      pivot_row = -1, cur_row;
+                for (cur_row = 0; cur_row < last_row; ++cur_row)
                 {
-                    if (_tableau[cur_row][pivot_column] > 0.0)
+                    cur_row_ref = _tableau[cur_row];
+                    if (cur_row_ref[pivot_column] > 0.0)
                     {
-                        cur_ratio = _tableau[cur_row][width - 1] / _tableau[cur_row][pivot_column];
+                        cur_ratio = cur_row_ref[width - 1] / cur_row_ref[pivot_column];
                         if (min_ratio > cur_ratio && cur_ratio >= 0.0)
                         {
                             min_ratio = cur_ratio;
@@ -125,23 +129,25 @@ namespace ttdtwm
 
                 //log_tableau(height, width, pivot_row, pivot_column);
 
-                double divider = _tableau[pivot_row][pivot_column], multiplier;
-                for (cur_column = 0; cur_column < width; ++cur_column)
-                    _tableau[pivot_row][cur_column] /= divider;
-                _tableau[pivot_row][pivot_column] = 1.0;
+                double[] pivot_row_ref = _tableau[pivot_row];
+                double   divider       = pivot_row_ref[pivot_column], multiplier;
+                //for (cur_column = 0; cur_column < width; ++cur_column)
+                //    _tableau[pivot_row][cur_column] /= divider;
+                //_tableau[pivot_row][pivot_column] = 1.0;
                 for (cur_row = 0; cur_row < height; ++cur_row)
                 {
                     if (cur_row == pivot_row)
                         continue;
-                    multiplier = _tableau[cur_row][pivot_column];
+                    cur_row_ref = _tableau[cur_row];
+                    multiplier  = cur_row_ref[pivot_column] / divider;
                     for (cur_column = 0; cur_column < width; ++cur_column)
                     {
-                        _tableau[cur_row][cur_column] -= multiplier * _tableau[pivot_row][cur_column];
+                        cur_row_ref[cur_column] -= multiplier * pivot_row_ref[cur_column];
                         
-                        if (Math.Abs(_tableau[cur_row][cur_column]) <= GUARD_VALUE)
-                            _tableau[cur_row][cur_column] = 0.0;
+                        if (Math.Abs(cur_row_ref[cur_column]) <= GUARD_VALUE)
+                            cur_row_ref[cur_column] = 0.0;
                     }
-                    _tableau[cur_row][pivot_column] = 0.0;
+                    cur_row_ref[pivot_column] = 0.0;
                 }
             }
         }

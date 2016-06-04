@@ -415,10 +415,10 @@ namespace ttdtwm
 
         private void handle_user_input(IMyControllableEntity controller)
         {
-            Vector3 manual_thrust = Vector3.Zero, manual_rotation;
-
             if (_ECU == null)
                 return;
+
+            /*
             if (sync_helper.is_spectator_mode_on || MyGuiScreenTerminal.GetCurrentScreen() != MyTerminalPageEnum.None || MyGuiScreenGamePlay.ActiveGameplayScreen != null)
                 manual_rotation = Vector3.Zero;
             else
@@ -446,6 +446,16 @@ namespace ttdtwm
                 if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.CROUCH))
                     manual_thrust += Vector3.Down;
             }
+            */
+
+            Vector3 manual_thrust, manual_rotation;
+            var     ship_controller = (Sandbox.Game.Entities.MyShipController) controller;
+
+            manual_thrust     = ship_controller.MoveIndicator;
+            manual_rotation.X = ship_controller.RotationIndicator.X;
+            manual_rotation.Y = ship_controller.RotationIndicator.Y;
+            manual_rotation.Z = ship_controller.RollIndicator;
+
             send_linear_message  (manual_thrust  );
             send_rotation_message(manual_rotation);
             _ECU.translate_linear_input  (manual_thrust  , controller);
