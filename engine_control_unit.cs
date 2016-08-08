@@ -22,7 +22,7 @@ namespace ttdtwm
     {
         #region fields
 
-        const int   NUM_ROTATION_SAMPLES = 6;
+        const int   NUM_ROTATION_SAMPLES = 6, PHYSICS_ENABLE_DELAY = 6;
         const float DESCENDING_SPEED     = 0.5f, MIN_OVERRIDE = 1.001f;
         const bool  DEBUG_THR_ALWAYS_ON  = false;
 
@@ -140,7 +140,7 @@ namespace ttdtwm
 
         private Vector3[] _rotation_samples = new Vector3[NUM_ROTATION_SAMPLES];
         private Vector3   _sample_sum       = Vector3.Zero;
-        private int       _current_index    = 0;
+        private int       _current_index    = 0, _physics_enable_delay = PHYSICS_ENABLE_DELAY;
 
         #endregion
 
@@ -332,7 +332,9 @@ namespace ttdtwm
             }
             */
 
-            if (_torque.LengthSquared() > MIN_ANGULAR_ACCELERATION * MIN_ANGULAR_ACCELERATION * _spherical_moment_of_inertia * _spherical_moment_of_inertia)
+            if (_physics_enable_delay > 0)
+                --_physics_enable_delay;
+            else if (_torque.LengthSquared() > MIN_ANGULAR_ACCELERATION * MIN_ANGULAR_ACCELERATION * _spherical_moment_of_inertia * _spherical_moment_of_inertia)
             {
                 Vector3 world_torque = Vector3.Transform(_torque, _grid.WorldMatrix.GetOrientation());
                 _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, Vector3.Zero, null, world_torque);
@@ -1133,12 +1135,12 @@ namespace ttdtwm
             Vector3 local_linear_velocity = Vector3.Transform(world_linear_velocity, _inverse_world_rotation_fixed);
 
             Matrix       inverse_world_rotation = _inverse_world_transform.GetOrientation();
-            BoundingBoxD grid_bounding_box      = _grid.PositionComp.WorldAABB;
-            MyPlanet     closest_planetoid      = MyGamePruningStructure.GetClosestPlanet(ref grid_bounding_box);
-            Vector3      world_gravity          = (closest_planetoid == null) ? Vector3.Zero : closest_planetoid.GetWorldGravity(grid_bounding_box.Center);
-            float        gravity_magnitude      = world_gravity.Length();
+            //BoundingBoxD grid_bounding_box      = _grid.PositionComp.WorldAABB;
+            //MyPlanet     closest_planetoid      = MyGamePruningStructure.GetClosestPlanet(ref grid_bounding_box);
+            //Vector3      world_gravity          = (closest_planetoid == null) ? Vector3.Zero : closest_planetoid.GetWorldGravity(grid_bounding_box.Center);
             Vector3      local_gravity          = Vector3.Transform(_grid.Physics.Gravity, inverse_world_rotation);
-            _vertical_speed         = (gravity_magnitude < 0.1f) ? 0.0f : (Vector3.Dot(world_linear_velocity, world_gravity) / (-gravity_magnitude));
+            float        gravity_magnitude      = local_gravity.Length();
+            _vertical_speed         = (gravity_magnitude < 0.1f) ? 0.0f : (Vector3.Dot(local_linear_velocity, local_gravity) / (-gravity_magnitude));
             _local_angular_velocity = Vector3.Transform(_grid.Physics.AngularVelocity, inverse_world_rotation);
             if (_is_gyro_override_active)
                 _local_angular_velocity -= _gyro_override;
@@ -1265,7 +1267,7 @@ namespace ttdtwm
                 if (_thrust_forward_vectors[(int) cur_direction] == dir_vector)
                     return cur_direction;
             }
-            throw new ArgumentException("Thruster " + ((PB.IMyTerminalBlock) thruster).CustomName  + " is not grid-aligned");
+            throw new ArgumentException("Thruster " + ((IMyTerminalBlock) thruster).CustomName  + " is not grid-aligned");
         }
 
         private void find_tandem_and_opposite_thrusters(MyThrust thruster, thruster_info examined_thruster_info)
@@ -1288,8 +1290,8 @@ namespace ttdtwm
 
                     cur_thruster_info.next_tandem_thruster = examined_thruster_info.next_tandem_thruster.prev_tandem_thruster = examined_thruster_info;
                     //log_ECU_action("find_tandem_and_opposite_thrusters", string.Format("tandem thruster found \"{0}\" [{1}] for \"{2}\" [{3}]", 
-                    //    ((PB.IMyTerminalBlock) cur_thruster.Key).CustomName, cur_thruster.Key.EntityId, 
-                    //    ((PB.IMyTerminalBlock)         thruster).CustomName,         thruster.EntityId));
+                    //    ((IMyTerminalBlock) cur_thruster.Key).CustomName, cur_thruster.Key.EntityId, 
+                    //    ((IMyTerminalBlock)         thruster).CustomName,         thruster.EntityId));
                     break;
                 }
             }
@@ -1305,8 +1307,8 @@ namespace ttdtwm
                     {
                         examined_thruster_info.opposing_thruster = cur_thruster_info;
                         //log_ECU_action("find_tandem_and_opposite_thrusters", string.Format("opposing thruster found \"{0}\" [{1}] for \"{2}\" [{3}]",
-                        //    ((PB.IMyTerminalBlock) cur_thruster.Key).CustomName, cur_thruster.Key.EntityId,
-                        //    ((PB.IMyTerminalBlock)         thruster).CustomName,         thruster.EntityId));
+                        //    ((IMyTerminalBlock) cur_thruster.Key).CustomName, cur_thruster.Key.EntityId,
+                        //    ((IMyTerminalBlock)         thruster).CustomName,         thruster.EntityId));
                         break;
                     }
                 }
@@ -1392,7 +1394,7 @@ namespace ttdtwm
             {
                 cur_thruster_info = thruster_infos[index];
                 cur_thruster = _thrusters_copy[index];
-                ((PB.IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
+                ((IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
                 contains_THR = _thruster_name.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
                 contains_RCS = _thruster_name.ContainsRCSTag();
                 contains_STAT = _thruster_name.ContainsSTATTag();
@@ -1418,7 +1420,7 @@ namespace ttdtwm
                 {
                     cur_thruster_info = thruster_infos[index];
                     cur_thruster = _thrusters_copy[index];
-                    ((PB.IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
+                    ((IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
                     contains_THR  = _thruster_name.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
                     contains_RCS  = _thruster_name.ContainsRCSTag();
                     contains_STAT = !contains_RCS && _thruster_name.ContainsSTATTag();
@@ -1573,7 +1575,7 @@ namespace ttdtwm
             new_thruster.next_tandem_thruster = new_thruster.prev_tandem_thruster = new_thruster;
             _uncontrolled_thrusters.Add(thruster, new_thruster);
             //log_ECU_action("assign_thruster", string.Format("{0} ({1}) [{2}]\n\t\t\tCentre position: {3}",
-            //    ((PB.IMyTerminalBlock) thruster).CustomName, new_thruster.nozzle_direction.ToString(), thruster.EntityId, 
+            //    ((IMyTerminalBlock) thruster).CustomName, new_thruster.nozzle_direction.ToString(), thruster.EntityId, 
             //    new_thruster.grid_centre_pos));
         }
 
@@ -1588,7 +1590,7 @@ namespace ttdtwm
             {
                 thruster_found = true;
                 _uncontrolled_thrusters.Remove(thruster);
-                //log_ECU_action("dispose_thruster", string.Format("{0} ({1}) [{2}]", ((PB.IMyTerminalBlock) thruster).CustomName, get_nozzle_orientation(thruster).ToString(), thruster.EntityId));
+                //log_ECU_action("dispose_thruster", string.Format("{0} ({1}) [{2}]", ((IMyTerminalBlock) thruster).CustomName, get_nozzle_orientation(thruster).ToString(), thruster.EntityId));
             }
             else
             {
@@ -1600,7 +1602,7 @@ namespace ttdtwm
                         remove_thruster_from_lists(_controlled_thrusters[dir_index][thruster]);
                         _max_force[dir_index] -= _controlled_thrusters[dir_index][thruster].max_force;
                         _controlled_thrusters[dir_index].Remove(thruster);
-                        //log_ECU_action("dispose_thruster", string.Format("{0} ({1}) [{2}]", ((PB.IMyTerminalBlock) thruster).CustomName, get_nozzle_orientation(thruster).ToString(), thruster.EntityId));
+                        //log_ECU_action("dispose_thruster", string.Format("{0} ({1}) [{2}]", ((IMyTerminalBlock) thruster).CustomName, get_nozzle_orientation(thruster).ToString(), thruster.EntityId));
                         break;
                     }
                 }
@@ -1732,7 +1734,7 @@ namespace ttdtwm
             return controller != null && controller.CubeGrid == _grid;
         }
 
-        public void check_autopilot(PB.IMyRemoteControl RC_block)
+        public void check_autopilot(IMyRemoteControl RC_block)
         {
             var RC_block_proper = (MyRemoteControl) RC_block;
             autopilot_on       |= ((MyObjectBuilder_RemoteControl) RC_block_proper.GetObjectBuilderCubeBlock()).AutoPilotEnabled;
@@ -1789,8 +1791,11 @@ namespace ttdtwm
         public void handle_60Hz()
         {
             //screen_text("", string.Format("Manager = {0}, exceptions = {1}, complete = {2}", _thrust_manager_task.valid, (_thrust_manager_task.Exceptions == null) ? 0 : _thrust_manager_task.Exceptions.GetLength(0), _thrust_manager_task.IsComplete), 16, controlled_only: false);
-            if (_grid.Physics == null)
+            if (_grid.Physics == null || _grid.Physics.IsStatic)
+            {
+                _physics_enable_delay = PHYSICS_ENABLE_DELAY;
                 return;
+            }
 
             // Suppress input noise caused by analog controls
             _sample_sum += _target_rotation - _rotation_samples[_current_index];
@@ -1829,7 +1834,7 @@ namespace ttdtwm
 
         public void handle_4Hz()
         {
-            if (_grid.Physics == null)
+            if (_grid.Physics == null || _grid.Physics.IsStatic)
             {
                 reset_ECU();
                 return;
@@ -1872,7 +1877,7 @@ namespace ttdtwm
 
         public void handle_2s_period()
         {
-            if (_grid.Physics == null)
+            if (_grid.Physics == null || _grid.Physics.IsStatic)
                 return;
 
             if (!_thrust_manager_task.valid || _thrust_manager_task.IsComplete)

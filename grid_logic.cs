@@ -2,17 +2,13 @@
 using System.Collections.Generic;
 using System.Text;
 
-using Sandbox.Game;
-using Sandbox.Game.Gui;
 using Sandbox.ModAPI;
 using VRage.Game;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
-using VRage.Input;
+//using VRage.Input;
 using VRage.Utils;
 using VRageMath;
-
-using PB = Sandbox.ModAPI.Ingame;
 
 namespace ttdtwm
 {
@@ -32,7 +28,7 @@ namespace ttdtwm
 
         private IMyCubeGrid                    _grid;
         private HashSet<IMyControllableEntity> _ship_controllers     = new HashSet<IMyControllableEntity>();
-        private HashSet<PB.IMyRemoteControl>   _RC_blocks            = new HashSet<PB.IMyRemoteControl>();
+        private HashSet<IMyRemoteControl>   _RC_blocks            = new HashSet<IMyRemoteControl>();
         private IMyHudNotification             _thrust_redction_text = null, _control_warning_text = null, _vertical_speed_text = null;
         private engine_control_unit            _ECU                  = null;
         private Vector3UByte                   _prev_manual_thrust   = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
@@ -140,7 +136,7 @@ namespace ttdtwm
                 var controller = entity as IMyControllableEntity;
                 if (controller != null)
                     _ship_controllers.Add(controller);
-                var RC_block = entity as PB.IMyRemoteControl;
+                var RC_block = entity as IMyRemoteControl;
                 if (RC_block != null)
                     _RC_blocks.Add(RC_block);
 
@@ -171,7 +167,7 @@ namespace ttdtwm
                 var controller = entity as IMyControllableEntity;
                 if (controller != null)
                     _ship_controllers.Remove(controller);
-                var RC_block = entity as PB.IMyRemoteControl;
+                var RC_block = entity as IMyRemoteControl;
                 if (RC_block != null)
                     _RC_blocks.Remove(RC_block);
 
@@ -633,13 +629,13 @@ namespace ttdtwm
             _grid.GetBlocks(block_list,
                 delegate (IMySlimBlock block)
                 {
-                    return block.FatBlock is PB.IMyCockpit || block.FatBlock is PB.IMyRemoteControl;
+                    return block.FatBlock is IMyCockpit || block.FatBlock is IMyRemoteControl;
                 }
             );
             foreach (var cur_controller in block_list)
             {
                 _ship_controllers.Add((IMyControllableEntity) cur_controller.FatBlock);
-                var RC_block = cur_controller.FatBlock as PB.IMyRemoteControl;
+                var RC_block = cur_controller.FatBlock as IMyRemoteControl;
                 if (RC_block != null)
                     _RC_blocks.Add(RC_block);
             }

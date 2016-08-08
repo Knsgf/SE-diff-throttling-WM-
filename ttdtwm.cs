@@ -5,13 +5,10 @@ using System.Text;
 
 using Sandbox.ModAPI;
 using Sandbox.ModAPI.Interfaces.Terminal;
-using VRage.Game;
 using VRage.Game.Components;
 using VRage.Game.ModAPI;
 using VRage.ModAPI;
 using VRage.Utils;
-
-using PB = Sandbox.ModAPI.Ingame;
 
 namespace ttdtwm
 {
@@ -68,37 +65,37 @@ namespace ttdtwm
 
         private bool is_grid_CoT_mode_on(IMyTerminalBlock controller)
         {
-            IMyCubeGrid grid = (IMyCubeGrid) controller.CubeGrid;
+            IMyCubeGrid grid = controller.CubeGrid;
             return _grids[grid].CoT_mode_forced;
         }
 
         private bool is_grid_CoT_mode_available(IMyTerminalBlock controller)
         {
-            IMyCubeGrid grid = (IMyCubeGrid) controller.CubeGrid;
+            IMyCubeGrid grid = controller.CubeGrid;
             return _grids[grid].is_CoT_mode_available;
         }
 
         private void set_grid_CoT_mode(IMyTerminalBlock controller, bool new_state)
         {
-            IMyCubeGrid grid = (IMyCubeGrid) controller.CubeGrid;
+            IMyCubeGrid grid = controller.CubeGrid;
             _grids[grid].CoT_mode_forced = new_state;
         }
 
         private bool is_grid_landing_mode_on(IMyTerminalBlock controller)
         {
-            IMyCubeGrid grid = (IMyCubeGrid) controller.CubeGrid;
+            IMyCubeGrid grid = controller.CubeGrid;
             return _grids[grid].landing_mode_on;
         }
 
         private bool is_grid_landing_mode_available(IMyTerminalBlock controller)
         {
-            IMyCubeGrid grid = (IMyCubeGrid) controller.CubeGrid;
+            IMyCubeGrid grid = controller.CubeGrid;
             return _grids[grid].is_landing_mode_available;
         }
 
         private void set_grid_landing_mode(IMyTerminalBlock controller, bool new_state)
         {
-            IMyCubeGrid grid = (IMyCubeGrid) controller.CubeGrid;
+            IMyCubeGrid grid = controller.CubeGrid;
             _grids[grid].landing_mode_on = new_state;
         }
 
@@ -202,15 +199,15 @@ namespace ttdtwm
             }
             if (!_panel_controls_set && MyAPIGateway.TerminalControls != null)
             {
-                var cockpit_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, PB.IMyCockpit>("TTDTWM_LINE1");
-                MyAPIGateway.TerminalControls.AddControl<PB.IMyCockpit>(cockpit_line);
-                create_checkbox<PB.IMyCockpit>("ForceCoTMode", "Force CoT mode", null,               "CoT",   "Auto",     is_grid_CoT_mode_on,     set_grid_CoT_mode,     is_grid_CoT_mode_available);
-                create_switch  <PB.IMyCockpit>( "LandingMode",   "Landing mode", null, "On", "Off", "Land", "Flight", is_grid_landing_mode_on, set_grid_landing_mode, is_grid_landing_mode_available);
+                var cockpit_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyCockpit>("TTDTWM_LINE1");
+                MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(cockpit_line);
+                create_checkbox<IMyCockpit>("ForceCoTMode", "Force CoT mode", null,               "CoT",   "Auto",     is_grid_CoT_mode_on,     set_grid_CoT_mode,     is_grid_CoT_mode_available);
+                create_switch  <IMyCockpit>( "LandingMode",   "Landing mode", null, "On", "Off", "Land", "Flight", is_grid_landing_mode_on, set_grid_landing_mode, is_grid_landing_mode_available);
 
-                var RC_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, PB.IMyRemoteControl>("TTDTWM_LINE1");
-                MyAPIGateway.TerminalControls.AddControl<PB.IMyRemoteControl>(RC_line);
-                create_checkbox<PB.IMyRemoteControl>("ForceCoTMode", "Force CoT mode", null,               "CoT",   "Auto",     is_grid_CoT_mode_on,     set_grid_CoT_mode,     is_grid_CoT_mode_available);
-                create_switch  <PB.IMyRemoteControl>( "LandingMode",   "Landing mode", null, "On", "Off", "Land", "Flight", is_grid_landing_mode_on, set_grid_landing_mode, is_grid_landing_mode_available);
+                var RC_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyRemoteControl>("TTDTWM_LINE1");
+                MyAPIGateway.TerminalControls.AddControl<IMyRemoteControl>(RC_line);
+                create_checkbox<IMyRemoteControl>("ForceCoTMode", "Force CoT mode", null,               "CoT",   "Auto",     is_grid_CoT_mode_on,     set_grid_CoT_mode,     is_grid_CoT_mode_available);
+                create_switch  <IMyRemoteControl>( "LandingMode",   "Landing mode", null, "On", "Off", "Land", "Flight", is_grid_landing_mode_on, set_grid_landing_mode, is_grid_landing_mode_available);
 
                 create_switch<IMyThrust>("ActiveControl",        "Active Control", null, "On", "Off", "On", "Off", thruster_tagger.is_under_active_control, thruster_tagger.set_active_control, thruster_tagger.is_active_control_available);
                 create_switch<IMyThrust>(     "AntiSlip",       "Slip Prevention", null, "On", "Off", "On", "Off", thruster_tagger.is_anti_slip           , thruster_tagger.set_anti_slip     , thruster_tagger.is_anti_slip_available     );

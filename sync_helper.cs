@@ -1,9 +1,8 @@
 ﻿using System.Collections.Generic;
 
-using Sandbox.Engine.Utils;
+//using Sandbox.Engine.Utils;
 //using Sandbox.Game;
 using Sandbox.ModAPI;
-using VRage;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
 //using VRage.ModAPI;
@@ -66,7 +65,7 @@ namespace ttdtwm
             long entity_id = entity.EntityId;
             for (int cur_byte = 0; cur_byte < 8; ++cur_byte)
             {
-                message[cur_byte] = (byte)(entity_id & 0xFF);
+                message[cur_byte] = (byte) (entity_id & 0xFF);
                 entity_id >>= 8;
             }
         }
