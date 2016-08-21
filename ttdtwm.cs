@@ -103,13 +103,16 @@ namespace ttdtwm
 
         #region UI helpers
 
-        private void create_toggle<_block_>(string id, string title, string enabled_text, string disabled_text, Action<IMyTerminalBlock> action, Func<IMyTerminalBlock, bool> getter, Func<IMyTerminalBlock, bool> state)
+        private void create_toggle<_block_>(string id, string title, string enabled_text, string disabled_text, Action<IMyTerminalBlock> action, 
+            Func<IMyTerminalBlock, bool> getter, Func<IMyTerminalBlock, bool> state, string icon)
         {
             var toggle_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id);
 
             toggle_action.Action = action;
             if (state != null)
                 toggle_action.Enabled = state;
+            if (icon != null && icon != "")
+                toggle_action.Icon = @"Textures\GUI\Icons\Actions\" + icon + ".dds";
             toggle_action.Name = new StringBuilder(title);
             toggle_action.ValidForGroups = true;
             toggle_action.Writer = delegate (IMyTerminalBlock block, StringBuilder output)
@@ -141,7 +144,7 @@ namespace ttdtwm
                 {
                     setter(block, !getter(block));
                 },
-                getter, state);
+                getter, state, "LargeShipToggle");
         }
 
         private void create_switch<_block_>(string id, string title, string tooltip, string enabled_text, string disabled_text, string toolbar_enabled_text, string toolbar_disabled_text,
@@ -166,19 +169,32 @@ namespace ttdtwm
                 {
                     setter(block, !getter(block));
                 },
-                getter, state);
+                getter, state, "MissileToggle");
             create_toggle<_block_>(id + "OnOff_On", title + " On", toolbar_enabled_text, toolbar_disabled_text,
                 delegate (IMyTerminalBlock block)
                 {
                     setter(block, true);
                 },
-                getter, state);
+                getter, state, "MissileSwitchOn");
             create_toggle<_block_>(id + "OnOff_Off", title + " Off", toolbar_enabled_text, toolbar_disabled_text,
                 delegate (IMyTerminalBlock block)
                 {
                     setter(block, false);
                 },
-                getter, state);
+                getter, state, "MissileSwitchOff");
+        }
+
+        private void create_slider_action<_block_>(string id, string title, Action<IMyTerminalBlock> action, Action<IMyTerminalBlock, StringBuilder> status, string icon)
+        {
+            var toggle_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id);
+
+            toggle_action.Action = action;
+            if (icon != null && icon != "")
+                toggle_action.Icon = @"Textures\GUI\Icons\Actions\" + icon + ".dds";
+            toggle_action.Name           = new StringBuilder(title);
+            toggle_action.ValidForGroups = true;
+            toggle_action.Writer         = status;
+            MyAPIGateway.TerminalControls.AddAction<_block_>(toggle_action);
         }
 
         #endregion
@@ -212,6 +228,29 @@ namespace ttdtwm
                 create_switch<IMyThrust>("ActiveControl",        "Active Control", null, "On", "Off", "On", "Off", thruster_tagger.is_under_active_control, thruster_tagger.set_active_control, thruster_tagger.is_active_control_available);
                 create_switch<IMyThrust>(     "AntiSlip",       "Slip Prevention", null, "On", "Off", "On", "Off", thruster_tagger.is_anti_slip           , thruster_tagger.set_anti_slip     , thruster_tagger.is_anti_slip_available     );
                 create_switch<IMyThrust>(  "StaticLimit", "Passive Stabilisation", null, "On", "Off", "On", "Off", thruster_tagger.is_thrust_limited      , thruster_tagger.set_thrust_limited, thruster_tagger.is_thrust_limiter_available);
+
+                var manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
+                manual_throttle.Getter  = thruster_tagger.get_manual_throttle;
+                manual_throttle.Setter  = thruster_tagger.set_manual_throttle;
+                manual_throttle.Enabled = thruster_tagger.is_under_active_control;
+                manual_throttle.SupportsMultipleBlocks = true;
+                manual_throttle.Title  = MyStringId.GetOrCompute("Manual throttle");
+                manual_throttle.Writer = thruster_tagger.throttle_status;
+                manual_throttle.SetLimits(0.0f, 100.0f);
+                MyAPIGateway.TerminalControls.AddControl<IMyThrust>(manual_throttle);
+                create_slider_action<IMyThrust>("IncreaseThrottle", "Increase Manual Throttle",
+                    delegate (IMyTerminalBlock thruster)
+                    {
+                        thruster_tagger.set_manual_throttle(thruster, thruster_tagger.get_manual_throttle(thruster) + 5.0f);
+                    },
+                    thruster_tagger.throttle_status, "Increase");
+                create_slider_action<IMyThrust>("DecreaseThrottle", "Decrease Manual Throttle",
+                    delegate (IMyTerminalBlock thruster)
+                    {
+                        thruster_tagger.set_manual_throttle(thruster, thruster_tagger.get_manual_throttle(thruster) - 5.0f);
+                    },
+                    thruster_tagger.throttle_status, "Decrease");
+
                 _panel_controls_set = true;
             }
         }

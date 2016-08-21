@@ -192,14 +192,14 @@ namespace ttdtwm
             if (_thrust_redction_text == null)
                 return;
 
-            if (thrust_reduction < 5)
+            if (thrust_reduction < 5 || !sync_helper.show_thrust_reduction)
             {
                 _thrust_redction_text.Hide();
                 _thrust_redction_is_visible = false;
             }
             else
             {
-                _thrust_redction_text.Text = "Thrust reduction: " + thrust_reduction.ToString() + " %";
+                _thrust_redction_text.Text = "Thrust loss: " + thrust_reduction.ToString() + " %";
                 _thrust_redction_text.Font = (thrust_reduction > 30) ? MyFontEnum.Red : MyFontEnum.White;
                 _thrust_redction_text.Show();
                 _thrust_redction_is_visible = true;
@@ -533,7 +533,7 @@ namespace ttdtwm
 
                 if (_vertical_speed_text != null)
                 {
-                    if (!_ECU.is_under_control_of(sync_helper.local_controller) || Math.Abs(_ECU.vertical_speed) < 0.1f)
+                    if (!sync_helper.show_vertical_speed || !_ECU.is_under_control_of(sync_helper.local_controller) || Math.Abs(_ECU.vertical_speed) < 0.1f)
                     {
                         if (_vertical_speed_is_visible)
                         {
