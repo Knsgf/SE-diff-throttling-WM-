@@ -963,6 +963,7 @@ namespace ttdtwm
                 float force1           = __actual_force[   dir_index] + __non_THR_force[   dir_index];
                 float force2           = __actual_force[opposite_dir] + __non_THR_force[opposite_dir];
                 float new_force_ratio1 = 1.0f, new_force_ratio2 = 1.0f;
+                float min_setting1 = _min_setting[dir_index], min_setting2 = _min_setting[opposite_dir];
 
                 if (__actual_force[dir_index] >= 1.0f && force1 - __requested_force[dir_index] > force2)
                 {
@@ -975,7 +976,7 @@ namespace ttdtwm
                     foreach (var cur_thruster_info in _controlled_thrusters[dir_index].Values)
                     {
                         if (cur_thruster_info.active_control_on && !cur_thruster_info.is_RCS)
-                            cur_thruster_info.current_setting = (cur_thruster_info.current_setting - MIN_OVERRIDE / 100.0f) * new_force_ratio1 + MIN_OVERRIDE / 100.0f;
+                            cur_thruster_info.current_setting = (cur_thruster_info.current_setting - min_setting1) * new_force_ratio1 + min_setting1;
                     }
                 }
                 if (__actual_force[opposite_dir] >= 1.0f && force2 - __requested_force[opposite_dir] > force1)
@@ -989,7 +990,7 @@ namespace ttdtwm
                     foreach (var cur_thruster_info in _controlled_thrusters[opposite_dir].Values)
                     {
                         if (cur_thruster_info.active_control_on && !cur_thruster_info.is_RCS)
-                            cur_thruster_info.current_setting = (cur_thruster_info.current_setting - MIN_OVERRIDE / 100.0f) * new_force_ratio2 + MIN_OVERRIDE / 100.0f;
+                            cur_thruster_info.current_setting = (cur_thruster_info.current_setting - min_setting2) * new_force_ratio2 + min_setting2;
                     }
                 }
                 __actual_force[   dir_index] *= new_force_ratio1;
@@ -1232,6 +1233,17 @@ namespace ttdtwm
             {
                 float total_force      = __new_total_force[dir_index] + __new_total_force[opposite_dir];
                 _active_CoT[dir_index] = _active_CoT[opposite_dir] = (total_force < 1.0f) ? null : ((Vector3?) ((__new_static_moment[dir_index] + __new_static_moment[opposite_dir]) / total_force));
+
+                if (__requested_force[dir_index] > __requested_force[opposite_dir])
+                {
+                    __requested_force[   dir_index] -= __requested_force[opposite_dir];
+                    __requested_force[opposite_dir]  = 0.0f;
+                }
+                else
+                {
+                    __requested_force[opposite_dir] -= __requested_force[dir_index];
+                    __requested_force[   dir_index] = 0.0f;
+                }
             }
 
             normalise_thrust();
@@ -1268,7 +1280,7 @@ namespace ttdtwm
                         total_static_moment += cur_thruster_info.static_moment;
                     foreach (var cur_thruster_info in _controlled_thrusters[opposite_dir].Values)
                         total_static_moment += cur_thruster_info.static_moment;
-                    CoT_location = total_static_moment / (_actual_max_force[dir_index] + _actual_max_force[opposite_dir]);
+                    CoT_location = total_static_moment / (_max_force[dir_index] + _max_force[opposite_dir]);
                     foreach (var cur_thruster_info in _controlled_thrusters[dir_index   ].Values)
                         cur_thruster_info.reference_vector = cur_thruster_info.grid_centre_pos - CoT_location;
                     foreach (var cur_thruster_info in _controlled_thrusters[opposite_dir].Values)
