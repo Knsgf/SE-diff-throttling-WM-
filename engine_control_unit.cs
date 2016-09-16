@@ -28,7 +28,7 @@ namespace ttdtwm
         sealed class thruster_info     // Technically a struct
         {
             public float         max_force, actual_max_force, actual_min_force;
-            public Vector3       max_torque, grid_centre_pos, static_moment, CoM_offset, reference_vector;
+            public Vector3       max_torque, grid_centre_pos, static_moment, actual_static_moment, CoM_offset, reference_vector;
             public thrust_dir    nozzle_direction;
             public float         current_setting, thrust_limit, prev_setting, manual_throttle;
             public bool          enable_limit, enable_rotation, active_control_on, is_RCS, skip, is_reduced;
@@ -640,8 +640,10 @@ namespace ttdtwm
                 {
                     _enable_linear_integral[dir_index] = _enable_linear_integral[opposite_dir] = !DEBUG_DISABLE_ALT_HOLD &&
                            (  __local_gravity_inv[dir_index] >  0.0f  ||   __local_gravity_inv[opposite_dir] >  0.0f)
-                        &&  __control_vector_copy[dir_index] <  0.01f && __control_vector_copy[opposite_dir] <  0.01f
-                        && (    _actual_max_force[dir_index] >= 1.0f  ||     _actual_max_force[opposite_dir] >= 1.0f);
+                        &&  __control_vector_copy[dir_index] <  0.01f && __control_vector_copy[opposite_dir] <  0.01f;
+                    _enable_linear_integral[   dir_index] &= _actual_max_force[   dir_index] >= 1.0f;
+                    _enable_linear_integral[opposite_dir] &= _actual_max_force[opposite_dir] >= 1.0f;
+
 
                     set_brake(   dir_index, opposite_dir);
                     set_brake(opposite_dir,    dir_index);
@@ -656,7 +658,7 @@ namespace ttdtwm
                         __control_vector[   dir_index]  = 0.0f;
                     }
 
-                    float gravity_ratio = (__local_gravity_inv[dir_index] + __local_gravity_inv[opposite_dir]) / gravity_magnitude,
+                    float gravity_ratio = (gravity_magnitude < 0.01f) ? 1.0f : ((__local_gravity_inv[dir_index] + __local_gravity_inv[opposite_dir]) / gravity_magnitude),
                           axis_speed    = __local_linear_velocity_inv[dir_index] + __local_linear_velocity_inv[opposite_dir],
                           linear_integral_change = INTEGRAL_CONSTANT * (__local_linear_velocity_inv[dir_index] - __local_linear_velocity_inv[opposite_dir]);
                     if (linear_integral_change > INTEGRAL_CONSTANT)
@@ -806,8 +808,8 @@ namespace ttdtwm
 
                     if (_force_CoT_mode)
                     {
-                        total_static_moment += cur_thruster_info.current_setting * cur_thruster_info.static_moment;
-                        total_force         += cur_thruster_info.current_setting * cur_thruster_info.max_force;
+                        total_static_moment += cur_thruster_info.current_setting * cur_thruster_info.actual_static_moment;
+                        total_force         += cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
                     }
                 }
                 else if (linear_component[opposite_dir] > 0.0f)
@@ -833,8 +835,8 @@ namespace ttdtwm
 
                     if (_force_CoT_mode)
                     {
-                        total_static_moment += cur_thruster_info.current_setting * cur_thruster_info.static_moment;
-                        total_force         += cur_thruster_info.current_setting * cur_thruster_info.max_force;
+                        total_static_moment += cur_thruster_info.current_setting * cur_thruster_info.actual_static_moment;
+                        total_force         += cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
                     }
                 }
             }
@@ -870,7 +872,7 @@ namespace ttdtwm
         {
             const float MAX_NORMALISATION = 5.0f;
 
-            float linear_force = 0.0f, requested_force = 0.0f, max_setting = 0.0f, max_control = 0.0f, force;
+            float linear_force = 0.0f, requested_force = 0.0f, max_setting = 0.0f, max_control = 0.0f, dir_force1, dir_force2;
             bool  zero_thrust_reduction = true;
 
             Action<int> eliminate_direct_opposition = delegate (int dir_index)
@@ -1006,10 +1008,12 @@ namespace ttdtwm
                     || __requested_force[opposite_dir] >= _actual_max_force[opposite_dir] * 0.3f && _actual_max_force[opposite_dir] >= 0.05f * _grid.Physics.Mass)
                 {
                     zero_thrust_reduction = false;
-                    force                 = (__actual_force[dir_index] + __non_THR_force[dir_index]) - (__actual_force[opposite_dir] + __non_THR_force[opposite_dir]);
-                    linear_force         += force * force;
-                    force                 = __requested_force[dir_index] + __requested_force[opposite_dir];
-                    requested_force      += force * force;
+                    dir_force1 = (__actual_force[dir_index] + __non_THR_force[dir_index]) - (__actual_force[opposite_dir] + __non_THR_force[opposite_dir]);
+                    dir_force2 = __requested_force[dir_index] + __requested_force[opposite_dir];
+                    if (dir_force1 > dir_force2)
+                        dir_force1 = dir_force2;
+                    linear_force    += dir_force1 * dir_force1;
+                    requested_force += dir_force2 * dir_force2;
                 }
             }
 
@@ -1203,14 +1207,14 @@ namespace ttdtwm
                         cur_thruster_info.current_setting = ((cur_thruster_info.manual_throttle >= 0.01f) ? cur_thruster_info.manual_throttle : control) + min_setting;
                         if (cur_thruster_info.current_setting > 1.0f)
                             cur_thruster_info.current_setting = 1.0f;
+                        __requested_force[dir_index] += cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
                         if (cur_thruster_info.enable_limit && (!cur_thruster_info.enable_rotation || cur_thruster_info.active_control_on))
                         {
                             cur_thruster_info.current_setting *= cur_thruster_info.thrust_limit;
                             if (cur_thruster_info.current_setting < min_setting)
                                 cur_thruster_info.current_setting = min_setting;
                         }
-                        __requested_force[dir_index] += cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
-                        cur_thruster_info.skip        = !cur_thruster_info.enable_rotation;
+                        cur_thruster_info.skip = !cur_thruster_info.enable_rotation;
                     }
                 }
                 adjust_thrust_for_steering(dir_index, (dir_index < 3) ? (dir_index + 3) : (dir_index - 3), desired_angular_velocity);
@@ -1277,10 +1281,10 @@ namespace ttdtwm
                 {
                     total_static_moment = Vector3.Zero;
                     foreach (var cur_thruster_info in _controlled_thrusters[dir_index   ].Values)
-                        total_static_moment += cur_thruster_info.static_moment;
+                        total_static_moment += cur_thruster_info.actual_static_moment;
                     foreach (var cur_thruster_info in _controlled_thrusters[opposite_dir].Values)
-                        total_static_moment += cur_thruster_info.static_moment;
-                    CoT_location = total_static_moment / (_max_force[dir_index] + _max_force[opposite_dir]);
+                        total_static_moment += cur_thruster_info.actual_static_moment;
+                    CoT_location = total_static_moment / (_actual_max_force[dir_index] + _actual_max_force[opposite_dir]);
                     foreach (var cur_thruster_info in _controlled_thrusters[dir_index   ].Values)
                         cur_thruster_info.reference_vector = cur_thruster_info.grid_centre_pos - CoT_location;
                     foreach (var cur_thruster_info in _controlled_thrusters[opposite_dir].Values)
@@ -1561,8 +1565,9 @@ namespace ttdtwm
                 }
                 thrust_multiplier = (1.0f - planetoid_influence) * thruster_definition.EffectivenessAtMinInfluence + planetoid_influence * thruster_definition.EffectivenessAtMaxInfluence;
 
-                cur_thruster_info.actual_max_force = cur_thruster_info.max_force        * thrust_multiplier;
-                cur_thruster_info.actual_min_force = cur_thruster_info.actual_max_force * MIN_OVERRIDE / 100.0f;
+                cur_thruster_info.actual_max_force     = cur_thruster_info.max_force        * thrust_multiplier;
+                cur_thruster_info.actual_static_moment = cur_thruster_info.static_moment    * thrust_multiplier;
+                cur_thruster_info.actual_min_force     = cur_thruster_info.actual_max_force * MIN_OVERRIDE / 100.0f;
                 actual_max_force += cur_thruster_info.actual_max_force;
             }
             return actual_max_force;
@@ -1602,7 +1607,7 @@ namespace ttdtwm
             new_thruster.grid_centre_pos      = (thruster.Min + thruster.Max) * (_grid.GridSize / 2.0f);
             new_thruster.max_force            = new_thruster.actual_max_force = thruster.BlockDefinition.ForceMagnitude;
             new_thruster.CoM_offset           = new_thruster.reference_vector = new_thruster.grid_centre_pos - _grid_CoM_location;
-            new_thruster.static_moment        = new_thruster.grid_centre_pos * new_thruster.max_force;
+            new_thruster.static_moment        = new_thruster.actual_static_moment = new_thruster.grid_centre_pos * new_thruster.max_force;
             new_thruster.nozzle_direction     = get_nozzle_orientation(thruster);
             new_thruster.thrust_limit         = 1.0f;
             new_thruster.enable_limit         = new_thruster.enable_rotation = new_thruster.active_control_on = false;
