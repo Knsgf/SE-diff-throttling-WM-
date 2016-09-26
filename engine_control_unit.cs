@@ -773,7 +773,7 @@ namespace ttdtwm
 
         private void adjust_thrust_for_steering(int cur_dir, int opposite_dir, Vector3 desired_angular_velocity)
         {
-            const float DAMPING_CONSTANT = 10.0f, MIN_LINEAR_OPPOSITION = 0.05f, MAX_LINEAR_OPPOSITION = 0.2f;
+            const float DAMPING_CONSTANT = 10.0f, MIN_LINEAR_OPPOSITION = 0.1f, MAX_LINEAR_OPPOSITION = 0.2f;
 
             if (_actual_max_force[cur_dir] <= 1.0f)
             {
@@ -833,7 +833,7 @@ namespace ttdtwm
                     //    control = 1.0f;
                     cur_thruster_info.current_setting -= damping * control;
                     if (THR_mode_used)
-                        cur_thruster_info.current_setting += 0.6f * cur_thruster_info.thrust_limit * __control_vector[cur_dir] * (1.0f - cur_thruster_info.current_setting);
+                        cur_thruster_info.current_setting += 0.5f * cur_thruster_info.thrust_limit * __control_vector[cur_dir] * (1.0f - cur_thruster_info.current_setting);
                     if (cur_thruster_info.current_setting < min_setting)
                         cur_thruster_info.current_setting = min_setting;
                     if (enforce_thrust_limit && THR_mode_used && cur_thruster_info.current_setting > max_linear_opposition)
@@ -882,7 +882,7 @@ namespace ttdtwm
         // Ensures that resulting linear force doesn't exceed player/ID input (to prevent undesired drift when turning)
         void normalise_thrust()
         {
-            const float MAX_NORMALISATION = 5.0f;
+            const float MAX_NORMALISATION = 10.0f;
 
             float linear_force = 0.0f, requested_force = 0.0f, max_setting = 0.0f, max_control = 0.0f, dir_force1, dir_force2;
             bool  zero_thrust_reduction = true;
@@ -948,12 +948,12 @@ namespace ttdtwm
 
                 Action<int> normalise_direction = delegate (int dir_index)
                 {
-                    float reduced_normalisation_multiplier = _force_CoT_mode ? max_normalisation_multiplier : (__thrust_limits[dir_index] * max_normalisation_multiplier), min_setting = _min_setting[dir_index];
+                    float min_setting = _min_setting[dir_index];
 
                     __actual_force[dir_index] = __non_THR_force[dir_index] = 0.0f;
                     foreach (var cur_thruster_info in _controlled_thrusters[dir_index].Values)
                     {
-                        cur_thruster_info.current_setting *= cur_thruster_info.is_reduced ? reduced_normalisation_multiplier : max_normalisation_multiplier;
+                        cur_thruster_info.current_setting *= max_normalisation_multiplier;
                         if (cur_thruster_info.current_setting < min_setting)
                             cur_thruster_info.current_setting = min_setting;
 
@@ -1047,7 +1047,7 @@ namespace ttdtwm
 
         private bool adjust_trim_setting(sbyte control_scheme, out Vector3 desired_angular_velocity)
         {
-            const float ANGULAR_INTEGRAL_COEFF = -0.05f, ANGULAR_DERIVATIVE_COEFF = -0.01f, MAX_TRIM = 1.0f, THRUST_CUTOFF_TRIM = 0.9f;
+            const float ANGULAR_INTEGRAL_COEFF = -0.4f, ANGULAR_DERIVATIVE_COEFF = -0.005f, MAX_TRIM = 5.0f, THRUST_CUTOFF_TRIM = 4.0f;
 
             bool    update_inverse_world_matrix = false;
             float   trim_change, thrust_limit_pitch, thrust_limit_yaw, thrust_limit_roll;
@@ -1069,9 +1069,9 @@ namespace ttdtwm
                     __steering_output[dir_index] = 0.0f;
                 else if (__steering_input[dir_index] > 0.01f)
                 {
-                    __steering_output[dir_index] = (__angular_velocity[dir_index] < 0.1f) ? 
+                    __steering_output[dir_index] = /*(__angular_velocity[dir_index] < 0.1f) ? */
                           (__steering_input[dir_index] * 15.0f) 
-                        : (__angular_velocity[dir_index] + __steering_input[dir_index] * 3.0f);
+                        /*: (__angular_velocity[dir_index] + __steering_input[dir_index] * 3.0f)*/;
                     //__steering_output[dir_index]  = __steering_input[dir_index] * 3.0f + __angular_velocity[dir_index] + __angular_velocity[opposite_dir];
                     __steering_output[dir_index] += _last_trim[dir_index];
                     _enable_integral[dir_index]   = _enable_integral[opposite_dir] = false;
