@@ -105,6 +105,15 @@ namespace ttdtwm
             new Dictionary<MyThrust, thruster_info>(),   // port
             new Dictionary<MyThrust, thruster_info>()    // ventral
         };
+        private Dictionary<Vector3I, List<thruster_info>>[] _tandem_thrusters =
+        {
+            new Dictionary<Vector3I, List<thruster_info>>(),  // fore
+            new Dictionary<Vector3I, List<thruster_info>>(),  // starboard
+            new Dictionary<Vector3I, List<thruster_info>>(),  // dorsal
+            new Dictionary<Vector3I, List<thruster_info>>(),  // aft
+            new Dictionary<Vector3I, List<thruster_info>>(),  // port
+            new Dictionary<Vector3I, List<thruster_info>>()   // ventral
+        };
         private Dictionary<MyThrust, thruster_info> _uncontrolled_thrusters = new Dictionary<MyThrust, thruster_info>();
         private float[] _max_force        = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
         private float[] _actual_max_force = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
@@ -318,7 +327,7 @@ namespace ttdtwm
             recompose_vector(__thrust_override_vector, out _thrust_override);
         }
 
-        private void calculate_and_apply_torque(Vector3 desired_angular_velocity)
+        private void calculate_and_apply_torque()
         {
             //if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
             //    return;
@@ -1166,10 +1175,8 @@ namespace ttdtwm
             return update_inverse_world_matrix;
         }
 
-        private Vector3 handle_thrust_control(Vector3 world_linear_velocity)
+        private void handle_thrust_control(Vector3 world_linear_velocity, bool sleep_mode_on)
         {
-            Vector3 desired_angular_velocity;
-            
             // Using "fixed" (it changes orientation only when the player steers a ship) inverse rotation matrix here to 
             // prevent Dutch Roll-like tendencies at high speeds
             Vector3 local_linear_velocity = Vector3.Transform(world_linear_velocity, _inverse_world_rotation_fixed);
@@ -1180,14 +1187,22 @@ namespace ttdtwm
             //Vector3      world_gravity          = (closest_planetoid == null) ? Vector3.Zero : closest_planetoid.GetWorldGravity(grid_bounding_box.Center);
             Vector3      local_gravity          = Vector3.Transform(_grid.Physics.Gravity, inverse_world_rotation);
             float        gravity_magnitude      = local_gravity.Length();
-            _vertical_speed         = (gravity_magnitude < 0.1f) ? 0.0f : (Vector3.Dot(local_linear_velocity, local_gravity) / (-gravity_magnitude));
+            _vertical_speed = (gravity_magnitude < 0.1f) ? 0.0f : (Vector3.Dot(local_linear_velocity, local_gravity) / (-gravity_magnitude));
+            if (sleep_mode_on)
+            {
+                thrust_reduction = 0;
+                apply_thrust_settings(reset_all_thrusters: true);
+                return;
+            }
+
             _local_angular_velocity = Vector3.Transform(_grid.Physics.AngularVelocity, inverse_world_rotation);
             if (_is_gyro_override_active)
                 _local_angular_velocity -= _gyro_override;
             _angular_speed = _local_angular_velocity.Length();
 
-            sbyte control_scheme = initialise_linear_controls(local_linear_velocity, local_gravity);
-            bool  update_inverse_world_matrix;
+            Vector3 desired_angular_velocity;
+            sbyte   control_scheme = initialise_linear_controls(local_linear_velocity, local_gravity);
+            bool    update_inverse_world_matrix;
             update_inverse_world_matrix = adjust_trim_setting(control_scheme, out desired_angular_velocity);
 
             // Update fixed inverse rotation matrix when angle exceeds 11 degrees or speed is low 
@@ -1264,7 +1279,6 @@ namespace ttdtwm
 
             normalise_thrust();
             apply_thrust_settings(reset_all_thrusters: false);
-            return desired_angular_velocity;
         }
 
         private void update_reference_vectors_for_CoM_mode()
@@ -1338,91 +1352,74 @@ namespace ttdtwm
 
         private void find_tandem_and_opposite_thrusters(MyThrust thruster, thruster_info examined_thruster_info)
         {
-            Dictionary<MyThrust, thruster_info> 
-                cur_direction      = _controlled_thrusters[ (int) examined_thruster_info.nozzle_direction         ],
-                opposite_direction = _controlled_thrusters[((int) examined_thruster_info.nozzle_direction + 3) % 6];
-            thruster_info current_thruster_info, first_opposing_thruster;
-            Vector3I      filter_vector = thruster.ThrustForwardVector;
+            Dictionary<Vector3I, List<thruster_info>> cur_direction = _tandem_thrusters[(int) examined_thruster_info.nozzle_direction];
+            Vector3I                                  filter_vector = thruster.ThrustForwardVector, filtered_location;
 
-            filter_vector = Vector3I.One - filter_vector / (filter_vector.X + filter_vector.Y + filter_vector.Z);
-            Vector3 filtered_location = examined_thruster_info.grid_centre_pos * filter_vector;
-
-            foreach (var cur_thruster_info in cur_direction.Values)
+            filter_vector     = Vector3I.One - filter_vector / (filter_vector.X + filter_vector.Y + filter_vector.Z);
+            filtered_location = (thruster.Min + thruster.Max) * filter_vector;
+            if (!cur_direction.ContainsKey(filtered_location))
             {
-                if (cur_thruster_info != examined_thruster_info && (cur_thruster_info.grid_centre_pos * filter_vector - filtered_location).LengthSquared() <= 0.01f)
-                {
-                    examined_thruster_info.next_tandem_thruster = cur_thruster_info.next_tandem_thruster;
-                    examined_thruster_info.prev_tandem_thruster = cur_thruster_info;
+                cur_direction.Add(filtered_location, new List<thruster_info>());
+                examined_thruster_info.next_tandem_thruster = examined_thruster_info.prev_tandem_thruster = examined_thruster_info;
+                cur_direction[filtered_location].Add(examined_thruster_info);
+            }
+            else
+            {
+                List<thruster_info> tandem_thrusters      = cur_direction[filtered_location];
+                thruster_info       first_tandem_thruster = tandem_thrusters[0];
 
-                    cur_thruster_info.next_tandem_thruster = examined_thruster_info.next_tandem_thruster.prev_tandem_thruster = examined_thruster_info;
-                    //log_ECU_action("find_tandem_and_opposite_thrusters", string.Format("tandem thruster found \"{0}\" [{1}] for \"{2}\" [{3}]", 
-                    //    ((IMyTerminalBlock) cur_thruster.Key).CustomName, cur_thruster.Key.EntityId, 
-                    //    ((IMyTerminalBlock)         thruster).CustomName,         thruster.EntityId));
-                    break;
-                }
+                examined_thruster_info.next_tandem_thruster = first_tandem_thruster.next_tandem_thruster;
+                examined_thruster_info.prev_tandem_thruster = first_tandem_thruster;
+                first_tandem_thruster.next_tandem_thruster  = examined_thruster_info.next_tandem_thruster.prev_tandem_thruster = examined_thruster_info;
+                tandem_thrusters.Add(examined_thruster_info);
             }
 
             if (examined_thruster_info.next_tandem_thruster != examined_thruster_info)
                 examined_thruster_info.opposing_thruster = examined_thruster_info.next_tandem_thruster.opposing_thruster;
             else
             {
-                examined_thruster_info.opposing_thruster = null;
-                foreach (var cur_thruster_info in opposite_direction.Values)
-                {
-                    if ((cur_thruster_info.grid_centre_pos * filter_vector - filtered_location).LengthSquared() <= 0.01f)
-                    {
-                        examined_thruster_info.opposing_thruster = cur_thruster_info;
-                        //log_ECU_action("find_tandem_and_opposite_thrusters", string.Format("opposing thruster found \"{0}\" [{1}] for \"{2}\" [{3}]",
-                        //    ((IMyTerminalBlock) cur_thruster.Key).CustomName, cur_thruster.Key.EntityId,
-                        //    ((IMyTerminalBlock)         thruster).CustomName,         thruster.EntityId));
-                        break;
-                    }
-                }
-                if (examined_thruster_info.opposing_thruster == null)
-                    return;
+                Dictionary<Vector3I, List<thruster_info>> opposite_direction = _tandem_thrusters[((int) examined_thruster_info.nozzle_direction + 3) % 6];
 
-                first_opposing_thruster = current_thruster_info = examined_thruster_info.opposing_thruster;
-                //int count = 0;
-                do
+                if (!opposite_direction.ContainsKey(filtered_location))
+                    examined_thruster_info.opposing_thruster = null;
+                else
                 {
-                    current_thruster_info.opposing_thruster = examined_thruster_info;
-                    current_thruster_info                   = current_thruster_info.next_tandem_thruster;
-                    //++count;
+                    thruster_info first_opposing_thruster = opposite_direction[filtered_location][0], current_thruster_info;
+
+                    examined_thruster_info.opposing_thruster = current_thruster_info = first_opposing_thruster;
+                    do
+                    {
+                        current_thruster_info.opposing_thruster = examined_thruster_info;
+                        current_thruster_info                   = current_thruster_info.next_tandem_thruster;
+                    }
+                    while (current_thruster_info != first_opposing_thruster);
                 }
-                while (current_thruster_info != first_opposing_thruster);
-                //log_ECU_action("find_tandem_and_opposite_thrusters", (count < 2) ? "1 opposing thruster set" : (count.ToString() + " opposing tandem thrusters set"));
             }
         }
 
-        private void remove_thruster_from_lists(thruster_info removed_thruster_info)
+        private void remove_thruster_from_lists(MyThrust thruster, thruster_info removed_thruster_info)
         {
             if (removed_thruster_info.opposing_thruster != null)
             {
                 thruster_info first_opposing_info = removed_thruster_info.opposing_thruster, current_thruster_info;
 
-                //int count = 0;
-                for (current_thruster_info  = removed_thruster_info.next_tandem_thruster; 
-                     current_thruster_info != removed_thruster_info; 
+                for (current_thruster_info  = removed_thruster_info.next_tandem_thruster;
+                     current_thruster_info != removed_thruster_info;
                      current_thruster_info  = current_thruster_info.next_tandem_thruster)
                 {
                     current_thruster_info.opposing_thruster = first_opposing_info;
-                    //++count;
                 }
-                //log_ECU_action("find_tandem_and_opposite_thrusters", string.Format("reassigned opposite thruster{0} to {1}{2} on own side", (count >= 2) ? "s" : "", (count == 0) ? "" : count.ToString(), (count == 0) ? "<none>" : " tandem ones"));
 
                 if (first_opposing_info != null)
                 {
                     thruster_info next_tandem_thruster = (removed_thruster_info.next_tandem_thruster == removed_thruster_info) ? null : removed_thruster_info.next_tandem_thruster;
                     current_thruster_info = first_opposing_info;
-                    //int count = 0;
                     do
                     {
                         current_thruster_info.opposing_thruster = next_tandem_thruster;
                         current_thruster_info                   = current_thruster_info.next_tandem_thruster;
-                        //++count;
                     }
                     while (current_thruster_info != first_opposing_info);
-                    //log_ECU_action("find_tandem_and_opposite_thrusters", string.Format("reassigned {0} opposite {1}thruster{2} to {3} on opposite side", count, (count >= 2) ? "tandem " : "", (count >= 2) ? "s" : "", (next_tandem_thruster == null) ? "<none>" : "next tandem one"));
                 }
 
                 removed_thruster_info.opposing_thruster = null;
@@ -1431,6 +1428,16 @@ namespace ttdtwm
             removed_thruster_info.next_tandem_thruster.prev_tandem_thruster = removed_thruster_info.prev_tandem_thruster;
             removed_thruster_info.prev_tandem_thruster.next_tandem_thruster = removed_thruster_info.next_tandem_thruster;
             removed_thruster_info.next_tandem_thruster = removed_thruster_info.prev_tandem_thruster = removed_thruster_info;
+
+            Dictionary<Vector3I, List<thruster_info>> cur_direction = _tandem_thrusters[(int) removed_thruster_info.nozzle_direction];
+            Vector3I                                  filter_vector = thruster.ThrustForwardVector, filtered_location;
+
+            filter_vector     = Vector3I.One - filter_vector / (filter_vector.X + filter_vector.Y + filter_vector.Z);
+            filtered_location = (thruster.Min + thruster.Max) * filter_vector;
+            List<thruster_info> tandem_thrusters = cur_direction[filtered_location];
+            tandem_thrusters.Remove(removed_thruster_info);
+            if (tandem_thrusters.Count == 0)
+                cur_direction.Remove(filtered_location);
         }
 
         private void check_thruster_control_changed()
@@ -1459,10 +1466,10 @@ namespace ttdtwm
             for (int index = 0; index < _thrusters_copy.Count; ++index)
             {
                 cur_thruster_info = thruster_infos[index];
-                cur_thruster = _thrusters_copy[index];
+                cur_thruster      = _thrusters_copy[index];
                 ((IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
-                contains_THR = _thruster_name.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
-                contains_RCS = _thruster_name.ContainsRCSTag();
+                contains_THR  = _thruster_name.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
+                contains_RCS  = _thruster_name.ContainsRCSTag();
                 contains_STAT = _thruster_name.ContainsSTATTag();
                 if ((contains_THR || contains_RCS || contains_STAT) && cur_thruster_info.actual_max_force > 0.01f * cur_thruster_info.max_force && cur_thruster.IsWorking)
                 {
@@ -1485,7 +1492,7 @@ namespace ttdtwm
                 for (int index = 0; index < _thrusters_copy.Count; ++index)
                 {
                     cur_thruster_info = thruster_infos[index];
-                    cur_thruster = _thrusters_copy[index];
+                    cur_thruster      = _thrusters_copy[index];
                     ((IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
                     contains_THR  = _thruster_name.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
                     contains_RCS  = _thruster_name.ContainsRCSTag();
@@ -1560,7 +1567,7 @@ namespace ttdtwm
         {
             int dir_index = (int) cur_thruster_info.nozzle_direction;
 
-            remove_thruster_from_lists(cur_thruster_info);
+            remove_thruster_from_lists(cur_thruster, cur_thruster_info);
             cur_thruster_info.thrust_limit = 0.0f;
             _max_force[dir_index]         -= cur_thruster_info.max_force;
             _uncontrolled_thrusters.Add(cur_thruster, cur_thruster_info);
@@ -1668,7 +1675,7 @@ namespace ttdtwm
                     if (_controlled_thrusters[dir_index].ContainsKey(thruster))
                     {
                         thruster_found = _calibration_scheduled = true;
-                        remove_thruster_from_lists(_controlled_thrusters[dir_index][thruster]);
+                        remove_thruster_from_lists(thruster, _controlled_thrusters[dir_index][thruster]);
                         _max_force[dir_index] -= _controlled_thrusters[dir_index][thruster].max_force;
                         _controlled_thrusters[dir_index].Remove(thruster);
                         //log_ECU_action("dispose_thruster", string.Format("{0} ({1}) [{2}]", ((IMyTerminalBlock) thruster).CustomName, get_nozzle_orientation(thruster).ToString(), thruster.EntityId));
@@ -1886,18 +1893,17 @@ namespace ttdtwm
                 _thrust_manager_task.Wait();
             //check_manual_override();
             if (  autopilot_on || !_is_thrust_verride_active && !_is_gyro_override_active && _manual_rotation.LengthSquared() < 0.0001f 
-                && _manual_thrust.LengthSquared() < 0.0001f && _grid.Physics.AngularVelocity.LengthSquared() < 1.0E-6f && !linear_dampers_on
-                && (_grid.Physics.Gravity.LengthSquared() < 0.01f || _speed < 0.1f))
+                && _manual_thrust.LengthSquared() < 0.0001f && _grid.Physics.AngularVelocity.LengthSquared() < 0.0001f
+                && (!linear_dampers_on || _grid.Physics.Gravity.LengthSquared() < 0.01f && _speed < 0.1f))
             {
-                thrust_reduction = 0;
-                apply_thrust_settings(reset_all_thrusters: true);
+                handle_thrust_control(world_linear_velocity, sleep_mode_on: true);
                 if (autopilot_on)
-                    calculate_and_apply_torque(Vector3.Zero);
+                    calculate_and_apply_torque();
             }
             else
             {
-                Vector3 desired_angular_velocity = handle_thrust_control(world_linear_velocity);
-                calculate_and_apply_torque(desired_angular_velocity);
+                handle_thrust_control(world_linear_velocity, sleep_mode_on: false);
+                calculate_and_apply_torque();
             }
         }
 
