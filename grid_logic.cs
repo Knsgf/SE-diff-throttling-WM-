@@ -445,12 +445,17 @@ namespace ttdtwm
             */
 
             Vector3 manual_thrust, manual_rotation;
-            var     ship_controller = (Sandbox.Game.Entities.MyShipController) controller;
+            var     ship_controller = controller as Sandbox.Game.Entities.MyShipController;
 
-            manual_thrust     = ship_controller.MoveIndicator;
-            manual_rotation.X = ship_controller.RotationIndicator.X;
-            manual_rotation.Y = ship_controller.RotationIndicator.Y;
-            manual_rotation.Z = ship_controller.RollIndicator;
+            if (ship_controller == null)
+                manual_thrust = manual_rotation = Vector3.Zero;
+            else
+            { 
+                manual_thrust     = ship_controller.MoveIndicator;
+                manual_rotation.X = ship_controller.RotationIndicator.X;
+                manual_rotation.Y = ship_controller.RotationIndicator.Y;
+                manual_rotation.Z = ship_controller.RollIndicator;
+            }
 
             send_linear_message  (manual_thrust  );
             send_rotation_message(manual_rotation);

@@ -1641,6 +1641,7 @@ namespace ttdtwm
             new_thruster.grid_centre_pos      = (thruster.Min + thruster.Max) * (_grid.GridSize / 2.0f);
             new_thruster.max_force            = new_thruster.actual_max_force = thruster.BlockDefinition.ForceMagnitude;
             new_thruster.CoM_offset           = new_thruster.grid_centre_pos - _grid_CoM_location;
+            new_thruster.max_torque           = Vector3.Cross(new_thruster.CoM_offset, -thruster.ThrustForwardVector * thruster.BlockDefinition.ForceMagnitude);
             new_thruster.static_moment        = new_thruster.actual_static_moment = new_thruster.grid_centre_pos * new_thruster.max_force;
             new_thruster.nozzle_direction     = get_nozzle_orientation(thruster);
             new_thruster.reference_vector     = get_reference_vector(new_thruster, _grid_CoM_location, _thrust_forward_vectors[(int) new_thruster.nozzle_direction]);

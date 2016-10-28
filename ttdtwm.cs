@@ -20,7 +20,7 @@ namespace ttdtwm
         private Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
         private Action _grids_handle_60Hz = null, _grids_handle_4Hz = null, _grids_handle_2s_period = null;
 
-        private int  _count15 = 0, _count8 = 0;
+        private int  _count15 = 15, _count8 = 8;
         private bool _entity_events_set = false, _announced = false, _panel_controls_set = false, switch_ = false;
 
         #endregion
