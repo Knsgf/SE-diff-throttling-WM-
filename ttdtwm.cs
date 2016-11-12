@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 
 using Sandbox.ModAPI;
+using Sandbox.ModAPI.Interfaces;
 using Sandbox.ModAPI.Interfaces.Terminal;
 using VRage.Game.Components;
 using VRage.Game.ModAPI;
@@ -19,6 +20,9 @@ namespace ttdtwm
 
         private Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
         private Action _grids_handle_60Hz = null, _grids_handle_4Hz = null, _grids_handle_2s_period = null;
+
+        private IMyThrust         _sample_thruster   = null;
+        private IMyShipController _sample_controller = null;
 
         private int  _count15 = 15, _count8 = 8;
         private bool _entity_events_set = false, _announced = false, _panel_controls_set = false, switch_ = false;
@@ -41,7 +45,7 @@ namespace ttdtwm
             var grid = entity as IMyCubeGrid;
             if (grid != null)
             {
-                var new_grid_logic = new grid_logic(grid);
+                var new_grid_logic = new grid_logic(grid, this);
                 _grids_handle_60Hz      += new_grid_logic.handle_60Hz;
                 _grids_handle_4Hz       += new_grid_logic.handle_4Hz;
                 _grids_handle_2s_period += new_grid_logic.handle_2s_period;
@@ -199,6 +203,18 @@ namespace ttdtwm
 
         #endregion
 
+        internal void sample_thruster(IMyThrust thruster)
+        {
+            if (!_panel_controls_set && _sample_thruster == null)
+                _sample_thruster = thruster;
+        }
+
+        internal void sample_controller(IMyShipController controller)
+        {
+            if (!_panel_controls_set && _sample_controller == null)
+                _sample_controller = controller;
+        }
+
         private void try_register_handlers()
         {
             if (!sync_helper.network_handlers_registered)
@@ -213,23 +229,37 @@ namespace ttdtwm
                 MyAPIGateway.Entities.OnEntityRemove += on_entity_removed;
                 _entity_events_set = true;
             }
-            if (!_panel_controls_set && MyAPIGateway.TerminalControls != null)
+            if (!_panel_controls_set && _sample_thruster != null && _sample_controller != null && MyAPIGateway.TerminalControls != null)
             {
-                var cockpit_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyCockpit>("TTDTWM_LINE1");
+                bool thrust_override_present = false;
+                List<ITerminalProperty> block_properties = new List<ITerminalProperty>();
+                _sample_thruster.GetProperties(block_properties);
+                foreach (var cur_property in block_properties)
+                {
+                    //log_session_action("try_register_handlers", "IMyThrust property Id: " + cur_property.Id + ", TypeName: " + cur_property.TypeName);
+                    if (cur_property.Id == "Override")
+                        thrust_override_present = true;
+                }
+                if (!thrust_override_present)
+                    return;
+
+                IMyTerminalControlSeparator cockpit_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyCockpit>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(cockpit_line);
                 create_checkbox<IMyCockpit>("ForceCoTMode", "Force CoT mode", null,               "CoT",   "Auto",     is_grid_CoT_mode_on,     set_grid_CoT_mode,     is_grid_CoT_mode_available);
                 create_switch  <IMyCockpit>( "LandingMode",   "Landing mode", null, "On", "Off", "Land", "Flight", is_grid_landing_mode_on, set_grid_landing_mode, is_grid_landing_mode_available);
 
-                var RC_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyRemoteControl>("TTDTWM_LINE1");
+                IMyTerminalControlSeparator RC_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyRemoteControl>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyRemoteControl>(RC_line);
                 create_checkbox<IMyRemoteControl>("ForceCoTMode", "Force CoT mode", null,               "CoT",   "Auto",     is_grid_CoT_mode_on,     set_grid_CoT_mode,     is_grid_CoT_mode_available);
                 create_switch  <IMyRemoteControl>( "LandingMode",   "Landing mode", null, "On", "Off", "Land", "Flight", is_grid_landing_mode_on, set_grid_landing_mode, is_grid_landing_mode_available);
 
+                IMyTerminalControlSeparator thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
+                MyAPIGateway.TerminalControls.AddControl<IMyThrust>(thruster_line);
                 create_switch<IMyThrust>("ActiveControl",        "Active Control", null, "On", "Off", "On", "Off", thruster_tagger.is_under_active_control, thruster_tagger.set_active_control, thruster_tagger.is_active_control_available);
                 create_switch<IMyThrust>(     "AntiSlip",       "Slip Prevention", null, "On", "Off", "On", "Off", thruster_tagger.is_anti_slip           , thruster_tagger.set_anti_slip     , thruster_tagger.is_anti_slip_available     );
                 create_switch<IMyThrust>(  "StaticLimit", "Passive Stabilisation", null, "On", "Off", "On", "Off", thruster_tagger.is_thrust_limited      , thruster_tagger.set_thrust_limited, thruster_tagger.is_thrust_limiter_available);
 
-                var manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
+                IMyTerminalControlSlider manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
                 manual_throttle.Getter  = thruster_tagger.get_manual_throttle;
                 manual_throttle.Setter  = thruster_tagger.set_manual_throttle;
                 manual_throttle.Enabled = thruster_tagger.is_under_active_control;
@@ -252,6 +282,8 @@ namespace ttdtwm
                     thruster_tagger.throttle_status, "Decrease");
 
                 _panel_controls_set = true;
+                _sample_thruster    = null;
+                _sample_controller  = null;
             }
         }
 

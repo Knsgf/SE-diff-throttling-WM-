@@ -205,7 +205,7 @@ namespace ttdtwm
 
         #region DEBUG
 
-        private void screen_info(string message, int display_time_ms, MyFontEnum font, bool controlled_only)
+        private void screen_info(string message, int display_time_ms, string font, bool controlled_only)
         {
             bool display = !controlled_only;
 

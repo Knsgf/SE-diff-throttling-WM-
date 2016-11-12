@@ -21,14 +21,14 @@ namespace ttdtwm
         //const int   CONTROL_MODE_BASE = 204, LANDING_MODE_ON = 1, COT_MODE_ON = 2;  // 204 - 207
         const int   CONTROLS_TIMEOUT = 2;
 
-        private static byte[] __long_message  = new byte[8 + 3];
-        private static byte[] __short_message = new byte[8 + 1];
+        private static byte[] __long_message  = new byte[8 + 3 + 5], __short_message = new byte[8 + 1 + 5], __signature = new byte[5];
 
         private static StringBuilder __controller_name = new StringBuilder();
 
+        private session_handler                _session_ref;
         private IMyCubeGrid                    _grid;
         private HashSet<IMyControllableEntity> _ship_controllers     = new HashSet<IMyControllableEntity>();
-        private HashSet<IMyRemoteControl>   _RC_blocks            = new HashSet<IMyRemoteControl>();
+        private HashSet<IMyRemoteControl>      _RC_blocks            = new HashSet<IMyRemoteControl>();
         private IMyHudNotification             _thrust_redction_text = null, _control_warning_text = null, _vertical_speed_text = null;
         private engine_control_unit            _ECU                  = null;
         private Vector3UByte                   _prev_manual_thrust   = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
@@ -133,9 +133,13 @@ namespace ttdtwm
             IMyCubeBlock entity = block.FatBlock;
             if (entity != null)
             {
-                var controller = entity as IMyControllableEntity;
-                if (controller != null)
+                var controller      = entity as IMyControllableEntity;
+                var ship_controller = entity as IMyShipController;
+                if (controller != null && ship_controller != null)
+                {
                     _ship_controllers.Add(controller);
+                    _session_ref.sample_controller(ship_controller);
+                }
                 var RC_block = entity as IMyRemoteControl;
                 if (RC_block != null)
                     _RC_blocks.Add(RC_block);
@@ -146,6 +150,7 @@ namespace ttdtwm
                     if (_ECU == null)
                         _ECU = new engine_control_unit(_grid);
                     _ECU.assign_thruster(thruster);
+                    _session_ref.sample_thruster(thruster);
                     ++_num_thrusters;
                 }
                 var gyro = entity as IMyGyro;
@@ -218,8 +223,24 @@ namespace ttdtwm
             _control_limit_is_visible  = is_warning_on;
         }
 
+        private static bool is_signature_valid(byte[] argument, int message_length)
+        {
+            if (argument.Length < message_length)
+                return false;
+
+            int signature_index = 0;
+            for (int index = message_length - __signature.Length; index < message_length; ++index)
+            {
+                if (argument[index] != __signature[signature_index++])
+                    return false;
+            }
+            return true;
+        }
+
         internal static void short_message_handler(byte[] argument)
         {
+            if (!is_signature_valid(argument, __short_message.Length))
+                return;
             grid_logic instance = sync_helper.decode_entity_id(argument);
             if (instance == null || instance._disposed || instance._ECU == null)
                 return;
@@ -264,6 +285,8 @@ namespace ttdtwm
 
         internal static void linear_message_handler(byte[] argument)
         {
+            if (!is_signature_valid(argument, __long_message.Length))
+                return;
             grid_logic instance = sync_helper.decode_entity_id(argument);
             if (instance == null || instance._disposed || instance._ECU == null)
                 return;
@@ -280,6 +303,8 @@ namespace ttdtwm
 
         internal static void rotation_message_handler(byte[] argument)
         {
+            if (!is_signature_valid(argument, __long_message.Length))
+                return;
             grid_logic instance = sync_helper.decode_entity_id(argument);
             if (instance == null || instance._disposed || instance._ECU == null)
                 return;
@@ -597,8 +622,18 @@ namespace ttdtwm
             }
         }
 
-        public grid_logic(IMyCubeGrid new_grid)
+        static grid_logic()
         {
+            __long_message[8 + 3 + 0] = __short_message[8 + 1 + 0] = __signature[0] =  6;
+            __long_message[8 + 3 + 1] = __short_message[8 + 1 + 1] = __signature[1] = 60;
+            __long_message[8 + 3 + 2] = __short_message[8 + 1 + 2] = __signature[2] = 33;
+            __long_message[8 + 3 + 3] = __short_message[8 + 1 + 3] = __signature[3] = 39;
+            __long_message[8 + 3 + 4] = __short_message[8 + 1 + 4] = __signature[4] = 66;
+        }
+
+        public grid_logic(IMyCubeGrid new_grid, session_handler session_instance)
+        {
+            _session_ref          = session_instance;
             _grid                 = new_grid;
             _grid.OnBlockAdded   += on_block_added;
             _grid.OnBlockRemoved += on_block_removed;
@@ -622,6 +657,7 @@ namespace ttdtwm
                     if (thruster != null)
                     { 
                         _ECU.assign_thruster(thruster);
+                        _session_ref.sample_thruster(thruster);
                         ++_num_thrusters;
                     }
                     if (gyro != null)
@@ -640,6 +676,7 @@ namespace ttdtwm
             foreach (var cur_controller in block_list)
             {
                 _ship_controllers.Add((IMyControllableEntity) cur_controller.FatBlock);
+                _session_ref.sample_controller((IMyShipController) cur_controller.FatBlock);
                 var RC_block = cur_controller.FatBlock as IMyRemoteControl;
                 if (RC_block != null)
                     _RC_blocks.Add(RC_block);
