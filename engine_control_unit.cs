@@ -21,7 +21,7 @@ namespace ttdtwm
         #region fields
 
         const int   NUM_ROTATION_SAMPLES = 6, PHYSICS_ENABLE_DELAY = 6;
-        const float DESCENDING_SPEED     = 0.5f, MIN_OVERRIDE = 1.001f;
+        const float DESCENDING_SPEED     = 0.5f, MIN_OVERRIDE = 1.001f, LINEAR_INTEGRAL_CONSTANT = 0.05f;
         const bool  DEBUG_THR_ALWAYS_ON  = false, DEBUG_DISABLE_ALT_HOLD = false;
 
         enum thrust_dir { fore = 0, aft = 3, starboard = 1, port = 4, dorsal = 2, ventral = 5 };
@@ -138,8 +138,8 @@ namespace ttdtwm
         private Vector3    _local_angular_velocity, _prev_angular_velocity = Vector3.Zero, _torque, _manual_rotation, _prev_rotation = Vector3.Zero, _target_rotation, _gyro_override = Vector3.Zero;
         private bool       _current_mode_is_CoT = false, _new_mode_is_CoT = false, _force_CoT_mode = false, _is_gyro_override_active = false;
         private sbyte      _last_control_scheme = -1;
-        private bool       _stabilisation_off = true, _all_engines_off = false, _active_control_on = false, _under_player_control = false, _force_override_refresh = false;
-        private float      _angular_speed;
+        private bool       _all_engines_off = false, _active_control_on = false, _under_player_control = false, _force_override_refresh = false;
+        private float      _angular_speed, _trim_fadeout = 1.0f;
 
         private  bool   _integral_cleared = false, _landing_mode_on = false, _is_thrust_verride_active = false;
         private  bool[] _enable_linear_integral = {  true,  true,  true,  true,  true,  true };
@@ -601,7 +601,7 @@ namespace ttdtwm
 
         private sbyte initialise_linear_controls(Vector3 local_linear_velocity_vector, Vector3 local_gravity_vector)
         {
-            const float DAMPING_CONSTANT = -2.0f, INTEGRAL_CONSTANT = 0.05f;
+            const float DAMPING_CONSTANT = -2.0f;
 
             _linear_control = Vector3.Clamp(_manual_thrust + _thrust_override, -Vector3.One, Vector3.One);
             decompose_vector(_linear_control, __control_vector);
@@ -609,7 +609,7 @@ namespace ttdtwm
             float gravity_magnitude = local_gravity_vector.Length();
             bool  controls_active   = _linear_control.LengthSquared() > 0.0001f;
 
-            _stabilisation_off = false;
+            _trim_fadeout = 1.0f;
 
             if (!linear_dampers_on)
             {
@@ -622,7 +622,8 @@ namespace ttdtwm
                     }
                     _integral_cleared = true;
                 }
-                _stabilisation_off |= !controls_active && gravity_magnitude > 0.1f && _vertical_speed > -DESCENDING_SPEED * 0.5f && _vertical_speed < DESCENDING_SPEED * 0.5f;
+                if (!controls_active && gravity_magnitude > 0.1f && _vertical_speed > -DESCENDING_SPEED * 0.5f && _vertical_speed < DESCENDING_SPEED * 0.5f)
+                    _trim_fadeout = Math.Abs(_vertical_speed / (DESCENDING_SPEED * 0.5f));
             }
             else
             {
@@ -632,13 +633,12 @@ namespace ttdtwm
                     linear_damping -= local_gravity_vector;
                 else
                 {
-                    float counter_thrust_limit = -_vertical_speed / DESCENDING_SPEED;
+                    float counter_thrust_limit = -_vertical_speed / DESCENDING_SPEED - 1.0f;
                     if (counter_thrust_limit < 0.0f)
                         counter_thrust_limit = 0.0f;
-                    else if (counter_thrust_limit > 0.5f)
-                        counter_thrust_limit = 0.5f;
                     linear_damping     -= local_gravity_vector * counter_thrust_limit;
-                    _stabilisation_off |= !controls_active && (control_limit_reached || _vertical_speed >= -DESCENDING_SPEED * 0.5f  && _vertical_speed < 0.0f);
+                    if (!controls_active && _vertical_speed >= -DESCENDING_SPEED * 0.5f && _vertical_speed < 0.0f)
+                        _trim_fadeout = _vertical_speed / (-DESCENDING_SPEED * 0.5f);
                 }
                 decompose_vector(linear_damping * _grid.Physics.Mass,            __braking_vector);
                 decompose_vector(              -local_gravity_vector,         __local_gravity_inv);
@@ -647,12 +647,10 @@ namespace ttdtwm
 
                 for (int dir_index = 0, opposite_dir = 3; dir_index < 3; ++dir_index, ++opposite_dir)
                 {
-                    _enable_linear_integral[dir_index] = _enable_linear_integral[opposite_dir] = !DEBUG_DISABLE_ALT_HOLD &&
-                           (  __local_gravity_inv[dir_index] >  0.0f  ||   __local_gravity_inv[opposite_dir] >  0.0f)
-                        &&  __control_vector_copy[dir_index] <  0.01f && __control_vector_copy[opposite_dir] <  0.01f;
-                    _enable_linear_integral[   dir_index] &= _actual_max_force[   dir_index] >= 1.0f;
-                    _enable_linear_integral[opposite_dir] &= _actual_max_force[opposite_dir] >= 1.0f;
-
+                    _enable_linear_integral[dir_index] = _enable_linear_integral[opposite_dir] = !DEBUG_DISABLE_ALT_HOLD 
+                        && (  __local_gravity_inv[dir_index] >  0.0f  ||   __local_gravity_inv[opposite_dir] >  0.0f)
+                        &&  __control_vector_copy[dir_index] <  0.01f && __control_vector_copy[opposite_dir] <  0.01f
+                        && (    _actual_max_force[dir_index] >= 1.0f  ||     _actual_max_force[opposite_dir] >= 1.0f);
 
                     set_brake(   dir_index, opposite_dir);
                     set_brake(opposite_dir,    dir_index);
@@ -667,49 +665,45 @@ namespace ttdtwm
                         __control_vector[   dir_index]  = 0.0f;
                     }
 
-                    float gravity_ratio = (gravity_magnitude < 0.01f) ? 1.0f : ((__local_gravity_inv[dir_index] + __local_gravity_inv[opposite_dir]) / gravity_magnitude),
-                          axis_speed    = __local_linear_velocity_inv[dir_index] + __local_linear_velocity_inv[opposite_dir],
-                          linear_integral_change = INTEGRAL_CONSTANT * (__local_linear_velocity_inv[dir_index] - __local_linear_velocity_inv[opposite_dir]);
-                    if (linear_integral_change > INTEGRAL_CONSTANT)
-                        linear_integral_change = INTEGRAL_CONSTANT;
-                    else if (linear_integral_change < -INTEGRAL_CONSTANT)
-                        linear_integral_change = -INTEGRAL_CONSTANT;
-                    if (axis_speed < 1.0f)
-                        linear_integral_change *= axis_speed * (gravity_ratio - 1.0f) + 1.0f;
-                    else
-                        linear_integral_change *= gravity_ratio;
+                    float gravity_ratio          = (gravity_magnitude < 0.01f) ? 1.0f : ((__local_gravity_inv[dir_index] + __local_gravity_inv[opposite_dir]) / gravity_magnitude),
+                          axis_speed             = __local_linear_velocity_inv[dir_index] + __local_linear_velocity_inv[opposite_dir],
+                          linear_integral_change = LINEAR_INTEGRAL_CONSTANT * (__local_linear_velocity_inv[dir_index] - __local_linear_velocity_inv[opposite_dir]);
                     if (linear_integral_change > 0.0f)
-                        set_linear_integral(   dir_index, opposite_dir,  linear_integral_change);
+                        set_linear_integral(   dir_index, opposite_dir,  linear_integral_change, gravity_ratio, axis_speed);
                     else if (linear_integral_change < 0.0f)
-                        set_linear_integral(opposite_dir,    dir_index, -linear_integral_change);
+                        set_linear_integral(opposite_dir,    dir_index, -linear_integral_change, gravity_ratio, axis_speed);
 
                     if (_landing_mode_on)
                     {
                         float dir_multiplier = (_vertical_speed > -DESCENDING_SPEED * 0.5f) ? 1.0f : gravity_ratio;
 
-                        _linear_integral[dir_index] -= INTEGRAL_CONSTANT * DESCENDING_SPEED * dir_multiplier;
+                        _linear_integral[dir_index] -= LINEAR_INTEGRAL_CONSTANT * DESCENDING_SPEED * dir_multiplier;
                         if (_linear_integral[dir_index] < 0.0f)
                             _linear_integral[dir_index] = 0.0f;
-                        _linear_integral[opposite_dir] -= INTEGRAL_CONSTANT * DESCENDING_SPEED * dir_multiplier;
+                        _linear_integral[opposite_dir] -= LINEAR_INTEGRAL_CONSTANT * DESCENDING_SPEED * dir_multiplier;
                         if (_linear_integral[opposite_dir] < 0.0f)
                             _linear_integral[opposite_dir] = 0.0f;
                     }
-                    /*
-                    if (__local_gravity_inv[dir_index] <= 0.0f && __local_gravity_inv[opposite_dir] <= 0.0f)
-                        _linear_integral[dir_index] = _linear_integral[opposite_dir] = 0.0f;
-                    */
                 }
             }
 
             return control_scheme;
         }
 
-        private void set_linear_integral(int dir_index, int opposite_dir, float linear_integral_change)
+        private void set_linear_integral(int dir_index, int opposite_dir, float linear_integral_change, float gravity_ratio, float axis_speed)
         {
             if (_linear_integral[opposite_dir] <= 0.0f)
             {
                 if (_enable_linear_integral[dir_index])
+                {
+                    if (linear_integral_change > LINEAR_INTEGRAL_CONSTANT)
+                        linear_integral_change = LINEAR_INTEGRAL_CONSTANT;
+                    if (axis_speed < 1.0f)
+                        linear_integral_change *= axis_speed * (gravity_ratio - 1.0f) + 1.0f;
+                    else
+                        linear_integral_change *= gravity_ratio;
                     _linear_integral[dir_index] += linear_integral_change;
+                }
                 _linear_integral[opposite_dir] = 0.0f;
             }
             else
@@ -719,7 +713,13 @@ namespace ttdtwm
                     _linear_integral[dir_index] = 0.0f;
                 else
                 {
-                    _linear_integral[   dir_index] = -_linear_integral[opposite_dir];
+                    float max_increase = LINEAR_INTEGRAL_CONSTANT + _linear_integral[opposite_dir];
+
+                    if (max_increase < 0.0f)
+                        max_increase = 0.0f;
+                    _linear_integral[dir_index] = _enable_linear_integral[dir_index] ? (-_linear_integral[opposite_dir]) : 0.0f;
+                    if (_linear_integral[dir_index] > max_increase)
+                        _linear_integral[dir_index] = max_increase;
                     _linear_integral[opposite_dir] = 0.0f;
                 }
             }
@@ -1090,7 +1090,7 @@ namespace ttdtwm
                 }
                 else
                 {
-                    if (_stabilisation_off || !_active_control_on)
+                    if (!_active_control_on)
                         _current_trim[dir_index] = _last_trim[dir_index] = 0.0f;
                     else if (_enable_integral[dir_index])
                     {
@@ -1102,7 +1102,7 @@ namespace ttdtwm
                             update_inverse_world_matrix   = true;
                         }
                         else if (_is_gyro_override_active && __angular_velocity[dir_index] > 0.2f)
-                            _restrict_integral[dir_index] = !_stabilisation_off && _active_control_on;
+                            _restrict_integral[dir_index] = _active_control_on;
 
                         if (!_restrict_integral[dir_index] || __angular_acceleration[opposite_dir] < 0.05f)
                         {
@@ -1144,10 +1144,11 @@ namespace ttdtwm
                     else
                     {
                         _enable_integral[  dir_index] = update_inverse_world_matrix = true;
-                        _restrict_integral[dir_index] =  !_stabilisation_off && _active_control_on && __angular_velocity[dir_index] > 0.0f;
-                        _current_trim[     dir_index] = (!_stabilisation_off && _active_control_on && control_scheme == _last_control_scheme) ? _last_trim[dir_index] : 0.0f;
+                        _restrict_integral[dir_index] =  _active_control_on && __angular_velocity[dir_index] > 0.0f;
+                        _current_trim[     dir_index] = (_active_control_on && control_scheme == _last_control_scheme) ? _last_trim[dir_index] : 0.0f;
                     }
 
+                    _current_trim[dir_index]    *= _trim_fadeout;
                     __steering_output[dir_index] = __angular_velocity[opposite_dir] + _current_trim[dir_index];
                 }
 

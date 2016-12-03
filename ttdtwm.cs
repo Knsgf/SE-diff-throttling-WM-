@@ -231,17 +231,15 @@ namespace ttdtwm
             }
             if (!_panel_controls_set && _sample_thruster != null && _sample_controller != null && MyAPIGateway.TerminalControls != null)
             {
-                bool thrust_override_present = false;
-                List<ITerminalProperty> block_properties = new List<ITerminalProperty>();
-                _sample_thruster.GetProperties(block_properties);
-                foreach (var cur_property in block_properties)
+                try
                 {
-                    //log_session_action("try_register_handlers", "IMyThrust property Id: " + cur_property.Id + ", TypeName: " + cur_property.TypeName);
-                    if (cur_property.Id == "Override")
-                        thrust_override_present = true;
+                    _sample_thruster.GetValueFloat("Override");
+                    _sample_controller.GetValueBool("DampenersOverride");
                 }
-                if (!thrust_override_present)
+                catch (NullReferenceException dummy)
+                {
                     return;
+                }
 
                 IMyTerminalControlSeparator cockpit_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyCockpit>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(cockpit_line);

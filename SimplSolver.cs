@@ -35,7 +35,7 @@ namespace ttdtwm
 
                     if (non_zero_symbol == ' ' && (cur_row == pivot_row || cur_colum == pivot_column))
                         non_zero_symbol = '#';
-                    row.AppendFormat("{0,10:G2}{1}", _tableau[cur_row][cur_colum], non_zero_symbol);
+                    row.AppendFormat("{0,10:G3}{1}", _tableau[cur_row][cur_colum], non_zero_symbol);
                 }
                 MyLog.Default.WriteLine(row.ToString());
             }
@@ -57,63 +57,102 @@ namespace ttdtwm
                 _current_width = width;
             }
 
+            int RHS_column = width - 1, objective_row1 = height - 1, objective_row2 = height - 2;
             for (int item_index = 0; item_index < item_count; ++item_index)
             {
+                double x = items[item_index].x, y = items[item_index].y;
+
                 // Centre location constraints
-                _tableau[0][item_index] =  items[item_index].x;
-                _tableau[1][item_index] =  items[item_index].y;
-                _tableau[2][item_index] = -items[item_index].x;
-                _tableau[3][item_index] = -items[item_index].y;
+                _tableau[0][item_index] = x;
+                _tableau[1][item_index] = y;
 
                 // Force constraints and slack variables
-                _tableau[item_index + 4][item_index] = _tableau[item_index + 4][item_index + item_count + 4] = 1.0;
-                _tableau[item_index + 4][ width - 1] = items[item_index].max_value;
-                _tableau[    height - 1][item_index] = -1.0;
+                double[] force_row = _tableau[2 + item_index];
+                force_row[item_index] = force_row[item_index + item_count] = 1.0;
+                force_row[RHS_column] = items[item_index].max_value;
+
+                // Primary and auxiliary objective function coefficients
+                _tableau[objective_row2][item_index] = -1.0;
+                _tableau[objective_row1][item_index] = -x - y;
             }
 
-            // Centre location slack variables
-            for (int cur_row = 0; cur_row < 4; ++cur_row)
-                _tableau[cur_row][cur_row + item_count] = 1.0;
-            _tableau[height - 1][width - 2] = 1.0;
+            // Artificial variables
+            _tableau[0][RHS_column - 2] = _tableau[1][RHS_column - 1] = 1.0;
         }
 
-        private bool solve(int height, int width)
+        private bool solve(ref int height, ref int width)
         {
             const uint MAX_ITERATIONS = 500;
 
             uint iterations = 0;
-            int  last_row = height - 1, last_column = width - 1;
+            int  cur_objective_row = height - 1, cur_RHS_column = width - 1, last_row = -1, last_column = -1;
+            bool a1_is_basic = true, a2_is_basic = true;
 
             while (true)
             {
-                //MyLog.Default.WriteLine(string.Format("Iteration #{0}/{1}", iterations, max_iterations));
+                //MyLog.Default.WriteLine(string.Format("Iteration #{0}/{1}", iterations, MAX_ITERATIONS));
 
-                double[] bottom_row_ref   = _tableau[last_row];
-                double   min_column_value = 0.0;
-                int      pivot_column     = -1, cur_column;
-                for (cur_column = 0; cur_column < last_column; ++cur_column)
+                double[] objective_row_ref = _tableau[cur_objective_row];
+                double   min_column_value  = 0.0;
+                int      pivot_column      = -1, cur_column, cur_row;
+                for (cur_column = last_column + 1; cur_column < cur_RHS_column; ++cur_column)
                 {
-                    if (min_column_value > bottom_row_ref[cur_column])
+                    if (min_column_value > objective_row_ref[cur_column])
                     {
-                        min_column_value = bottom_row_ref[cur_column];
+                        min_column_value = objective_row_ref[cur_column];
+                        pivot_column     = cur_column;
+                    }
+                }
+                for (cur_column = 0; cur_column <= last_column; ++cur_column)
+                {
+                    if (min_column_value > objective_row_ref[cur_column])
+                    {
+                        min_column_value = objective_row_ref[cur_column];
                         pivot_column     = cur_column;
                     }
                 }
                 if (pivot_column < 0 || ++iterations >= MAX_ITERATIONS)
                 {
-                    //log_tableau(height, width, -1, -1);
+                    //log_tableau(cur_objective_row + 1, cur_RHS_column + 1, -1, -1);
+                    if (cur_objective_row == height - 1)
+                    {
+                        if (a1_is_basic || a2_is_basic)
+                            return false;
+                        int old_RHS_column = cur_RHS_column;
+                        --cur_objective_row;
+                        cur_RHS_column -= 2;
+                        for (cur_row = 0; cur_row <= cur_objective_row; ++cur_row)
+                            _tableau[cur_row][cur_RHS_column] = _tableau[cur_row][old_RHS_column];
+                        last_row = last_column = -1;
+                        continue;
+                    }
+                    width  = cur_RHS_column    + 1;
+                    height = cur_objective_row + 1;
                     return true;
                 }
 
                 double[] cur_row_ref;
                 double   min_ratio = double.MaxValue, cur_ratio;
-                int      pivot_row = -1, cur_row;
-                for (cur_row = 0; cur_row < last_row; ++cur_row)
+                int      pivot_row = -1;
+                for (cur_row = last_row + 1; cur_row < cur_objective_row; ++cur_row)
                 {
                     cur_row_ref = _tableau[cur_row];
                     if (cur_row_ref[pivot_column] > 0.0)
                     {
-                        cur_ratio = cur_row_ref[width - 1] / cur_row_ref[pivot_column];
+                        cur_ratio = cur_row_ref[cur_RHS_column] / cur_row_ref[pivot_column];
+                        if (min_ratio > cur_ratio && cur_ratio >= 0.0)
+                        {
+                            min_ratio = cur_ratio;
+                            pivot_row = cur_row;
+                        }
+                    }
+                }
+                for (cur_row = 0; cur_row <= last_row; ++cur_row)
+                {
+                    cur_row_ref = _tableau[cur_row];
+                    if (cur_row_ref[pivot_column] > 0.0)
+                    {
+                        cur_ratio = cur_row_ref[cur_RHS_column] / cur_row_ref[pivot_column];
                         if (min_ratio > cur_ratio && cur_ratio >= 0.0)
                         {
                             min_ratio = cur_ratio;
@@ -123,27 +162,32 @@ namespace ttdtwm
                 }
                 if (pivot_row < 0)
                 {
-                    //log_tableau(height, width, -1, pivot_column);
+                    //log_tableau(cur_objective_row + 1, cur_RHS_column + 1, -1, pivot_column);
                     return false;
                 }
+                else if (pivot_row == 0)
+                    a1_is_basic = false;
+                else if (pivot_row == 1)
+                    a2_is_basic = false;
+                last_row    = pivot_row;
+                last_column = pivot_column;
 
-                //log_tableau(height, width, pivot_row, pivot_column);
+                //log_tableau(cur_objective_row + 1, cur_RHS_column + 1, pivot_row, pivot_column);
 
                 double[] pivot_row_ref = _tableau[pivot_row];
                 double   divider       = pivot_row_ref[pivot_column], multiplier;
-                //for (cur_column = 0; cur_column < width; ++cur_column)
-                //    _tableau[pivot_row][cur_column] /= divider;
-                //_tableau[pivot_row][pivot_column] = 1.0;
-                for (cur_row = 0; cur_row < height; ++cur_row)
+                for (cur_column = 0; cur_column <= cur_RHS_column; ++cur_column)
+                    _tableau[pivot_row][cur_column] /= divider;
+                _tableau[pivot_row][pivot_column] = 1.0;
+                for (cur_row = 0; cur_row <= cur_objective_row; ++cur_row)
                 {
                     if (cur_row == pivot_row)
                         continue;
                     cur_row_ref = _tableau[cur_row];
-                    multiplier  = cur_row_ref[pivot_column] / divider;
-                    for (cur_column = 0; cur_column < width; ++cur_column)
+                    multiplier  = cur_row_ref[pivot_column] /*/ divider*/;
+                    for (cur_column = 0; cur_column <= cur_RHS_column; ++cur_column)
                     {
                         cur_row_ref[cur_column] -= multiplier * pivot_row_ref[cur_column];
-                        
                         if (Math.Abs(cur_row_ref[cur_column]) <= GUARD_VALUE)
                             cur_row_ref[cur_column] = 0.0;
                     }
@@ -203,10 +247,10 @@ namespace ttdtwm
 
         public bool calculate_solution(int item_count)
         {
-            int tableau_width = 2 * item_count + 6, tableau_height = item_count + 5;
+            int tableau_width = 2 * item_count + 3, tableau_height = item_count + 4;
 
             fill_tableau(item_count, tableau_height, tableau_width);
-            if (!solve(tableau_height, tableau_width))
+            if (!solve(ref tableau_height, ref tableau_width))
                 return false;
             extract_values(item_count, tableau_height, tableau_width);
             return is_solution_good(item_count);
