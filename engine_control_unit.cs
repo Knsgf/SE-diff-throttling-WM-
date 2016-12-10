@@ -463,7 +463,7 @@ namespace ttdtwm
                 }
 
                 //log_ECU_action("perform_linear_calibration", "Starting calibration on " + cur_direction.ToString() + " side");
-                _calibration_tasks[(int) cur_direction] = MyAPIGateway.Parallel.Start(_solver_starters[(int) cur_direction]);
+                _calibration_tasks[(int) cur_direction] = MyAPIGateway.Parallel.StartBackground(_solver_starters[(int) cur_direction]);
                 //_calibration_tasks[(int) cur_direction].Wait();
             }
         }

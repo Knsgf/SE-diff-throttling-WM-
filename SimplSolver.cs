@@ -177,14 +177,14 @@ namespace ttdtwm
                 double[] pivot_row_ref = _tableau[pivot_row];
                 double   divider       = pivot_row_ref[pivot_column], multiplier;
                 for (cur_column = 0; cur_column <= cur_RHS_column; ++cur_column)
-                    _tableau[pivot_row][cur_column] /= divider;
-                _tableau[pivot_row][pivot_column] = 1.0;
+                    pivot_row_ref[cur_column] /= divider;
+                pivot_row_ref[pivot_column] = 1.0;
                 for (cur_row = 0; cur_row <= cur_objective_row; ++cur_row)
                 {
                     if (cur_row == pivot_row)
                         continue;
                     cur_row_ref = _tableau[cur_row];
-                    multiplier  = cur_row_ref[pivot_column] /*/ divider*/;
+                    multiplier  = cur_row_ref[pivot_column];
                     for (cur_column = 0; cur_column <= cur_RHS_column; ++cur_column)
                     {
                         cur_row_ref[cur_column] -= multiplier * pivot_row_ref[cur_column];

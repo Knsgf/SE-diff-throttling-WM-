@@ -25,7 +25,7 @@ namespace ttdtwm
         private IMyShipController _sample_controller = null;
 
         private int  _count15 = 15, _count8 = 8;
-        private bool _entity_events_set = false, _announced = false, _panel_controls_set = false, switch_ = false;
+        private bool _entity_events_set = false, _panel_controls_set = false;
 
         #endregion
 
