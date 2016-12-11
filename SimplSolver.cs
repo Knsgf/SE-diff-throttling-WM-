@@ -85,7 +85,7 @@ namespace ttdtwm
             const uint MAX_ITERATIONS = 500;
 
             uint iterations = 0;
-            int  cur_objective_row = height - 1, cur_RHS_column = width - 1, last_row = -1, last_column = -1;
+            int  cur_objective_row = height - 1, objective_row2 = height - 2, cur_RHS_column = width - 1, last_row = -1, last_column = -1;
             bool a1_is_basic = true, a2_is_basic = true;
 
             while (true)
@@ -126,15 +126,13 @@ namespace ttdtwm
                         last_row = last_column = -1;
                         continue;
                     }
-                    width  = cur_RHS_column    + 1;
-                    height = cur_objective_row + 1;
                     return true;
                 }
 
                 double[] cur_row_ref;
                 double   min_ratio = double.MaxValue, cur_ratio;
                 int      pivot_row = -1;
-                for (cur_row = last_row + 1; cur_row < cur_objective_row; ++cur_row)
+                for (cur_row = last_row + 1; cur_row < objective_row2; ++cur_row)
                 {
                     cur_row_ref = _tableau[cur_row];
                     if (cur_row_ref[pivot_column] > 0.0)
@@ -185,13 +183,19 @@ namespace ttdtwm
                         continue;
                     cur_row_ref = _tableau[cur_row];
                     multiplier  = cur_row_ref[pivot_column];
-                    for (cur_column = 0; cur_column <= cur_RHS_column; ++cur_column)
+                    for (cur_column = 0; cur_column < pivot_column; ++cur_column)
                     {
                         cur_row_ref[cur_column] -= multiplier * pivot_row_ref[cur_column];
                         if (Math.Abs(cur_row_ref[cur_column]) <= GUARD_VALUE)
                             cur_row_ref[cur_column] = 0.0;
                     }
                     cur_row_ref[pivot_column] = 0.0;
+                    for (cur_column = pivot_column + 1; cur_column <= cur_RHS_column; ++cur_column)
+                    {
+                        cur_row_ref[cur_column] -= multiplier * pivot_row_ref[cur_column];
+                        if (Math.Abs(cur_row_ref[cur_column]) <= GUARD_VALUE)
+                            cur_row_ref[cur_column] = 0.0;
+                    }
                 }
             }
         }
