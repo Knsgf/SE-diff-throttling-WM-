@@ -90,7 +90,8 @@ namespace ttdtwm
 
             while (true)
             {
-                //MyLog.Default.WriteLine(string.Format("Iteration #{0}/{1}", iterations, MAX_ITERATIONS));
+                if (engine_control_unit.CALIBRATION_DEBUG)
+                    MyLog.Default.WriteLine(string.Format("Iteration #{0}/{1}", iterations, MAX_ITERATIONS));
 
                 double[] objective_row_ref = _tableau[cur_objective_row];
                 double   min_column_value  = 0.0;
@@ -113,7 +114,8 @@ namespace ttdtwm
                 }
                 if (pivot_column < 0 || ++iterations >= MAX_ITERATIONS)
                 {
-                    //log_tableau(cur_objective_row + 1, cur_RHS_column + 1, -1, -1);
+                    if (engine_control_unit.CALIBRATION_DEBUG)
+                        log_tableau(cur_objective_row + 1, cur_RHS_column + 1, -1, -1);
                     if (cur_objective_row == height - 1)
                     {
                         if (a1_is_basic || a2_is_basic)
@@ -160,7 +162,8 @@ namespace ttdtwm
                 }
                 if (pivot_row < 0)
                 {
-                    //log_tableau(cur_objective_row + 1, cur_RHS_column + 1, -1, pivot_column);
+                    if (engine_control_unit.CALIBRATION_DEBUG)
+                        log_tableau(cur_objective_row + 1, cur_RHS_column + 1, -1, pivot_column);
                     return false;
                 }
                 else if (pivot_row == 0)
@@ -170,7 +173,8 @@ namespace ttdtwm
                 last_row    = pivot_row;
                 last_column = pivot_column;
 
-                //log_tableau(cur_objective_row + 1, cur_RHS_column + 1, pivot_row, pivot_column);
+                if (engine_control_unit.CALIBRATION_DEBUG)
+                    log_tableau(cur_objective_row + 1, cur_RHS_column + 1, pivot_row, pivot_column);
 
                 double[] pivot_row_ref = _tableau[pivot_row];
                 double   divider       = pivot_row_ref[pivot_column], multiplier;
@@ -202,20 +206,20 @@ namespace ttdtwm
 
         private void extract_values(int item_count, int height, int width)
         {
-            int cur_row;
+            int cur_row, objective_row = height - 2, RHS_column = width - 3;
 
             for (int item_index = 0; item_index < item_count; ++item_index)
             {
                 items[item_index].result = 0.0f;
-                for (cur_row = 0; cur_row < height - 1; ++cur_row)
+                for (cur_row = 0; cur_row <= objective_row; ++cur_row)
                 {
                     if (Math.Abs(_tableau[cur_row][item_index]) > GUARD_VALUE)
                     {
-                        items[item_index].result = (float) (_tableau[cur_row][width - 1] / _tableau[cur_row][item_index]);
+                        items[item_index].result = (float) (_tableau[cur_row][RHS_column] / _tableau[cur_row][item_index]);
                         break;
                     }
                 }
-                for (++cur_row; cur_row < height - 1; ++cur_row)
+                for (++cur_row; cur_row <= objective_row; ++cur_row)
                 {
                     if (Math.Abs(_tableau[cur_row][item_index]) > GUARD_VALUE)
                     {
@@ -223,12 +227,14 @@ namespace ttdtwm
                         break;
                     }
                 }
+                if (engine_control_unit.CALIBRATION_DEBUG)
+                    MyLog.Default.WriteLine(string.Format("TT&DT\t\tsimplex_solver.extract_values(): [{0}] = {1}", item_index, items[item_index].result));
             }
         }
 
         private bool is_solution_good(int item_count)
         {
-            //float sum_x = 0.0f, sum_y = 0.0f;
+            float sum_x = 0.0f, sum_y = 0.0f;
             float max_ratio = 0.0f;
 
             for (int cur_item = 0; cur_item < item_count; ++cur_item)
@@ -237,10 +243,14 @@ namespace ttdtwm
                     return false;
                 if (items[cur_item].max_value > 0.0f && max_ratio < items[cur_item].result / items[cur_item].max_value)
                     max_ratio = items[cur_item].result / items[cur_item].max_value;
-                //sum_x += items[cur_item].result * items[cur_item].x;
-                //sum_y += items[cur_item].result * items[cur_item].y;
+                if (engine_control_unit.CALIBRATION_DEBUG)
+                {
+                    sum_x += items[cur_item].result * items[cur_item].x;
+                    sum_y += items[cur_item].result * items[cur_item].y;
+                }
             }
-            //MyLog.Default.WriteLine(string.Format("TT&DT\t\tsimplex_solver.is_solution_good(): {0}/{1} residual static moment", sum_x, sum_y));
+            if (engine_control_unit.CALIBRATION_DEBUG)
+                MyLog.Default.WriteLine(string.Format("TT&DT\t\tsimplex_solver.is_solution_good(): {0}/{1} residual static moment", sum_x, sum_y));
             return max_ratio >= 0.8f;
         }
 

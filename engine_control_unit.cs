@@ -91,6 +91,7 @@ namespace ttdtwm
         private static float[] __local_gravity_inv         = new float[6];
         private static float[] __local_linear_velocity_inv = new float[6];
         private static float[] __thrust_override_vector    = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+        private static bool[]  __is_controlled_side        = new bool[6];
 
         private static bool[] __uncontrolled_override_checked = new bool[6];
 
@@ -204,6 +205,8 @@ namespace ttdtwm
         #endregion
 
         #region DEBUG
+
+        public const bool CALIBRATION_DEBUG = true;
 
         private void screen_info(string message, int display_time_ms, string font, bool controlled_only)
         {
@@ -462,9 +465,11 @@ namespace ttdtwm
                     linear_solver.items[index].max_value = thruster_infos[index].max_force;
                 }
 
-                //log_ECU_action("perform_linear_calibration", "Starting calibration on " + cur_direction.ToString() + " side");
+                if (CALIBRATION_DEBUG)
+                    log_ECU_action("perform_linear_calibration", "Starting calibration on " + cur_direction.ToString() + " side");
                 _calibration_tasks[(int) cur_direction] = MyAPIGateway.Parallel.StartBackground(_solver_starters[(int) cur_direction]);
-                //_calibration_tasks[(int) cur_direction].Wait();
+                if (CALIBRATION_DEBUG)
+                    _calibration_tasks[(int) cur_direction].Wait();
             }
         }
 
@@ -488,14 +493,16 @@ namespace ttdtwm
                             ? (linear_solver.items[index].result / linear_solver.items[index].max_value) : 1.0f;
                         thruster_infos[index].enable_rotation = thruster_infos[index].active_control_on;
                     }
-                    //log_ECU_action("set_up_thrust_limits", string.Format("{0} kN ({1})", linear_solver.items[index].result / 1000.0f, cur_direction));
+                    if (CALIBRATION_DEBUG)
+                        log_ECU_action("set_up_thrust_limits", string.Format("{0} kN ({1})", linear_solver.items[index].result / 1000.0f, cur_direction));
                 }
 
-                /*
-                log_ECU_action("set_up_thrust_limits", _is_solution_good[(int) cur_direction]
-                    ? string.Format("successfully calibrated {0} thrusters on {1} side", thruster_infos.Count, cur_direction)
-                    : string.Format("calibration on {0} side failed", cur_direction));
-                */
+                if (CALIBRATION_DEBUG)
+                {
+                    log_ECU_action("set_up_thrust_limits", _is_solution_good[(int) cur_direction]
+                        ? string.Format("successfully calibrated {0} thrusters on {1} side", thruster_infos.Count, cur_direction)
+                        : string.Format("calibration on {0} side failed", cur_direction));
+                }
             }
             _calibration_in_progress = false;
         }
@@ -561,6 +568,7 @@ namespace ttdtwm
             {
                 if (reset_all_thrusters)
                     _current_trim[dir_index] = _last_trim[dir_index] = 0.0f;
+                __is_controlled_side[dir_index] = _controlled_thrusters[dir_index].Count > 0;
 
                 int opposite_dir = (dir_index < 3) ? (dir_index + 3) : (dir_index - 3);
                 enforce_min_override = (_speed >= 0.1f || _angular_speed >= 0.002f) && _actual_max_force[dir_index] > _actual_max_force[opposite_dir] * MIN_OVERRIDE / 100.0f
@@ -592,6 +600,39 @@ namespace ttdtwm
                             cur_thruster.Key.SetValueFloat("Override", setting);
                         cur_thruster_info.prev_setting = setting;
                     }
+                }
+            }
+
+            foreach (var cur_thruster in _uncontrolled_thrusters)
+            {
+                cur_thruster_info = cur_thruster.Value;
+                if (!__is_controlled_side[(int) cur_thruster_info.nozzle_direction])
+                    continue;
+
+                if (_force_override_refresh)
+                    cur_thruster_info.prev_setting = cur_thruster.Key.CurrentStrength * 100.0f;
+
+                if (reset_all_thrusters || cur_thruster_info.actual_max_force < 1.0f || !cur_thruster.Key.IsWorking)
+                {
+                    if (cur_thruster_info.prev_setting > 0.0f || reset_all_thrusters)
+                    {
+                        if (!dry_run)
+                            cur_thruster.Key.SetValueFloat("Override", 0.0f);
+                        cur_thruster_info.current_setting = cur_thruster_info.prev_setting = 0.0f;
+                    }
+                    continue;
+                }
+
+                cur_thruster_info.current_setting = __control_vector[(int) cur_thruster_info.nozzle_direction];
+                if (cur_thruster_info.current_setting < MIN_OVERRIDE / 100.0f)
+                    cur_thruster_info.current_setting = 0.0f;
+                setting       = cur_thruster_info.current_setting * 100.0f;
+                setting_ratio = (cur_thruster_info.prev_setting == 0.0f) ? 1.0f : (setting / cur_thruster_info.prev_setting);
+                if (setting_ratio <= 0.9f || setting_ratio >= 1.1f || Math.Abs(setting - cur_thruster_info.prev_setting) >= 1.0f)
+                {
+                    if (!dry_run)
+                        cur_thruster.Key.SetValueFloat("Override", setting);
+                    cur_thruster_info.prev_setting = setting;
                 }
             }
 
@@ -1059,7 +1100,7 @@ namespace ttdtwm
             const float ANGULAR_INTEGRAL_COEFF = -0.4f, ANGULAR_DERIVATIVE_COEFF = -0.005f, MAX_TRIM = 5.0f, THRUST_CUTOFF_TRIM = 4.0f;
 
             bool    update_inverse_world_matrix = false;
-            float   trim_change, thrust_limit_pitch, thrust_limit_yaw, thrust_limit_roll;
+            float   trim_change, thrust_limit_pitch, thrust_limit_yaw, thrust_limit_roll, restricted_integral_fadeout;
             Vector3 local_angular_acceleration  = (_local_angular_velocity - _prev_angular_velocity) * MyEngineConstants.UPDATE_STEPS_PER_SECOND, trim_vector;
             _prev_angular_velocity = _local_angular_velocity;
 
@@ -1096,7 +1137,7 @@ namespace ttdtwm
                     {
                         if (_landing_mode_on)
                             _restrict_integral[dir_index] = update_inverse_world_matrix = true;
-                        else if (_restrict_integral[dir_index] && __angular_velocity[dir_index] < 0.01f)
+                        else if (_restrict_integral[dir_index] && __angular_velocity[opposite_dir] < 0.01f)
                         {
                             _restrict_integral[dir_index] = false;
                             update_inverse_world_matrix   = true;
@@ -1104,32 +1145,30 @@ namespace ttdtwm
                         else if (_is_gyro_override_active && __angular_velocity[dir_index] > 0.2f)
                             _restrict_integral[dir_index] = _active_control_on;
 
-                        if (!_restrict_integral[dir_index] || __angular_acceleration[opposite_dir] < 0.05f)
+                        trim_change = ANGULAR_INTEGRAL_COEFF * __angular_velocity[dir_index];
+                        // _nominal_acceleration is used to combat trim "stickiness" caused by rotational friction
+                        if (__angular_velocity[dir_index] < 0.0001f && __angular_velocity[opposite_dir] < 0.0001f)
+                                trim_change += ANGULAR_DERIVATIVE_COEFF * __nominal_acceleration[dir_index];
+                        if (_current_trim[dir_index] > 0.0f)
                         {
-                            trim_change = ANGULAR_INTEGRAL_COEFF * ((!_restrict_integral[dir_index] || __angular_velocity[dir_index] < 0.01f) ? __angular_velocity[dir_index] : 0.01f);
-                            // _nominal_acceleration is used to combat trim "stickiness" caused by rotational friction
-                            if (__angular_velocity[dir_index] < 0.0001f && __angular_velocity[opposite_dir] < 0.0001f)
-                                 trim_change += ANGULAR_DERIVATIVE_COEFF * __nominal_acceleration[dir_index];
-
-                            if (_current_trim[dir_index] > 0.0f)
+                            // trim_change is always negative or zero
+                            _current_trim[dir_index] += trim_change;
+                            if (_current_trim[dir_index] < 0.0f)
                             {
-                                // trim_change is always negative or zero
-                                _current_trim[dir_index] += trim_change;
-                                if (_current_trim[dir_index] < 0.0f)
-                                {
-                                    _current_trim[opposite_dir] = -_current_trim[dir_index];
-                                    _current_trim[   dir_index] = 0.0f;
-                                    control_limit_reached      |= _current_trim[opposite_dir] >= MAX_TRIM;
-                                }
+                                _current_trim[opposite_dir] = -_current_trim[dir_index];
+                                _current_trim[   dir_index] = 0.0f;
+                                control_limit_reached      |= _current_trim[opposite_dir] >= MAX_TRIM;
                             }
-                            else
-                            {
-                                // trim_change is always negative or zero
-                                if (_current_trim[opposite_dir] < MAX_TRIM)
-                                    _current_trim[opposite_dir] -= trim_change;
-                                else
-                                    control_limit_reached = true;
-                            }
+                        }
+                        else
+                        {
+                            // trim_change is always negative or zero
+                            if (_restrict_integral[opposite_dir] && trim_change < ANGULAR_INTEGRAL_COEFF * 0.1f)
+                                trim_change = ANGULAR_INTEGRAL_COEFF * 0.1f;
+                            if (_current_trim[opposite_dir] < MAX_TRIM)
+                                _current_trim[opposite_dir] -= trim_change;
+                            else if (!_restrict_integral[opposite_dir])
+                                control_limit_reached = true;
                         }
 
                         if (_current_trim[opposite_dir] <= 0.0f)
@@ -1144,17 +1183,28 @@ namespace ttdtwm
                     else
                     {
                         _enable_integral[  dir_index] = update_inverse_world_matrix = true;
-                        _restrict_integral[dir_index] =  _active_control_on && __angular_velocity[dir_index] > 0.0f;
+                        _restrict_integral[dir_index] =  _active_control_on && __angular_velocity[opposite_dir] > 0.01f;
                         _current_trim[     dir_index] = (_active_control_on && control_scheme == _last_control_scheme) ? _last_trim[dir_index] : 0.0f;
                     }
 
-                    _current_trim[dir_index]    *= _trim_fadeout;
+                    restricted_integral_fadeout = 1.0f;
+                    if (_restrict_integral[dir_index])
+                        restricted_integral_fadeout += __angular_acceleration[dir_index] / ANGULAR_INTEGRAL_COEFF;
+                    if (restricted_integral_fadeout < 0.0f)
+                        restricted_integral_fadeout = 0.0f;
+                    _current_trim[dir_index] *= _trim_fadeout * restricted_integral_fadeout;
                     __steering_output[dir_index] = __angular_velocity[opposite_dir] + _current_trim[dir_index];
                 }
 
                 if (++opposite_dir >= 6)
                     opposite_dir = 0;
             }
+
+            /*
+            screen_vector("", "_current_trim", _current_trim, 16, controlled_only: true);
+            screen_vector("", "_restrict_integral", _restrict_integral, 16, controlled_only: true);
+            screen_vector("", "__angular_acceleration", __angular_acceleration, 16, controlled_only: true);
+            */
 
             recompose_vector(_current_trim, out trim_vector);
             thrust_limit_pitch = 1.0f - (1.0f / THRUST_CUTOFF_TRIM) * Math.Abs(trim_vector.X);
@@ -1827,7 +1877,7 @@ namespace ttdtwm
         public void translate_linear_input(Vector3 input_thrust, VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)
         {
             var controller = current_controller as MyShipController;
-            if (controller == null || controller.CubeGrid != _grid)
+            if (controller?.CubeGrid != _grid)
             {
                 reset_user_input(reset_gyros_only: false);
                 return;
@@ -1842,7 +1892,7 @@ namespace ttdtwm
         public void translate_rotation_input(Vector3 input_rotation, VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)
         {
             var controller = current_controller as MyShipController;
-            if (controller == null || controller.CubeGrid != _grid)
+            if (controller?.CubeGrid != _grid)
             {
                 reset_user_input(reset_gyros_only: false);
                 return;
@@ -1869,7 +1919,7 @@ namespace ttdtwm
         public void handle_60Hz()
         {
             //screen_text("", string.Format("Manager = {0}, exceptions = {1}, complete = {2}", _thrust_manager_task.valid, (_thrust_manager_task.Exceptions == null) ? 0 : _thrust_manager_task.Exceptions.GetLength(0), _thrust_manager_task.IsComplete), 16, controlled_only: false);
-            if (_grid.Physics == null || _grid.Physics.IsStatic)
+            if (_grid.Physics == null || !_grid.Physics.Enabled || _grid.Physics.IsStatic)
             {
                 _physics_enable_delay = PHYSICS_ENABLE_DELAY;
                 return;
@@ -1911,7 +1961,7 @@ namespace ttdtwm
 
         public void handle_4Hz()
         {
-            if (_grid.Physics == null || _grid.Physics.IsStatic)
+            if (_grid.Physics == null || !_grid.Physics.Enabled || _grid.Physics.IsStatic)
             {
                 reset_ECU();
                 return;
@@ -1955,7 +2005,7 @@ namespace ttdtwm
 
         public void handle_2s_period()
         {
-            if (_grid.Physics == null || _grid.Physics.IsStatic)
+            if (_grid.Physics == null || !_grid.Physics.Enabled || _grid.Physics.IsStatic)
                 return;
 
             if (!_thrust_manager_task.valid || _thrust_manager_task.IsComplete)
@@ -1974,7 +2024,8 @@ namespace ttdtwm
                     }
                 }
                 _thrust_manager_task = MyAPIGateway.Parallel.Start(start_2s_manager_thread);
-                //_thrust_manager_task.Wait();
+                if (CALIBRATION_DEBUG)
+                    _thrust_manager_task.Wait();
             }
 
             //_inverse_world_rotation_fixed = _inverse_world_transform.GetOrientation();

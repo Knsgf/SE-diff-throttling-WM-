@@ -441,6 +441,7 @@ namespace ttdtwm
             if (_ECU == null)
                 return;
 
+            /*
             Vector3 manual_thrust = Vector3.Zero, manual_rotation;
 
             if (sync_helper.is_spectator_mode_on || MyAPIGateway.Gui.GetCurrentScreen != MyTerminalPageEnum.None || MyAPIGateway.Gui.ChatEntryVisible)
@@ -470,9 +471,9 @@ namespace ttdtwm
                 if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.CROUCH))
                     manual_thrust += Vector3.Down;
             }
+            */
 
-            /*
-            var ship_controller = controller as Sandbox.Game.Entities.MyShipController;
+            var ship_controller = controller as Sandbox.ModAPI.Ingame.IMyShipController;
             Vector3 manual_thrust, manual_rotation;
 
             if (ship_controller == null)
@@ -484,7 +485,6 @@ namespace ttdtwm
                 manual_rotation.Y = ship_controller.RotationIndicator.Y;
                 manual_rotation.Z = ship_controller.RollIndicator;
             }
-            */
 
             send_linear_message  (manual_thrust  );
             send_rotation_message(manual_rotation);

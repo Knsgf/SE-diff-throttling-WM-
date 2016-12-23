@@ -2,9 +2,9 @@
 using System.Collections.Generic;
 using System.IO;
 
-using Sandbox.Engine.Utils;
+//using Sandbox.Engine.Utils;
 using Sandbox.ModAPI;
-using VRage;
+//using VRage;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
 using VRage.Utils;
@@ -29,7 +29,7 @@ namespace ttdtwm
         //private static bool F8_pressed = false;
 
         public static bool network_handlers_registered { get; private set; }
-        public static bool        is_spectator_mode_on { get; private set; }
+        //public static bool        is_spectator_mode_on { get; private set; }
         public static bool       show_thrust_reduction { get; private set; }
         public static bool         show_vertical_speed { get; private set; }
 
@@ -150,6 +150,7 @@ namespace ttdtwm
             }
             */
 
+            /*
             is_spectator_mode_on = false;
             if (MyAPIGateway.Session.SessionSettings.EnableSpectator)
             {
@@ -157,6 +158,7 @@ namespace ttdtwm
                 if (spectator_controller != null)
                     is_spectator_mode_on = spectator_controller.SpectatorCameraMovement == MySpectatorCameraMovementEnum.UserControlled;
             }
+            */
 
             local_player     = MyAPIGateway.Session.LocalHumanPlayer;
             local_controller = (local_player == null) ? null : local_player.Controller.ControlledEntity;
