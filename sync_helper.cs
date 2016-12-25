@@ -82,11 +82,13 @@ namespace ttdtwm
         {
             if (!network_handlers_registered && MyAPIGateway.Multiplayer != null && MyAPIGateway.Utilities != null)
             {
+                /*
                 if (MyAPIGateway.Multiplayer.IsServer)
                 {
                     MyAPIGateway.Multiplayer.RegisterMessageHandler(  LINEAR_MESSAGE_ID, grid_logic.linear_message_handler  );
                     MyAPIGateway.Multiplayer.RegisterMessageHandler(ROTATION_MESSAGE_ID, grid_logic.rotation_message_handler);
                 }
+                */
                 MyAPIGateway.Multiplayer.RegisterMessageHandler(SHORT_MESSAGE_ID, grid_logic.short_message_handler);
                 MyAPIGateway.Utilities.MessageEntered += command_handler;
                 network_handlers_registered = true;
@@ -97,11 +99,13 @@ namespace ttdtwm
         {
             if (!network_handlers_registered)
                 return;
+            /*
             if (MyAPIGateway.Multiplayer.IsServer)
             {
                 MyAPIGateway.Multiplayer.UnregisterMessageHandler(  LINEAR_MESSAGE_ID, grid_logic.linear_message_handler  );
                 MyAPIGateway.Multiplayer.UnregisterMessageHandler(ROTATION_MESSAGE_ID, grid_logic.rotation_message_handler);
             }
+            */
             MyAPIGateway.Multiplayer.UnregisterMessageHandler(SHORT_MESSAGE_ID, grid_logic.short_message_handler);
             MyAPIGateway.Utilities.MessageEntered -= command_handler;
         }

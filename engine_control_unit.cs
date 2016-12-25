@@ -133,9 +133,12 @@ namespace ttdtwm
         private  bool[]    _enable_integral   = { false, false, false, false, false, false };
         private  bool[]    _restrict_integral = { false, false, false, false, false, false };
         private  bool[]    _is_solution_good  = { false, false, false, false, false, false };
-        private float[]    _current_trim      = new float[6];
-        private float[]    _last_trim         = new float[6];
-        private Vector3?[] _active_CoT        = new Vector3?[6];
+        private float[]    _smoothed_acceleration       = new float[6];
+        private float[]    _current_trim                = new float[6];
+        private float[]    _last_trim                   = new float[6];
+        private float[]    _angular_velocity_checkpoint = new float[6];
+        private float[]    _turn_sensitivity            = new float[6];
+        private Vector3?[] _active_CoT = new Vector3?[6];
         private Vector3    _local_angular_velocity, _prev_angular_velocity = Vector3.Zero, _torque, _manual_rotation, _prev_rotation = Vector3.Zero, _target_rotation, _gyro_override = Vector3.Zero;
         private bool       _current_mode_is_CoT = false, _new_mode_is_CoT = false, _force_CoT_mode = false, _is_gyro_override_active = false;
         private sbyte      _last_control_scheme = -1;
@@ -823,7 +826,7 @@ namespace ttdtwm
 
         private void adjust_thrust_for_steering(int cur_dir, int opposite_dir, Vector3 desired_angular_velocity)
         {
-            const float DAMPING_CONSTANT = 10.0f, MIN_LINEAR_OPPOSITION = 0.1f, MAX_LINEAR_OPPOSITION = 0.2f;
+            const float DAMPING_CONSTANT = 5.0f, MIN_LINEAR_OPPOSITION = 0.1f, MAX_LINEAR_OPPOSITION = 0.2f;
 
             if (_actual_max_force[cur_dir] <= 1.0f)
             {
@@ -1097,11 +1100,13 @@ namespace ttdtwm
 
         private bool adjust_trim_setting(sbyte control_scheme, out Vector3 desired_angular_velocity)
         {
-            const float ANGULAR_INTEGRAL_COEFF = -0.4f, ANGULAR_DERIVATIVE_COEFF = -0.005f, MAX_TRIM = 5.0f, THRUST_CUTOFF_TRIM = 4.0f;
+            const float ANGULAR_INTEGRAL_COEFF = -0.4f, ANGULAR_DERIVATIVE_COEFF = -0.05f, MAX_TRIM = 5.0f, THRUST_CUTOFF_TRIM = 4.0f, CHECKPOINT_FADE = 0.5f, 
+                RESTRICTED_INTEGRAL_FADE = 0.2f, ANGULAR_ACCELERATION_SMOOTHING = 0.5f;
 
             bool    update_inverse_world_matrix = false;
-            float   trim_change, thrust_limit_pitch, thrust_limit_yaw, thrust_limit_roll, restricted_integral_fadeout;
-            Vector3 local_angular_acceleration  = (_local_angular_velocity - _prev_angular_velocity) * MyEngineConstants.UPDATE_STEPS_PER_SECOND, trim_vector;
+            float   trim_change, thrust_limit_pitch, thrust_limit_yaw, thrust_limit_roll;
+            Vector3 local_angular_acceleration  = (_local_angular_velocity - _prev_angular_velocity) * MyEngineConstants.UPDATE_STEPS_PER_SECOND, smoothed_acceleration_vector, 
+                trim_vector;
             _prev_angular_velocity = _local_angular_velocity;
 
             decompose_vector(          _manual_rotation,       __steering_input);
@@ -1119,14 +1124,13 @@ namespace ttdtwm
                     __steering_output[dir_index] = 0.0f;
                 else if (__steering_input[dir_index] > 0.01f)
                 {
-                    __steering_output[dir_index] = /*(__angular_velocity[dir_index] < 0.1f) ? */
-                          (__steering_input[dir_index] * 15.0f) 
-                        /*: (__angular_velocity[dir_index] + __steering_input[dir_index] * 3.0f)*/;
-                    //__steering_output[dir_index]  = __steering_input[dir_index] * 3.0f + __angular_velocity[dir_index] + __angular_velocity[opposite_dir];
-                    __steering_output[dir_index] += _last_trim[dir_index];
-                    _enable_integral[dir_index]   = _enable_integral[opposite_dir] = false;
-                    _current_trim[   dir_index]   = _current_trim[   opposite_dir] = 0.0f;
-                    _last_trim[   opposite_dir]  *= 0.95f;
+                    __steering_output[dir_index] = (__steering_input[dir_index] * _turn_sensitivity[dir_index] + __angular_velocity[dir_index]) / (1.0f + _last_trim[opposite_dir]);
+                    _enable_integral[ dir_index] = _enable_integral[opposite_dir] = false;
+                    trim_change = ANGULAR_INTEGRAL_COEFF * __angular_velocity[opposite_dir];
+                    if (trim_change < ANGULAR_INTEGRAL_COEFF * 0.1f)
+                        trim_change = ANGULAR_INTEGRAL_COEFF * 0.1f;
+                    _current_trim[dir_index]     -= trim_change;
+                    __steering_output[dir_index] += _current_trim[dir_index];
                     update_inverse_world_matrix   = true;
                 }
                 else
@@ -1171,39 +1175,43 @@ namespace ttdtwm
                                 control_limit_reached = true;
                         }
 
-                        if (_current_trim[opposite_dir] <= 0.0f)
+                        if (_current_trim[opposite_dir] > 0.0f)
+                            _last_trim[dir_index] = 0.0f;
+                        else if (!_restrict_integral[dir_index])
                         {
-                            _last_trim[dir_index] = (_last_trim[dir_index] <= _current_trim[dir_index]) ? 
+                            _last_trim[dir_index] = (_last_trim[dir_index] <= _current_trim[dir_index]) ?
                                     _current_trim[dir_index]
                                 : ((_current_trim[dir_index] + _last_trim[dir_index]) / 2.0f);
                         }
-                        else
-                            _last_trim[dir_index] = 0.0f;
                     }
                     else
                     {
-                        _enable_integral[  dir_index] = update_inverse_world_matrix = true;
-                        _restrict_integral[dir_index] =  _active_control_on && __angular_velocity[opposite_dir] > 0.01f;
-                        _current_trim[     dir_index] = (_active_control_on && control_scheme == _last_control_scheme) ? _last_trim[dir_index] : 0.0f;
+                        _enable_integral[            dir_index] = update_inverse_world_matrix = true;
+                        _restrict_integral[          dir_index] =  _active_control_on && __angular_velocity[opposite_dir] > 0.01f;
+                        _current_trim[               dir_index] = /*(_active_control_on && control_scheme == _last_control_scheme) ?*/ _last_trim[dir_index] /*: 0.0f*/;
+                        _angular_velocity_checkpoint[dir_index] = __angular_velocity[dir_index] * CHECKPOINT_FADE;
                     }
-
-                    restricted_integral_fadeout = 1.0f;
-                    if (_restrict_integral[dir_index])
-                        restricted_integral_fadeout += __angular_acceleration[dir_index] / ANGULAR_INTEGRAL_COEFF;
-                    if (restricted_integral_fadeout < 0.0f)
-                        restricted_integral_fadeout = 0.0f;
-                    _current_trim[dir_index] *= _trim_fadeout * restricted_integral_fadeout;
+                    if (_restrict_integral[dir_index] && __angular_velocity[opposite_dir] < _angular_velocity_checkpoint[opposite_dir])
+                    {
+                        _angular_velocity_checkpoint[opposite_dir] *= CHECKPOINT_FADE;
+                        _current_trim[dir_index] = _current_trim[dir_index] * RESTRICTED_INTEGRAL_FADE + _last_trim[dir_index] * (1.0f - RESTRICTED_INTEGRAL_FADE);
+                    }
+                    _current_trim[dir_index] *= _trim_fadeout;
                     __steering_output[dir_index] = __angular_velocity[opposite_dir] + _current_trim[dir_index];
                 }
 
+                _smoothed_acceleration[dir_index] = _smoothed_acceleration[dir_index] * ANGULAR_ACCELERATION_SMOOTHING + __angular_acceleration[dir_index] * (1.0f - ANGULAR_ACCELERATION_SMOOTHING);
                 if (++opposite_dir >= 6)
                     opposite_dir = 0;
             }
 
             /*
             screen_vector("", "_current_trim", _current_trim, 16, controlled_only: true);
+            screen_vector("", "_last_trim", _last_trim, 16, controlled_only: true);
             screen_vector("", "_restrict_integral", _restrict_integral, 16, controlled_only: true);
-            screen_vector("", "__angular_acceleration", __angular_acceleration, 16, controlled_only: true);
+            screen_vector("", "__angular_velocity", __angular_velocity, 16, controlled_only: true);
+            screen_vector("", "_angular_velocity_checkpoint", _angular_velocity_checkpoint, 16, controlled_only: true);
+            screen_vector("", "_turn_sensitivity", _turn_sensitivity, 16, controlled_only: true);
             */
 
             recompose_vector(_current_trim, out trim_vector);
@@ -1220,8 +1228,9 @@ namespace ttdtwm
             __thrust_limits[(int) thrust_dir.starboard] = __thrust_limits[(int) thrust_dir.port   ] = (thrust_limit_yaw   < thrust_limit_roll) ? thrust_limit_yaw   : thrust_limit_roll;
             __thrust_limits[(int) thrust_dir.dorsal   ] = __thrust_limits[(int) thrust_dir.ventral] = (thrust_limit_pitch < thrust_limit_roll) ? thrust_limit_pitch : thrust_limit_roll;
 
-            recompose_vector(__steering_output, out desired_angular_velocity);
-            desired_angular_velocity += ANGULAR_DERIVATIVE_COEFF * local_angular_acceleration;
+            recompose_vector(     __steering_output, out     desired_angular_velocity);
+            recompose_vector(_smoothed_acceleration, out smoothed_acceleration_vector);
+            desired_angular_velocity += ANGULAR_DERIVATIVE_COEFF * smoothed_acceleration_vector;
             _last_control_scheme      = control_scheme;
             return update_inverse_world_matrix;
         }
@@ -1753,6 +1762,7 @@ namespace ttdtwm
             _grid = (MyCubeGrid) grid_ref;
             _inverse_world_transform      = _grid.PositionComp.WorldMatrixNormalizedInv;
             _inverse_world_rotation_fixed = _inverse_world_transform.GetOrientation();
+            refresh_turn_sensitivity();
 
             _solver_starters = new Action[6];
             _solver_starters[(int) thrust_dir.fore     ] = start_solver_fore;
@@ -1916,6 +1926,16 @@ namespace ttdtwm
                 _current_trim[dir_index] = _last_trim[dir_index] = _linear_integral[dir_index] = 0.0f;
         }
 
+        private void refresh_turn_sensitivity()
+        {
+            const float SENSITIVITY_MULT = 0.2f;
+            Vector3 ship_size = (_grid.Max - _grid.Min) * _grid.GridSize;
+
+            _turn_sensitivity[(int) thrust_dir.port  ] = _turn_sensitivity[(int) thrust_dir.starboard] = Math.Max(ship_size.Y, ship_size.Z) * SENSITIVITY_MULT;  // pitch
+            _turn_sensitivity[(int) thrust_dir.dorsal] = _turn_sensitivity[(int) thrust_dir.ventral  ] = Math.Max(ship_size.X, ship_size.Z) * SENSITIVITY_MULT;  // yaw
+            _turn_sensitivity[(int) thrust_dir.fore  ] = _turn_sensitivity[(int) thrust_dir.aft      ] = Math.Max(ship_size.X, ship_size.Y) * SENSITIVITY_MULT;  // roll
+        }
+
         public void handle_60Hz()
         {
             //screen_text("", string.Format("Manager = {0}, exceptions = {1}, complete = {2}", _thrust_manager_task.valid, (_thrust_manager_task.Exceptions == null) ? 0 : _thrust_manager_task.Exceptions.GetLength(0), _thrust_manager_task.IsComplete), 16, controlled_only: false);
@@ -2031,6 +2051,7 @@ namespace ttdtwm
             //_inverse_world_rotation_fixed = _inverse_world_transform.GetOrientation();
             _force_override_refresh = true;
             _prev_rotation          = _manual_rotation;
+            refresh_turn_sensitivity();
         }
     }
 }

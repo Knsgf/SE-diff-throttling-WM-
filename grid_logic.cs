@@ -285,6 +285,7 @@ namespace ttdtwm
             }
         }
 
+        /*
         internal static void linear_message_handler(byte[] argument)
         {
             if (!is_signature_valid(argument, __long_message.Length))
@@ -320,11 +321,13 @@ namespace ttdtwm
             instance._ECU.translate_rotation_input(manual_rotation, controlling_player.Controller.ControlledEntity);
             instance._zero_controls_counter = 0;
         }
+        */
 
         #endregion
 
         #region event triggers
 
+        /*
         private void send_linear_message(Vector3 manual_thrust)
         {
             if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
@@ -356,6 +359,7 @@ namespace ttdtwm
             _prev_manual_rotation = packed_vector;
             MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.ROTATION_MESSAGE_ID, __long_message);
         }
+        */
 
         private void send_control_limit_message(IMyPlayer controlling_player)
         {
@@ -486,8 +490,8 @@ namespace ttdtwm
                 manual_rotation.Z = ship_controller.RollIndicator;
             }
 
-            send_linear_message  (manual_thrust  );
-            send_rotation_message(manual_rotation);
+            //send_linear_message  (manual_thrust  );
+            //send_rotation_message(manual_rotation);
             _ECU.translate_linear_input  (manual_thrust  , controller);
             _ECU.translate_rotation_input(manual_rotation, controller);
             _zero_controls_counter = 0;
@@ -504,7 +508,7 @@ namespace ttdtwm
                     _ECU.reset_user_input(reset_gyros_only: false);
                     _prev_manual_thrust = _prev_manual_rotation = new Vector3UByte(128, 128, 128);
                 }
-                else if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
+                else //if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
                     handle_user_input(controlling_player.Controller.ControlledEntity);
 
                 _ID_on = _force_CoT_mode_on = _landing_mode_on = false;
