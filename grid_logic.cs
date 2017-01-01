@@ -25,7 +25,7 @@ namespace ttdtwm
 
         private static byte[] __long_message  = new byte[8 + 3 + 5], __short_message = new byte[8 + 1 + 5], __signature = new byte[5];
 
-        private static StringBuilder __controller_name = new StringBuilder();
+        private static string __controller_data;
 
         private session_handler                _session_ref;
         private IMyCubeGrid                    _grid;
@@ -68,7 +68,7 @@ namespace ttdtwm
                 foreach (var cur_controller in _ship_controllers)
                 {
                     controller_terminal = (IMyTerminalBlock) cur_controller;
-                    controller_terminal.SetCustomName(value ? controller_terminal.CustomName.AddCOTTag() : controller_terminal.CustomName.RemoveCOTTag());
+                    controller_terminal.CustomData = value ? controller_terminal.CustomData.AddCOTTag() : controller_terminal.CustomData.RemoveCOTTag();
                 }
             }
         }
@@ -96,7 +96,7 @@ namespace ttdtwm
                 foreach (var cur_controller in _ship_controllers)
                 {
                     controller_terminal = (IMyTerminalBlock) cur_controller;
-                    controller_terminal.SetCustomName(value ? controller_terminal.CustomName.AddLANDINGTag() : controller_terminal.CustomName.RemoveLANDINGTag());
+                    controller_terminal.CustomData = value ? controller_terminal.CustomData.AddLANDINGTag() : controller_terminal.CustomData.RemoveLANDINGTag();
                 }
             }
         }
@@ -514,9 +514,9 @@ namespace ttdtwm
                 _ID_on = _force_CoT_mode_on = _landing_mode_on = false;
                 foreach (var cur_controller in _ship_controllers)
                 {
-                    ((IMyTerminalBlock) cur_controller).CustomName.ToUpperTo(__controller_name);
-                    _force_CoT_mode_on = is_CoT_mode_available     && __controller_name.ContainsCOTTag();
-                    _landing_mode_on   = is_landing_mode_available && __controller_name.ContainsLANDINGTag();
+                    __controller_data  = ((IMyTerminalBlock) cur_controller).CustomData;
+                    _force_CoT_mode_on = is_CoT_mode_available     && __controller_data.ContainsCOTTag();
+                    _landing_mode_on   = is_landing_mode_available && __controller_data.ContainsLANDINGTag();
                     _ID_on             = cur_controller.EnabledDamping;
                     break;
                 }

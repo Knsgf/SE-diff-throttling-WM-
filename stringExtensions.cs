@@ -1,15 +1,17 @@
-﻿using System.Text;
+﻿using System;
+using System.Text;
 
 namespace ttdtwm
 {
-    static class stringAndStringBuilderExtensions
+    static class stringExtensions
     {
-        private static readonly string m_THRTag     = "[THR]";
-        private static readonly string m_RCSTag     = "[RCS]";
-        private static readonly string m_STATTag    = "[STAT]";
-        private static readonly string m_LANDINGTag = "[LANDING]";
-        private static readonly string m_COTTag     = "[COT]";
-        private static readonly int[]  m_THRShiftTable, m_RCSShiftTable, m_STATShiftTable, m_LANDINGShiftTable, m_COTShiftTable;
+        const int THR_MASK = 0x1, RCS_MASK = 0x2, STAT_MASK = 0x4;
+        const int COT_MASK = 0x1, LANDING_MASK = 0x2;
+
+        private static readonly string m_Prefix  = "[TP&DT: ";
+        private static readonly string m_Suffix  = "]|";
+        private static readonly int[]  m_PrefixShiftTable;
+        private static readonly int    m_PrefixLength;
 
         private static StringBuilder m_blockName = new StringBuilder();
 
@@ -26,7 +28,13 @@ namespace ttdtwm
             return shiftTable;
         }
 
-        private static bool ContainsTag(StringBuilder source, string tag, int[] tagShiftTable)
+        static stringExtensions()
+        {
+            m_PrefixShiftTable = GenerateShiftTable(m_Prefix);
+            m_PrefixLength     = m_Prefix.Length;
+        }
+
+        private static int? TagPosition(string source, string tag, int[] tagShiftTable)
         {
             int sourceLength = source.Length, startIndex = 0, endIndex = tag.Length - 1, tagIndex, shift;
             bool matchFound;
@@ -34,7 +42,7 @@ namespace ttdtwm
             while (endIndex < sourceLength)
             {
                 matchFound = true;
-                tagIndex   = 0;
+                tagIndex = 0;
                 for (int index = startIndex; index <= endIndex; ++index)
                 {
                     if (tag[tagIndex++] != source[index])
@@ -44,160 +52,167 @@ namespace ttdtwm
                     }
                 }
                 if (matchFound)
-                    return true;
-                shift       = tagShiftTable[source[endIndex]];
+                    return startIndex;
+                shift = tagShiftTable[source[endIndex]];
                 startIndex += shift;
-                endIndex   += shift;
+                endIndex += shift;
             }
-            return false;
+            return null;
         }
 
-        private static string AddThrusterTag(string source, string tag)
+        private static char ConvertValueToChar(int value)
         {
-            string result = source.Trim();
-            int    left_bracket_pos = result.LastIndexOf('('), right_bracket_pos = result.LastIndexOf(')');
+            if (value >= 0)
+            {
+                if (value < 10)
+                    return (char) (value + '0');
+                if (value < 36)
+                    return (char) (value + 'A' - 10);
+                if (value < 62)
+                    return (char) (value + 'a' - 36);
+                switch (value)
+                {
+                    case 62:
+                        return '+';
 
-            if (left_bracket_pos >= 0 && right_bracket_pos == result.Length - 1)
-                result = result.Substring(0, left_bracket_pos).TrimEnd();
-            return tag + result;
+                    case 63:
+                        return '-';
+                }
+            }
+            throw new Exception("Tag value must be between 0 and 63 inclusive");
         }
 
-        private static string RemoveTag(string source, string tag, bool is_thruster_tag)
+        private static int ConvertCharToValue(char symbol)
         {
-            if (source.Length < tag.Length)
-                return source;
-
-            string result = source, source_upper = source.ToUpper();
-            for (int position = source_upper.IndexOf(tag); position >= 0; position = source_upper.IndexOf(tag))
+            if (symbol >= '0' && symbol <= '9')
+                return symbol - '0';
+            if (symbol >= 'A' && symbol <= 'Z')
+                return symbol + 10 - 'A';
+            if (symbol >= 'a' && symbol <= 'z')
+                return symbol + 36 - 'a';
+            switch (symbol)
             {
-                int  remove_position = position, chars_to_remove = tag.Length;
+                case '+':
+                    return 62;
 
-                bool add_space = remove_position > 0 && char.IsWhiteSpace(source_upper[remove_position - 1]) || remove_position + chars_to_remove < source_upper.Length && char.IsWhiteSpace(source_upper[remove_position + chars_to_remove + 1]);
-                source_upper   = source_upper.Substring(0, remove_position).TrimEnd() + (add_space ? " " : "") + source_upper.Substring(remove_position + chars_to_remove).TrimStart();
-                result         =       result.Substring(0, remove_position).TrimEnd() + (add_space ? " " : "") +       result.Substring(remove_position + chars_to_remove).TrimStart();
+                case '-':
+                    return 63;
             }
+            return 0;
+        }
 
-            result = result.Trim();
-            if (is_thruster_tag)
-            {
-                int left_bracket_pos = result.LastIndexOf('('), right_bracket_pos = result.LastIndexOf(')');
-                if (left_bracket_pos >= 0 && right_bracket_pos == result.Length - 1)
-                    result = result.Substring(0, left_bracket_pos).TrimEnd();
-            }
+        private static string SetTagValue(string source, int newValue)
+        {
+            int? tagPosition = TagPosition(source, m_Prefix, m_PrefixShiftTable);
 
+            if (tagPosition == null)
+                return m_Prefix + ConvertValueToChar(newValue) + m_Suffix + source;
+            int    tagIndex = (int) tagPosition + m_PrefixLength;
+            string result   = source.Substring(0, tagIndex) + ConvertValueToChar(newValue);
+            if (source.Length > tagIndex + 1)
+                result += source.Substring(tagIndex + 1);
             return result;
         }
 
-        static stringAndStringBuilderExtensions()
+        private static int GetTagValue(string source)
         {
-            m_THRShiftTable     = GenerateShiftTable(m_THRTag    );
-            m_RCSShiftTable     = GenerateShiftTable(m_RCSTag    );
-            m_STATShiftTable    = GenerateShiftTable(m_STATTag   );
-            m_LANDINGShiftTable = GenerateShiftTable(m_LANDINGTag);
-            m_COTShiftTable     = GenerateShiftTable(m_COTTag    );
+            int? tagPosition = TagPosition(source, m_Prefix, m_PrefixShiftTable);
+
+            if (tagPosition == null)
+                return 0;
+            int tagIndex = (int) tagPosition + m_PrefixLength;
+            if (source.Length <= tagIndex)
+                return 0;
+            return ConvertCharToValue(source[tagIndex]);
         }
 
         #endregion
 
         #region ContainsTag()
 
-        public static bool ContainsTHRTag(this StringBuilder blockName)
+        public static bool ContainsTHRTag(this string blockData)
         {
-            return ContainsTag(blockName, m_THRTag, m_THRShiftTable);
+            return (GetTagValue(blockData) & THR_MASK) != 0;
         }
 
-        public static bool ContainsRCSTag(this StringBuilder blockName)
+        public static bool ContainsRCSTag(this string blockData)
         {
-            return ContainsTag(blockName, m_RCSTag, m_RCSShiftTable);
+            return (GetTagValue(blockData) & RCS_MASK) != 0;
         }
 
-        public static bool ContainsSTATTag(this StringBuilder blockName)
+        public static bool ContainsSTATTag(this string blockData)
         {
-            return ContainsTag(blockName, m_STATTag, m_STATShiftTable);
+            return (GetTagValue(blockData) & STAT_MASK) != 0;
         }
 
-        public static bool ContainsLANDINGTag(this StringBuilder blockName)
+        public static bool ContainsLANDINGTag(this string blockData)
         {
-            return ContainsTag(blockName, m_LANDINGTag, m_LANDINGShiftTable);
+            return (GetTagValue(blockData) & LANDING_MASK) != 0;
         }
 
-        public static bool ContainsCOTTag(this StringBuilder blockName)
+        public static bool ContainsCOTTag(this string blockData)
         {
-            return ContainsTag(blockName, m_COTTag, m_COTShiftTable);
+            return (GetTagValue(blockData) & COT_MASK) != 0;
         }
 
         #endregion
 
         #region AddTag()
 
-        public static string AddTHRTag(this string blockName)
+        public static string AddTHRTag(this string blockData)
         {
-            blockName.ToUpperTo(m_blockName);
-            return m_blockName.ContainsTHRTag() ? blockName : AddThrusterTag(blockName, m_THRTag);
+            return SetTagValue(blockData, GetTagValue(blockData) | THR_MASK);
         }
 
-        public static string AddRCSTag(this string blockName)
+        public static string AddRCSTag(this string blockData)
         {
-            blockName.ToUpperTo(m_blockName);
-            return m_blockName.ContainsRCSTag() ? blockName : AddThrusterTag(blockName, m_RCSTag);
+            return SetTagValue(blockData, GetTagValue(blockData) | RCS_MASK);
         }
 
-        public static string AddSTATTag(this string blockName)
+        public static string AddSTATTag(this string blockData)
         {
-            blockName.ToUpperTo(m_blockName);
-            return m_blockName.ContainsSTATTag() ? blockName : AddThrusterTag(blockName, m_STATTag);
+            return SetTagValue(blockData, GetTagValue(blockData) | STAT_MASK);
         }
 
-        public static string AddLANDINGTag(this string blockName)
+        public static string AddLANDINGTag(this string blockData)
         {
-            blockName.ToUpperTo(m_blockName);
-            return m_blockName.ContainsLANDINGTag() ? blockName : (m_LANDINGTag + blockName);
+            return SetTagValue(blockData, GetTagValue(blockData) | LANDING_MASK);
         }
 
-        public static string AddCOTTag(this string blockName)
+        public static string AddCOTTag(this string blockData)
         {
-            blockName.ToUpperTo(m_blockName);
-            return m_blockName.ContainsCOTTag() ? blockName : (m_COTTag + blockName);
+            return SetTagValue(blockData, GetTagValue(blockData) | COT_MASK);
         }
 
         #endregion
 
         #region RemoveTag()
 
-        public static string RemoveTHRTag(this string blockName)
+        public static string RemoveTHRTag(this string blockData)
         {
-            return RemoveTag(blockName, m_THRTag, is_thruster_tag: true);
+            return SetTagValue(blockData, GetTagValue(blockData) & ~THR_MASK);
         }
 
-        public static string RemoveRCSTag(this string blockName)
+        public static string RemoveRCSTag(this string blockData)
         {
-            return RemoveTag(blockName, m_RCSTag, is_thruster_tag: true);
+            return SetTagValue(blockData, GetTagValue(blockData) & ~RCS_MASK);
         }
 
-        public static string RemoveSTATTag(this string blockName)
+        public static string RemoveSTATTag(this string blockData)
         {
-            return RemoveTag(blockName, m_STATTag, is_thruster_tag: true);
+            return SetTagValue(blockData, GetTagValue(blockData) & ~STAT_MASK);
         }
 
-        public static string RemoveLANDINGTag(this string blockName)
+        public static string RemoveLANDINGTag(this string blockData)
         {
-            return RemoveTag(blockName, m_LANDINGTag, is_thruster_tag: false);
+            return SetTagValue(blockData, GetTagValue(blockData) & ~LANDING_MASK);
         }
 
-        public static string RemoveCOTTag(this string blockName)
+        public static string RemoveCOTTag(this string blockData)
         {
-            return RemoveTag(blockName, m_COTTag, is_thruster_tag: false);
+            return SetTagValue(blockData, GetTagValue(blockData) & ~COT_MASK);
         }
 
         #endregion
-
-        public static void ToUpperTo(this string source, StringBuilder destination)
-        {
-            int sourceLength = source.Length;
-
-            destination.Length = sourceLength;
-            for (int index = 0; index < sourceLength; ++index)
-                destination[index] = char.ToUpper(source[index]);
-        }
     }
 }

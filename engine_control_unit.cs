@@ -39,7 +39,7 @@ namespace ttdtwm
         private static readonly Vector3I[] _thrust_forward_vectors;
 
         private /*static*/ StringBuilder    _group_name     = new StringBuilder();
-        private /*static*/ StringBuilder    _thruster_name  = new StringBuilder();
+        private /*static*/ string           _thruster_data;
         private /*static*/ simplex_solver[] _linear_solvers =
         {
             new simplex_solver(),   // fore
@@ -1527,10 +1527,10 @@ namespace ttdtwm
             {
                 cur_thruster_info = thruster_infos[index];
                 cur_thruster      = _thrusters_copy[index];
-                ((IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
-                contains_THR  = _thruster_name.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
-                contains_RCS  = _thruster_name.ContainsRCSTag();
-                contains_STAT = _thruster_name.ContainsSTATTag();
+                _thruster_data = ((IMyTerminalBlock) cur_thruster).CustomData;
+                contains_THR = _thruster_data.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
+                contains_RCS  = _thruster_data.ContainsRCSTag();
+                contains_STAT = _thruster_data.ContainsSTATTag();
                 if ((contains_THR || contains_RCS || contains_STAT) && cur_thruster_info.actual_max_force > 0.01f * cur_thruster_info.max_force && cur_thruster.IsWorking)
                 {
                     enable_control(cur_thruster, cur_thruster_info);
@@ -1553,10 +1553,10 @@ namespace ttdtwm
                 {
                     cur_thruster_info = thruster_infos[index];
                     cur_thruster      = _thrusters_copy[index];
-                    ((IMyTerminalBlock) cur_thruster).CustomName.ToUpperTo(_thruster_name);
-                    contains_THR  = _thruster_name.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
-                    contains_RCS  = _thruster_name.ContainsRCSTag();
-                    contains_STAT = !contains_RCS && _thruster_name.ContainsSTATTag();
+                    _thruster_data = ((IMyTerminalBlock) cur_thruster).CustomData;
+                    contains_THR  = _thruster_data.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
+                    contains_RCS  = _thruster_data.ContainsRCSTag();
+                    contains_STAT = !contains_RCS && _thruster_data.ContainsSTATTag();
                     if (!contains_THR && !contains_RCS && !contains_STAT || cur_thruster_info.actual_max_force < 0.01f * cur_thruster_info.max_force || !cur_thruster.IsWorking)
                     {
                         disable_control(cur_thruster, cur_thruster_info);
@@ -1928,7 +1928,7 @@ namespace ttdtwm
 
         private void refresh_turn_sensitivity()
         {
-            const float SENSITIVITY_MULT = 0.2f;
+            const float SENSITIVITY_MULT = 0.5f;
             Vector3 ship_size = (_grid.Max - _grid.Min) * _grid.GridSize;
 
             _turn_sensitivity[(int) thrust_dir.port  ] = _turn_sensitivity[(int) thrust_dir.starboard] = Math.Max(ship_size.Y, ship_size.Z) * SENSITIVITY_MULT;  // pitch
