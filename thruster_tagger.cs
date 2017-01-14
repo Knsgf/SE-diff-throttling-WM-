@@ -6,7 +6,7 @@ namespace ttdtwm
 {
     static class thruster_tagger
     {
-        private static string           _thruster_data;
+        private static string           _thruster_data, _throttle_setting;
         private static IMyTerminalBlock _current_thruster = null;
         private static bool             _current_active_control_available, _current_active_control_on, _current_anti_slip_on, _current_thrust_limiter_on;
         private static uint             _manual_throttle;
@@ -31,8 +31,8 @@ namespace ttdtwm
             _current_anti_slip_on             = _current_active_control_on       && !contains_RCS;
             _current_thrust_limiter_on        = _thruster_data.ContainsSTATTag() && !contains_RCS;
 
-            string throttle_setting = "TTDTWM_MT_" + thruster.EntityId.ToString();
-            bool   setting_saved    = MyAPIGateway.Utilities.GetVariable(throttle_setting, out _manual_throttle);
+            _throttle_setting  = "TTDTWM_MT_" + thruster.EntityId.ToString();
+            bool setting_saved = MyAPIGateway.Utilities.GetVariable(_throttle_setting, out _manual_throttle);
             if (!setting_saved)
                 _manual_throttle = 0;
         }
@@ -131,7 +131,8 @@ namespace ttdtwm
 
         public static void set_manual_throttle(IMyTerminalBlock thruster, float new_setting)
         {
-            if (new_setting < 0.0f || !is_under_active_control(thruster))
+            update_flags(thruster);
+            if (new_setting < 0.0f)
                 _manual_throttle = 0;
             else
             {
@@ -139,8 +140,7 @@ namespace ttdtwm
                 if (_manual_throttle > 100)
                     _manual_throttle = 100;
             }
-            string throttle_setting = "TTDTWM_MT_" + thruster.EntityId.ToString();
-            MyAPIGateway.Utilities.SetVariable(throttle_setting, _manual_throttle);
+            MyAPIGateway.Utilities.SetVariable(_throttle_setting, _manual_throttle);
         }
 
         public static void throttle_status(IMyTerminalBlock thruster, StringBuilder status)

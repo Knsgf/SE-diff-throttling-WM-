@@ -9,7 +9,7 @@ namespace ttdtwm
         const int COT_MASK = 0x1, LANDING_MASK = 0x2;
 
         private static readonly string m_Prefix  = "[TP&DT: ";
-        private static readonly string m_Suffix  = "]|";
+        private static readonly string m_Suffix  = "]\n";
         private static readonly int[]  m_PrefixShiftTable;
         private static readonly int    m_PrefixLength;
 

@@ -260,7 +260,7 @@ namespace ttdtwm
                 IMyTerminalControlSlider manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
                 manual_throttle.Getter  = thruster_tagger.get_manual_throttle;
                 manual_throttle.Setter  = thruster_tagger.set_manual_throttle;
-                manual_throttle.Enabled = thruster_tagger.is_under_active_control;
+                //manual_throttle.Enabled = thruster_tagger.is_under_active_control;
                 manual_throttle.SupportsMultipleBlocks = true;
                 manual_throttle.Title  = MyStringId.GetOrCompute("Manual throttle");
                 manual_throttle.Writer = thruster_tagger.throttle_status;
