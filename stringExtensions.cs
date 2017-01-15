@@ -5,13 +5,17 @@ namespace ttdtwm
 {
     static class stringExtensions
     {
-        const int THR_MASK = 0x1, RCS_MASK = 0x2, STAT_MASK = 0x4;
+        const int THR_MASK = 0x1, SLP_MASK = 0x2, STAT_MASK = 0x4;
         const int COT_MASK = 0x1, LANDING_MASK = 0x2;
 
-        private static readonly string m_Prefix  = "[TP&DT: ";
+        private static readonly string m_Prefix  = "[TP&DT2: ";
         private static readonly string m_Suffix  = "]\n";
         private static readonly int[]  m_PrefixShiftTable;
         private static readonly int    m_PrefixLength;
+
+        private static readonly string m_OldPrefix = "[TP&DT: ";
+        private static readonly int[]  m_OldPrefixShiftTable;
+        private static readonly int    m_OldPrefixLength;
 
         private static StringBuilder m_blockName = new StringBuilder();
 
@@ -32,6 +36,9 @@ namespace ttdtwm
         {
             m_PrefixShiftTable = GenerateShiftTable(m_Prefix);
             m_PrefixLength     = m_Prefix.Length;
+
+            m_OldPrefixShiftTable = GenerateShiftTable(m_OldPrefix);
+            m_OldPrefixLength     = m_OldPrefix.Length;
         }
 
         private static int? TagPosition(string source, string tag, int[] tagShiftTable)
@@ -101,29 +108,61 @@ namespace ttdtwm
             return 0;
         }
 
-        private static string SetTagValue(string source, int newValue)
+        private static string RemoveOldTag(string source)
         {
-            int? tagPosition = TagPosition(source, m_Prefix, m_PrefixShiftTable);
+            int? tagPosition = TagPosition(source, m_OldPrefix, m_OldPrefixShiftTable);
 
             if (tagPosition == null)
-                return m_Prefix + ConvertValueToChar(newValue) + m_Suffix + source;
+                return source;
+
+            int    tagLength = m_OldPrefixLength + 1 + m_Suffix.Length;
+            int    tagIndex  = (int) tagPosition;
+            string result    = (tagIndex > 0) ? source.Substring(0, tagIndex) : "";
+            if (tagIndex + tagLength < source.Length)
+                result += source.Substring(tagIndex + tagLength);
+            return result;
+        }
+
+        private static string SetTagValue(string source, int newValue)
+        {
+            string temp      = RemoveOldTag(source);
+            int? tagPosition = TagPosition(temp, m_Prefix, m_PrefixShiftTable);
+
+            if (tagPosition == null)
+                return m_Prefix + ConvertValueToChar(newValue) + m_Suffix + temp;
             int    tagIndex = (int) tagPosition + m_PrefixLength;
-            string result   = source.Substring(0, tagIndex) + ConvertValueToChar(newValue);
-            if (source.Length > tagIndex + 1)
-                result += source.Substring(tagIndex + 1);
+            string result   = temp.Substring(0, tagIndex) + ConvertValueToChar(newValue);
+            if (temp.Length > tagIndex + 1)
+                result += temp.Substring(tagIndex + 1);
             return result;
         }
 
         private static int GetTagValue(string source)
         {
+            const int RCS_MASK = 0x2;
+
             int? tagPosition = TagPosition(source, m_Prefix, m_PrefixShiftTable);
+            bool isOldTag     = false;
 
             if (tagPosition == null)
-                return 0;
-            int tagIndex = (int) tagPosition + m_PrefixLength;
+            {
+                tagPosition = TagPosition(source, m_OldPrefix, m_OldPrefixShiftTable);
+                if (tagPosition == null)
+                    return 0;
+                isOldTag = true;
+            }
+            int tagIndex = (int) tagPosition + (isOldTag ? m_OldPrefixLength : m_PrefixLength);
             if (source.Length <= tagIndex)
                 return 0;
-            return ConvertCharToValue(source[tagIndex]);
+            if (!isOldTag)
+                return ConvertCharToValue(source[tagIndex]);
+
+            int oldValue = ConvertCharToValue(source[tagIndex]);
+            if ((oldValue & THR_MASK) != 0)
+                oldValue |= SLP_MASK;
+            else if ((oldValue & RCS_MASK) != 0)
+                oldValue = (oldValue | THR_MASK) & ~SLP_MASK;
+            return oldValue;
         }
 
         #endregion
@@ -132,17 +171,25 @@ namespace ttdtwm
 
         public static bool ContainsTHRTag(this string blockData)
         {
-            return (GetTagValue(blockData) & THR_MASK) != 0;
+            int tagValue = GetTagValue(blockData);
+            return (tagValue & THR_MASK) != 0 && (tagValue & SLP_MASK) != 0;
         }
 
         public static bool ContainsRCSTag(this string blockData)
         {
-            return (GetTagValue(blockData) & RCS_MASK) != 0;
+            int tagValue = GetTagValue(blockData);
+            return (tagValue & THR_MASK) != 0 && (tagValue & SLP_MASK) == 0;
+        }
+
+        public static bool ContainsSLPTag(this string blockData)
+        {
+            return (GetTagValue(blockData) & SLP_MASK) != 0;
         }
 
         public static bool ContainsSTATTag(this string blockData)
         {
-            return (GetTagValue(blockData) & STAT_MASK) != 0;
+            int tagValue = GetTagValue(blockData);
+            return (tagValue & STAT_MASK) != 0 && (tagValue & SLP_MASK) != 0;
         }
 
         public static bool ContainsLANDINGTag(this string blockData)
@@ -157,16 +204,21 @@ namespace ttdtwm
 
         #endregion
 
+        public static string UpgradeTag(this string blockData)
+        {
+            return SetTagValue(blockData, GetTagValue(blockData));
+        }
+
         #region AddTag()
 
         public static string AddTHRTag(this string blockData)
         {
-            return SetTagValue(blockData, GetTagValue(blockData) | THR_MASK);
+            return SetTagValue(blockData, GetTagValue(blockData) | THR_MASK | SLP_MASK);
         }
 
         public static string AddRCSTag(this string blockData)
         {
-            return SetTagValue(blockData, GetTagValue(blockData) | RCS_MASK);
+            return SetTagValue(blockData, (GetTagValue(blockData) | THR_MASK) & ~SLP_MASK);
         }
 
         public static string AddSTATTag(this string blockData)
@@ -195,7 +247,7 @@ namespace ttdtwm
 
         public static string RemoveRCSTag(this string blockData)
         {
-            return SetTagValue(blockData, GetTagValue(blockData) & ~RCS_MASK);
+            return SetTagValue(blockData, GetTagValue(blockData) & ~THR_MASK);
         }
 
         public static string RemoveSTATTag(this string blockData)
