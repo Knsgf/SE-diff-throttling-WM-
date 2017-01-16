@@ -63,7 +63,7 @@ namespace ttdtwm
             else
             {
                 thruster.CustomData        = thruster.CustomData.RemoveTHRTag().RemoveRCSTag();
-                _current_active_control_on = _current_anti_slip_on = false;
+                _current_active_control_on = false;
             }
         }
 
@@ -84,12 +84,12 @@ namespace ttdtwm
             update_flags(thruster);
             if (!is_active_control_available(thruster))
                 return;
-            if (is_under_active_control(thruster))
+            if (is_under_active_control(thruster) && !is_thrust_limited(thruster))
             {
                 if (!new_state_on)
                 {
-                    thruster.CustomData   = thruster.CustomData.RemoveTHRTag().RemoveSTATTag().AddRCSTag();
-                    _current_anti_slip_on = _current_thrust_limiter_on = false;
+                    thruster.CustomData   = thruster.CustomData.RemoveTHRTag().AddRCSTag();
+                    _current_anti_slip_on = false;
                 }
                 else
                 {
@@ -101,6 +101,7 @@ namespace ttdtwm
 
         public static bool is_thrust_limiter_available(IMyTerminalBlock thruster)
         {
+            update_flags(thruster);
             return is_active_control_available(thruster) && (!_current_active_control_on || _current_anti_slip_on);
         }
 

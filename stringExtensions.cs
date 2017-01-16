@@ -189,7 +189,7 @@ namespace ttdtwm
         public static bool ContainsSTATTag(this string blockData)
         {
             int tagValue = GetTagValue(blockData);
-            return (tagValue & STAT_MASK) != 0 && (tagValue & SLP_MASK) != 0;
+            return (tagValue & STAT_MASK) != 0 && ((tagValue & THR_MASK) == 0 || (tagValue & SLP_MASK) != 0);
         }
 
         public static bool ContainsLANDINGTag(this string blockData)
