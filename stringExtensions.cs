@@ -1,23 +1,19 @@
 ﻿using System;
-using System.Text;
 
 namespace ttdtwm
 {
     static class stringExtensions
     {
-        const int THR_MASK = 0x1, SLP_MASK = 0x2, STAT_MASK = 0x4;
-        const int COT_MASK = 0x1, LANDING_MASK = 0x2;
+        const int THR_MASK = 0x1,     SLP_MASK = 0x2,    STAT_MASK = 0x4;
+        const int COT_MASK = 0x1, LANDING_MASK = 0x2, DAMPING_MASK = 0x4;
 
         private static readonly string m_Prefix  = "[TP&DT2: ";
         private static readonly string m_Suffix  = "]\n";
         private static readonly int[]  m_PrefixShiftTable;
         private static readonly int    m_PrefixLength;
 
-        private static readonly string m_OldPrefix = "[TP&DT: ";
-        private static readonly int[]  m_OldPrefixShiftTable;
-        private static readonly int    m_OldPrefixLength;
-
-        private static StringBuilder m_blockName = new StringBuilder();
+        private static string m_LastSource   = null, m_LastTag = null;
+        private static int?   m_LastPosition = null;
 
         #region Private methods
 
@@ -36,20 +32,22 @@ namespace ttdtwm
         {
             m_PrefixShiftTable = GenerateShiftTable(m_Prefix);
             m_PrefixLength     = m_Prefix.Length;
-
-            m_OldPrefixShiftTable = GenerateShiftTable(m_OldPrefix);
-            m_OldPrefixLength     = m_OldPrefix.Length;
         }
 
         private static int? TagPosition(string source, string tag, int[] tagShiftTable)
         {
-            int sourceLength = source.Length, startIndex = 0, endIndex = tag.Length - 1, tagIndex, shift;
+            if (ReferenceEquals(source, m_LastSource) && ReferenceEquals(tag, m_LastTag))
+                return m_LastPosition;
+
+            int  sourceLength = source.Length, startIndex = 0, endIndex = tag.Length - 1, tagIndex, shift;
             bool matchFound;
 
+            m_LastSource = source;
+            m_LastTag    = tag;
             while (endIndex < sourceLength)
             {
                 matchFound = true;
-                tagIndex = 0;
+                tagIndex   = 0;
                 for (int index = startIndex; index <= endIndex; ++index)
                 {
                     if (tag[tagIndex++] != source[index])
@@ -59,11 +57,16 @@ namespace ttdtwm
                     }
                 }
                 if (matchFound)
+                {
+                    m_LastPosition = startIndex;
                     return startIndex;
-                shift = tagShiftTable[source[endIndex]];
+                }
+                shift       = tagShiftTable[source[endIndex]];
                 startIndex += shift;
-                endIndex += shift;
+                endIndex   += shift;
             }
+
+            m_LastPosition = null;
             return null;
         }
 
@@ -108,61 +111,29 @@ namespace ttdtwm
             return 0;
         }
 
-        private static string RemoveOldTag(string source)
-        {
-            int? tagPosition = TagPosition(source, m_OldPrefix, m_OldPrefixShiftTable);
-
-            if (tagPosition == null)
-                return source;
-
-            int    tagLength = m_OldPrefixLength + 1 + m_Suffix.Length;
-            int    tagIndex  = (int) tagPosition;
-            string result    = (tagIndex > 0) ? source.Substring(0, tagIndex) : "";
-            if (tagIndex + tagLength < source.Length)
-                result += source.Substring(tagIndex + tagLength);
-            return result;
-        }
-
         private static string SetTagValue(string source, int newValue)
         {
-            string temp      = RemoveOldTag(source);
-            int? tagPosition = TagPosition(temp, m_Prefix, m_PrefixShiftTable);
+            int? tagPosition = TagPosition(source, m_Prefix, m_PrefixShiftTable);
 
             if (tagPosition == null)
-                return m_Prefix + ConvertValueToChar(newValue) + m_Suffix + temp;
+                return m_Prefix + ConvertValueToChar(newValue) + m_Suffix + source;
             int    tagIndex = (int) tagPosition + m_PrefixLength;
-            string result   = temp.Substring(0, tagIndex) + ConvertValueToChar(newValue);
-            if (temp.Length > tagIndex + 1)
-                result += temp.Substring(tagIndex + 1);
+            string result   = source.Substring(0, tagIndex) + ConvertValueToChar(newValue);
+            if (source.Length > tagIndex + 1)
+                result += source.Substring(tagIndex + 1);
             return result;
         }
 
         private static int GetTagValue(string source)
         {
-            const int RCS_MASK = 0x2;
-
             int? tagPosition = TagPosition(source, m_Prefix, m_PrefixShiftTable);
-            bool isOldTag     = false;
 
             if (tagPosition == null)
-            {
-                tagPosition = TagPosition(source, m_OldPrefix, m_OldPrefixShiftTable);
-                if (tagPosition == null)
-                    return 0;
-                isOldTag = true;
-            }
-            int tagIndex = (int) tagPosition + (isOldTag ? m_OldPrefixLength : m_PrefixLength);
+                return 0;
+            int tagIndex = (int) tagPosition + m_PrefixLength;
             if (source.Length <= tagIndex)
                 return 0;
-            if (!isOldTag)
-                return ConvertCharToValue(source[tagIndex]);
-
-            int oldValue = ConvertCharToValue(source[tagIndex]);
-            if ((oldValue & THR_MASK) != 0)
-                oldValue |= SLP_MASK;
-            else if ((oldValue & RCS_MASK) != 0)
-                oldValue = (oldValue | THR_MASK) & ~SLP_MASK;
-            return oldValue;
+            return ConvertCharToValue(source[tagIndex]);
         }
 
         #endregion
@@ -202,12 +173,12 @@ namespace ttdtwm
             return (GetTagValue(blockData) & COT_MASK) != 0;
         }
 
-        #endregion
-
-        public static string UpgradeTag(this string blockData)
+        public static bool ContainsDAMPINGTag(this string blockData)
         {
-            return SetTagValue(blockData, GetTagValue(blockData));
+            return (GetTagValue(blockData) & DAMPING_MASK) == 0;
         }
+
+        #endregion
 
         #region AddTag()
 
@@ -234,6 +205,11 @@ namespace ttdtwm
         public static string AddCOTTag(this string blockData)
         {
             return SetTagValue(blockData, GetTagValue(blockData) | COT_MASK);
+        }
+
+        public static string AddDAMPINGTag(this string blockData)
+        {
+            return SetTagValue(blockData, GetTagValue(blockData) & ~DAMPING_MASK);
         }
 
         #endregion
@@ -263,6 +239,11 @@ namespace ttdtwm
         public static string RemoveCOTTag(this string blockData)
         {
             return SetTagValue(blockData, GetTagValue(blockData) & ~COT_MASK);
+        }
+
+        public static string RemoveDAMPINGTag(this string blockData)
+        {
+            return SetTagValue(blockData, GetTagValue(blockData) | DAMPING_MASK);
         }
 
         #endregion

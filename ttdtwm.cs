@@ -70,7 +70,7 @@ namespace ttdtwm
         private bool is_grid_CoT_mode_on(IMyTerminalBlock controller)
         {
             IMyCubeGrid grid = controller.CubeGrid;
-            return _grids[grid].CoT_mode_forced;
+            return _grids[grid].CoT_mode_on;
         }
 
         private bool is_grid_CoT_mode_available(IMyTerminalBlock controller)
@@ -82,7 +82,19 @@ namespace ttdtwm
         private void set_grid_CoT_mode(IMyTerminalBlock controller, bool new_state)
         {
             IMyCubeGrid grid = controller.CubeGrid;
-            _grids[grid].CoT_mode_forced = new_state;
+            _grids[grid].CoT_mode_on = new_state;
+        }
+
+        private bool is_grid_rotational_damping_on(IMyTerminalBlock controller)
+        {
+            IMyCubeGrid grid = controller.CubeGrid;
+            return _grids[grid].rotational_damping_on;
+        }
+
+        private void set_grid_rotational_damping(IMyTerminalBlock controller, bool new_state)
+        {
+            IMyCubeGrid grid = controller.CubeGrid;
+            _grids[grid].rotational_damping_on = new_state;
         }
 
         private bool is_grid_landing_mode_on(IMyTerminalBlock controller)
@@ -243,8 +255,10 @@ namespace ttdtwm
 
                 IMyTerminalControlSeparator cockpit_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyCockpit>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(cockpit_line);
-                create_checkbox<IMyCockpit>("ForceCoTMode", "Force CoT mode", null,               "CoT",   "Auto",     is_grid_CoT_mode_on,     set_grid_CoT_mode,     is_grid_CoT_mode_available);
-                create_switch  <IMyCockpit>( "LandingMode",   "Landing mode", null, "On", "Off", "Land", "Flight", is_grid_landing_mode_on, set_grid_landing_mode, is_grid_landing_mode_available);
+                //create_checkbox<IMyCockpit>("ForceCoTMode", "Force CoT mode", null,               "CoT",   "Auto",     is_grid_CoT_mode_on,     set_grid_CoT_mode,     is_grid_CoT_mode_available);
+                create_checkbox<IMyCockpit>("RotationalDamping",       "Rotational Damping", null,                 "On",    "Off", is_grid_rotational_damping_on, set_grid_rotational_damping,     is_grid_CoT_mode_available);
+                create_switch<IMyCockpit>(            "CoTMode", "Active Control Reference", null, "CoT", "CoM",  "CoT",    "CoM",           is_grid_CoT_mode_on,           set_grid_CoT_mode,     is_grid_CoT_mode_available);
+                create_switch<IMyCockpit>(        "LandingMode",             "Landing mode", null,  "On", "Off", "Land", "Flight",       is_grid_landing_mode_on,       set_grid_landing_mode, is_grid_landing_mode_available);
 
                 IMyTerminalControlSeparator RC_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyRemoteControl>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyRemoteControl>(RC_line);

@@ -1,14 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
+//using System.Text;
 
-using Sandbox.Game;
-using Sandbox.Game.Gui;
+//using Sandbox.Game;
+//using Sandbox.Game.Gui;
 using Sandbox.ModAPI;
 using VRage.Game;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
-using VRage.Input;
+//using VRage.Input;
 using VRage.Utils;
 using VRageMath;
 
@@ -25,20 +25,18 @@ namespace ttdtwm
 
         private static byte[] __long_message  = new byte[8 + 3 + 5], __short_message = new byte[8 + 1 + 5], __signature = new byte[5];
 
-        private static string __controller_data;
-
         private session_handler                _session_ref;
         private IMyCubeGrid                    _grid;
         private HashSet<IMyControllableEntity> _ship_controllers     = new HashSet<IMyControllableEntity>();
         private HashSet<IMyRemoteControl>      _RC_blocks            = new HashSet<IMyRemoteControl>();
         private IMyHudNotification             _thrust_redction_text = null, _control_warning_text = null, _vertical_speed_text = null;
         private engine_control_unit            _ECU                  = null;
-        private Vector3UByte                   _prev_manual_thrust   = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
+        //private Vector3UByte                   _prev_manual_thrust   = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
         private IMyPlayer                      _prev_player          = null;
 
         private int  _num_thrusters = 0, _prev_thrust_reduction = 0, _zero_controls_counter = 0;
         private bool _control_limit_is_visible = false, _thrust_redction_is_visible = false, _vertical_speed_is_visible = false, _disposed = false, _status_shown = false;
-        private bool _was_in_landing_mode = false, _was_in_CoT_mode = false, _ID_on, _force_CoT_mode_on, _landing_mode_on;
+        private bool _was_in_landing_mode = false, _was_in_CoT_mode = false, _ID_on;
         //private bool _announced = false;
 
         #endregion
@@ -53,11 +51,11 @@ namespace ttdtwm
             }
         }
 
-        public bool CoT_mode_forced
+        public bool CoT_mode_on
         {
             get
             {
-                return is_CoT_mode_available && _ECU.CoT_mode_forced;
+                return is_CoT_mode_available && _ECU.CoT_mode_on;
             }
             set
             {
@@ -65,10 +63,32 @@ namespace ttdtwm
 
                 if (_ECU == null)
                     return;
+                _ECU.CoT_mode_on = value;
                 foreach (var cur_controller in _ship_controllers)
                 {
                     controller_terminal = (IMyTerminalBlock) cur_controller;
                     controller_terminal.CustomData = value ? controller_terminal.CustomData.AddCOTTag() : controller_terminal.CustomData.RemoveCOTTag();
+                }
+            }
+        }
+
+        public bool rotational_damping_on
+        {
+            get
+            {
+                return _ECU == null || !is_CoT_mode_available || _ECU.rotational_damping_on;
+            }
+            set
+            {
+                IMyTerminalBlock controller_terminal;
+
+                if (_ECU == null)
+                    return;
+                _ECU.rotational_damping_on = value;
+                foreach (var cur_controller in _ship_controllers)
+                {
+                    controller_terminal = (IMyTerminalBlock) cur_controller;
+                    controller_terminal.CustomData = value ? controller_terminal.CustomData.AddDAMPINGTag() : controller_terminal.CustomData.RemoveDAMPINGTag();
                 }
             }
         }
@@ -93,6 +113,7 @@ namespace ttdtwm
 
                 if (_ECU == null)
                     return;
+                _ECU.landing_mode_on = value;
                 foreach (var cur_controller in _ship_controllers)
                 {
                     controller_terminal = (IMyTerminalBlock) cur_controller;
@@ -506,22 +527,17 @@ namespace ttdtwm
                 if (controlling_player == null)
                 {
                     _ECU.reset_user_input(reset_gyros_only: false);
-                    _prev_manual_thrust = _prev_manual_rotation = new Vector3UByte(128, 128, 128);
+                    //_prev_manual_thrust = _prev_manual_rotation = new Vector3UByte(128, 128, 128);
                 }
                 else //if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
                     handle_user_input(controlling_player.Controller.ControlledEntity);
 
-                _ID_on = _force_CoT_mode_on = _landing_mode_on = false;
+                _ID_on = false;
                 foreach (var cur_controller in _ship_controllers)
                 {
-                    __controller_data  = ((IMyTerminalBlock) cur_controller).CustomData;
-                    _force_CoT_mode_on = is_CoT_mode_available     && __controller_data.ContainsCOTTag();
-                    _landing_mode_on   = is_landing_mode_available && __controller_data.ContainsLANDINGTag();
-                    _ID_on             = cur_controller.EnabledDamping;
+                    _ID_on = cur_controller.EnabledDamping;
                     break;
                 }
-                _ECU.CoT_mode_forced   = _force_CoT_mode_on;
-                _ECU.landing_mode_on   = _landing_mode_on;
                 _ECU.linear_dampers_on = _ID_on;
                 _ECU.handle_60Hz();
             }
@@ -615,6 +631,7 @@ namespace ttdtwm
 
                 _ECU.handle_2s_period();
 
+                /*
                 if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
                 {
                     //if (!_announced)
@@ -627,6 +644,7 @@ namespace ttdtwm
                     _prev_manual_rotation  = _prev_manual_thrust = new Vector3UByte(128, 128, 128);
                     _zero_controls_counter = 0;
                 }
+                */
             }
         }
 
@@ -645,7 +663,7 @@ namespace ttdtwm
             _grid                 = new_grid;
             _grid.OnBlockAdded   += on_block_added;
             _grid.OnBlockRemoved += on_block_removed;
-            _ID_on = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).DampenersEnabled;
+            //_ID_on = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).DampenersEnabled;
             sync_helper.register_logic_object(this, _grid.EntityId);
 
             var block_list = new List<IMySlimBlock>();
@@ -668,11 +686,10 @@ namespace ttdtwm
                         _session_ref.sample_thruster(thruster);
                         ++_num_thrusters;
                     }
-                    if (gyro != null)
+                    else if (gyro != null)
                         _ECU.assign_gyroscope(gyro);
                 }
             }
-
 
             block_list.Clear();
             _grid.GetBlocks(block_list,
@@ -688,6 +705,24 @@ namespace ttdtwm
                 var RC_block = cur_controller.FatBlock as IMyRemoteControl;
                 if (RC_block != null)
                     _RC_blocks.Add(RC_block);
+            }
+            if (_ECU != null)
+            {
+                bool CoT_mode_on = false, landing_mode_on = false, rotational_damping_on = true;
+
+                foreach (var cur_controller in _ship_controllers)
+                {
+                    string controller_data = ((IMyTerminalBlock) cur_controller).CustomData;
+                    CoT_mode_on           = is_CoT_mode_available     && controller_data.ContainsCOTTag();
+                    rotational_damping_on = !is_CoT_mode_available    || controller_data.ContainsDAMPINGTag();
+                    landing_mode_on       = is_landing_mode_available && controller_data.ContainsLANDINGTag();
+                    _ID_on                = cur_controller.EnabledDamping;
+                    break;
+                }
+                _ECU.CoT_mode_on           = CoT_mode_on;
+                _ECU.landing_mode_on       = landing_mode_on;
+                _ECU.rotational_damping_on = rotational_damping_on;
+                _ECU.linear_dampers_on     = _ID_on;
             }
         }
 

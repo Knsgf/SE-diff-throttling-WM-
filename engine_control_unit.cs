@@ -1,9 +1,7 @@
 ﻿using ParallelTasks;
 using System;
 using System.Collections.Generic;
-using System.Text;
 
-using Sandbox.Common.ObjectBuilders;
 using Sandbox.Definitions;
 using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
@@ -150,7 +148,7 @@ namespace ttdtwm
         private float[]    _turn_sensitivity            = new float[6];
         private Vector3?[] _active_CoT = new Vector3?[6];
         private Vector3    _local_angular_velocity, _prev_angular_velocity = Vector3.Zero, _torque, _manual_rotation, _prev_rotation = Vector3.Zero, _target_rotation, _gyro_override = Vector3.Zero;
-        private bool       _current_mode_is_CoT = false, _new_mode_is_CoT = false, _force_CoT_mode = false, _is_gyro_override_active = false;
+        private bool       _current_mode_is_CoT = false, _new_mode_is_CoT = false, _CoT_mode_on = false, _is_gyro_override_active = false;
         //private sbyte      _last_control_scheme = -1;
         private bool       _all_engines_off = false, _under_player_control = false, _force_override_refresh = false;
         private float      _angular_speed, _trim_fadeout = 1.0f;
@@ -169,8 +167,9 @@ namespace ttdtwm
 
         #region Properties
 
-        public bool linear_dampers_on { get; set; }
-        public bool autopilot_on      { get; set; }
+        public bool linear_dampers_on     { get; set; }
+        public bool rotational_damping_on { get; set; }
+        public bool autopilot_on          { get; set; }
 
         public int  thrust_reduction      { get; private set; }
         public bool control_limit_reached { get; private set; }
@@ -208,15 +207,15 @@ namespace ttdtwm
             }
         }
 
-        public bool CoT_mode_forced
+        public bool CoT_mode_on
         {
             get
             {
-                return _force_CoT_mode;
+                return _CoT_mode_on;
             }
             set
             {
-                _force_CoT_mode = value;
+                _CoT_mode_on = value;
             }
         }
 
@@ -906,7 +905,7 @@ namespace ttdtwm
                     else if (cur_thruster_info.current_setting > 1.0f)
                         cur_thruster_info.current_setting = 1.0f;
 
-                    if (_force_CoT_mode)
+                    if (_CoT_mode_on)
                     {
                         total_static_moment += cur_thruster_info.current_setting * cur_thruster_info.actual_static_moment;
                         total_force         += cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
@@ -927,7 +926,7 @@ namespace ttdtwm
                         cur_thruster_info.current_setting = max_linear_opposition;
                     }
 
-                    if (_force_CoT_mode)
+                    if (_CoT_mode_on)
                     {
                         total_static_moment += cur_thruster_info.current_setting * cur_thruster_info.actual_static_moment;
                         total_force         += cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
@@ -941,7 +940,7 @@ namespace ttdtwm
             __new_static_moment[cur_dir] = total_static_moment;
             __new_total_force  [cur_dir] = total_force;
 
-            if (_force_CoT_mode && _active_CoT[opposite_dir] != null)
+            if (_CoT_mode_on && _active_CoT[opposite_dir] != null)
             {
                 Vector3 effective_CoT = (Vector3) _active_CoT[opposite_dir], thruster_dir = _thrust_forward_vectors[cur_dir];
 
@@ -1135,14 +1134,14 @@ namespace ttdtwm
             const float ANGULAR_INTEGRAL_COEFF = -0.4f, ANGULAR_DERIVATIVE_COEFF = -0.05f, MAX_TRIM = 5.0f, THRUST_CUTOFF_TRIM = 4.0f, CHECKPOINT_FADE = 0.5f, 
                 RESTRICTED_INTEGRAL_FADE = 0.2f, ANGULAR_ACCELERATION_SMOOTHING = 0.5f;
 
-            bool    update_inverse_world_matrix = false;
+            bool    update_inverse_world_matrix = false, rotational_damping_enabled = rotational_damping_on;
             float   trim_change, thrust_limit_pitch, thrust_limit_yaw, thrust_limit_roll;
             Vector3 local_angular_acceleration  = (_local_angular_velocity - _prev_angular_velocity) * MyEngineConstants.UPDATE_STEPS_PER_SECOND, smoothed_acceleration_vector, 
-                trim_vector;
+                trim_vector, local_angular_velocity = rotational_damping_enabled ? _local_angular_velocity : Vector3.Zero;
             _prev_angular_velocity = _local_angular_velocity;
 
             decompose_vector(          _manual_rotation,       __steering_input);
-            decompose_vector(   _local_angular_velocity,     __angular_velocity);
+            decompose_vector(    local_angular_velocity,     __angular_velocity);
             decompose_vector(local_angular_acceleration, __angular_acceleration);
             Vector3 nominal_acceleration_vector = _torque / _spherical_moment_of_inertia;
             if (nominal_acceleration_vector.LengthSquared() > 1.0f)
@@ -1159,7 +1158,7 @@ namespace ttdtwm
                 {
                     __steering_output[dir_index] = (__steering_input[dir_index] * _turn_sensitivity[dir_index] + __angular_velocity[dir_index]) / (1.0f + _last_trim[opposite_dir]);
                     _enable_integral[ dir_index] = _enable_integral[opposite_dir] = false;
-                    if (!_active_control_on[dir_index])
+                    if (!_active_control_on[dir_index] || !rotational_damping_enabled)
                         _current_trim[dir_index] = _last_trim[dir_index] = 0.0f;
                     else
                     {
@@ -1173,7 +1172,7 @@ namespace ttdtwm
                 }
                 else
                 {
-                    if (!_active_control_on[dir_index])
+                    if (!_active_control_on[dir_index] || !rotational_damping_enabled)
                     { 
                         _current_trim[     dir_index] = _last_trim[dir_index] = 0.0f;
                         _restrict_integral[dir_index] = false;
@@ -1271,7 +1270,7 @@ namespace ttdtwm
 
             recompose_vector(     __steering_output, out     desired_angular_velocity);
             recompose_vector(_smoothed_acceleration, out smoothed_acceleration_vector);
-            desired_angular_velocity += ANGULAR_DERIVATIVE_COEFF * smoothed_acceleration_vector;
+            desired_angular_velocity += rotational_damping_enabled ? (ANGULAR_DERIVATIVE_COEFF * smoothed_acceleration_vector) : _local_angular_velocity;
             //_last_control_scheme      = control_scheme;
             return update_inverse_world_matrix;
         }
@@ -1311,15 +1310,15 @@ namespace ttdtwm
             if (update_inverse_world_matrix || _speed <= 20.0f || Vector3.Dot(_inverse_world_rotation_fixed.Forward, inverse_world_rotation.Forward) < 0.98f)
                 _inverse_world_rotation_fixed = inverse_world_rotation;
 
-            _new_mode_is_CoT = true; 
+            _new_mode_is_CoT = _CoT_mode_on; 
 
             Action<int> set_up_thrusters = delegate (int dir_index)
             {
                 thruster_info cur_thruster_info;
                 float         control = __control_vector[dir_index], min_setting = _min_setting[dir_index], min_collective_throttle = 1.0f;
 
-                if (__control_vector[dir_index] > 0.05f)
-                    _new_mode_is_CoT = _force_CoT_mode;
+                //if (__control_vector[dir_index] > 0.05f)
+                //    _new_mode_is_CoT = _force_CoT_mode;
                 __requested_force[dir_index] = 0.0f;
                 foreach (var cur_thruster in _collective_thrusters[dir_index])
                 {
@@ -1825,8 +1824,6 @@ namespace ttdtwm
             //log_ECU_action("assign_thruster", string.Format("{0} ({1}) [{2}]\n\t\t\tCentre position: {3}",
             //    ((IMyTerminalBlock) thruster).CustomName, new_thruster.nozzle_direction.ToString(), thruster.EntityId, 
             //    new_thruster.grid_centre_pos));
-
-            thruster_ref.CustomData = thruster_ref.CustomData.UpgradeTag();
         }
 
         public void dispose_thruster(IMyThrust thruster_ref)
