@@ -36,7 +36,7 @@ namespace ttdtwm
 
         private int  _num_thrusters = 0, _prev_thrust_reduction = 0, _zero_controls_counter = 0;
         private bool _control_limit_is_visible = false, _thrust_redction_is_visible = false, _vertical_speed_is_visible = false, _disposed = false, _status_shown = false;
-        private bool _was_in_landing_mode = false, _was_in_CoT_mode = false, _ID_on;
+        private bool _was_in_landing_mode = false, _was_in_CoT_mode = false, _ID_on = true;
         //private bool _announced = false;
 
         #endregion
@@ -162,6 +162,17 @@ namespace ttdtwm
                 {
                     _ship_controllers.Add(controller);
                     _session_ref.sample_controller(ship_controller);
+                    if (_ECU != null)
+                    {
+                        var controller_terminal = (IMyTerminalBlock) controller;
+
+                        if (_ECU.CoT_mode_on)
+                            controller_terminal.CustomData = controller_terminal.CustomData.AddCOTTag();
+                        if (_ECU.landing_mode_on)
+                            controller_terminal.CustomData = controller_terminal.CustomData.AddLANDINGTag();
+                        if (!_ECU.rotational_damping_on)
+                            controller_terminal.CustomData = controller_terminal.CustomData.RemoveDAMPINGTag();
+                    }
                 }
                 var RC_block = entity as IMyRemoteControl;
                 if (RC_block != null)
@@ -171,7 +182,10 @@ namespace ttdtwm
                 if (thruster != null)
                 {
                     if (_ECU == null)
+                    {
                         _ECU = new engine_control_unit(_grid);
+                        _ECU.rotational_damping_on = true;
+                    }
                     _ECU.assign_thruster(thruster);
                     _session_ref.sample_thruster(thruster);
                     ++_num_thrusters;
@@ -180,7 +194,10 @@ namespace ttdtwm
                 if (gyro != null)
                 {
                     if (_ECU == null)
+                    {
                         _ECU = new engine_control_unit(_grid);
+                        _ECU.rotational_damping_on = true;
+                    }
                     _ECU.assign_gyroscope(gyro);
                 }
             }
@@ -532,7 +549,7 @@ namespace ttdtwm
                 else //if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
                     handle_user_input(controlling_player.Controller.ControlledEntity);
 
-                _ID_on = false;
+                _ID_on = true;
                 foreach (var cur_controller in _ship_controllers)
                 {
                     _ID_on = cur_controller.EnabledDamping;
