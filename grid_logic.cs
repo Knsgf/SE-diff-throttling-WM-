@@ -23,7 +23,7 @@ namespace ttdtwm
         //const int   CONTROL_MODE_BASE = 204, LANDING_MODE_ON = 1, COT_MODE_ON = 2;  // 204 - 207
         const int   CONTROLS_TIMEOUT = 2;
 
-        private static byte[] __long_message  = new byte[8 + 3 + 5], __short_message = new byte[8 + 1 + 5], __signature = new byte[5];
+        private static byte[] __message = new byte[sync_helper.MAX_MESSAGE_LENGTH];
 
         private session_handler                _session_ref;
         private IMyCubeGrid                    _grid;
@@ -239,14 +239,16 @@ namespace ttdtwm
 
             if (thrust_reduction < 5 || !sync_helper.show_thrust_reduction)
             {
-                _thrust_redction_text.Hide();
+                if (_thrust_redction_is_visible)
+                    _thrust_redction_text.Hide();
                 _thrust_redction_is_visible = false;
             }
             else
             {
                 _thrust_redction_text.Text = "Thrust loss: " + thrust_reduction.ToString() + " %";
                 _thrust_redction_text.Font = (thrust_reduction > 30) ? MyFontEnum.Red : MyFontEnum.White;
-                _thrust_redction_text.Show();
+                if (!_thrust_redction_is_visible)
+                    _thrust_redction_text.Show();
                 _thrust_redction_is_visible = true;
             }
         }
@@ -257,222 +259,61 @@ namespace ttdtwm
                 return;
 
             if (!is_warning_on)
-                _control_warning_text.Hide();
+            {
+                if (_control_limit_is_visible)
+                    _control_warning_text.Hide();
+            }
             else
-                _control_warning_text.Show();
-            _control_limit_is_visible  = is_warning_on;
-        }
-
-        private static bool is_signature_valid(byte[] argument, int message_length)
-        {
-            if (argument.Length < message_length)
-                return false;
-
-            int signature_index = 0;
-            for (int index = message_length - __signature.Length; index < message_length; ++index)
             {
-                if (argument[index] != __signature[signature_index++])
-                    return false;
+                if (!_control_limit_is_visible)
+                    _control_warning_text.Show();
             }
-            return true;
+            _control_limit_is_visible = is_warning_on;
         }
 
-        internal static void short_message_handler(byte[] argument)
+        internal static void control_warning_handler(object entity, byte[] argument)
         {
-            if (!is_signature_valid(argument, __short_message.Length))
-                return;
-            grid_logic instance = sync_helper.decode_entity_id(argument);
+            var instance = entity as grid_logic;
             if (instance == null || instance._disposed || instance._ECU == null)
                 return;
 
-            int contents = argument[8];
-            if (contents <= 100)
-            {
-                instance.display_thrust_reduction(contents);
-                return;
-            }
-            switch (contents)
-            {
-                case CONTROL_WARNING_OFF:
-                case CONTROL_WARNING_ON:
-                    instance.display_control_warning(contents == CONTROL_WARNING_ON);
-                    break;
-
-                /*
-                case CONTROL_MODE_BASE:
-                case CONTROL_MODE_BASE + LANDING_MODE_ON:
-                case CONTROL_MODE_BASE + COT_MODE_ON:
-                case CONTROL_MODE_BASE + COT_MODE_ON + LANDING_MODE_ON:
-                    int flags = contents - CONTROL_MODE_BASE;
-                    instance._ECU.landing_mode_on = (flags & LANDING_MODE_ON) != 0;
-                    instance._ECU.CoT_mode_forced = (flags &     COT_MODE_ON) != 0;
-                    //instance.log_grid_action("short_message_handler", "landing mode = " + ((contents == LANDING_MODE_ON) ? "on" : "off"));
-                    break;
-
-                case CLIENT_ANNOUNCE:
-                    instance.send_control_modes_message(force_send: true);
-                    instance.send_server_acknowledge();
-                    //instance.log_grid_action("short_message_handler", "announce received");
-                    break;
-
-                case SERVER_ACKNOWLEDGE:
-                    instance._announced = true;
-                    //instance.log_grid_action("short_message_handler", "announce complete");
-                    break;
-                */
-            }
+            instance.display_control_warning(argument[0] != 0);
         }
 
-        /*
-        internal static void linear_message_handler(byte[] argument)
+        internal static void thrust_reduction_handler(object entity, byte[] argument)
         {
-            if (!is_signature_valid(argument, __long_message.Length))
-                return;
-            grid_logic instance = sync_helper.decode_entity_id(argument);
+            var instance = entity as grid_logic;
             if (instance == null || instance._disposed || instance._ECU == null)
                 return;
-            Vector3 manual_thrust;
-            IMyPlayer controlling_player = instance.get_controlling_player();
-            if (controlling_player == null || MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
-                return;
-            manual_thrust.X = (argument[ 8] - MESSAGE_SHIFT) / MESSAGE_MULTIPLIER;
-            manual_thrust.Y = (argument[ 9] - MESSAGE_SHIFT) / MESSAGE_MULTIPLIER;
-            manual_thrust.Z = (argument[10] - MESSAGE_SHIFT) / MESSAGE_MULTIPLIER;
-            instance._ECU.translate_linear_input(manual_thrust, controlling_player.Controller.ControlledEntity);
-            instance._zero_controls_counter = 0;
-        }
 
-        internal static void rotation_message_handler(byte[] argument)
-        {
-            if (!is_signature_valid(argument, __long_message.Length))
-                return;
-            grid_logic instance = sync_helper.decode_entity_id(argument);
-            if (instance == null || instance._disposed || instance._ECU == null)
-                return;
-            Vector3 manual_rotation;
-            IMyPlayer controlling_player = instance.get_controlling_player();
-            if (controlling_player == null || MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
-                return;
-            manual_rotation.X = (argument[ 8] - MESSAGE_SHIFT) / MESSAGE_MULTIPLIER;
-            manual_rotation.Y = (argument[ 9] - MESSAGE_SHIFT) / MESSAGE_MULTIPLIER;
-            manual_rotation.Z = (argument[10] - MESSAGE_SHIFT) / MESSAGE_MULTIPLIER;
-            instance._ECU.translate_rotation_input(manual_rotation, controlling_player.Controller.ControlledEntity);
-            instance._zero_controls_counter = 0;
+            //instance.log_grid_action("thrust_reduction_handler", string.Format("TL = {0}", argument[0]));
+            if (argument[0] <= 100)
+                instance.display_thrust_reduction(argument[0]);
         }
-        */
 
         #endregion
 
         #region event triggers
 
-        /*
-        private void send_linear_message(Vector3 manual_thrust)
-        {
-            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
-                return;
-
-            Vector3UByte packed_vector = Vector3UByte.Round(manual_thrust * MESSAGE_MULTIPLIER + Vector3.One * MESSAGE_SHIFT);
-            if (packed_vector == _prev_manual_thrust)
-                return;
-            sync_helper.encode_entity_id(_grid, __long_message);
-            __long_message[ 8] = packed_vector.X;
-            __long_message[ 9] = packed_vector.Y;
-            __long_message[10] = packed_vector.Z;
-            _prev_manual_thrust = packed_vector;
-            MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.LINEAR_MESSAGE_ID, __long_message);
-        }
-
-        private void send_rotation_message(Vector3 manual_rotation)
-        {
-            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
-                return;
-
-            Vector3UByte packed_vector = Vector3UByte.Round(manual_rotation * MESSAGE_MULTIPLIER + Vector3.One * MESSAGE_SHIFT);
-            if (packed_vector == _prev_manual_rotation)
-                return;
-            sync_helper.encode_entity_id(_grid, __long_message);
-            __long_message[ 8] = packed_vector.X;
-            __long_message[ 9] = packed_vector.Y;
-            __long_message[10] = packed_vector.Z;
-            _prev_manual_rotation = packed_vector;
-            MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.ROTATION_MESSAGE_ID, __long_message);
-        }
-        */
-
         private void send_control_limit_message(IMyPlayer controlling_player)
         {
-            if (_ECU == null)
-                return;
-
-            if (controlling_player != null && (controlling_player != _prev_player || _control_limit_is_visible != _ECU.control_limit_reached))
+            if (_ECU != null && controlling_player != null && (controlling_player != _prev_player || _control_limit_is_visible != _ECU.control_limit_reached))
             {
-                sync_helper.encode_entity_id(_grid, __short_message);
-                __short_message[8] = (byte) (_ECU.control_limit_reached ? CONTROL_WARNING_ON : CONTROL_WARNING_OFF);
-                _control_limit_is_visible = _ECU.control_limit_reached;
-                if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
-                    display_control_warning(_ECU.control_limit_reached);
-                else if (MyAPIGateway.Multiplayer.IsServer)
-                    MyAPIGateway.Multiplayer.SendMessageTo(sync_helper.SHORT_MESSAGE_ID, __short_message, controlling_player.SteamUserId);
+                __message[0] = (byte) (_ECU.control_limit_reached ? (~0) : 0);
+                sync_helper.send_message_to(controlling_player.SteamUserId, sync_helper.message_types.CONTROL_LIMIT, this, __message, 1);
             }
         }
-
-        /*
-        private void send_control_modes_message(bool force_send)
-        {
-            if (_ECU == null || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer)
-                return;
-
-            if (force_send || _was_in_landing_mode != _ECU.landing_mode_on || _was_in_CoT_mode != _ECU.CoT_mode_forced)
-            {
-                sync_helper.encode_entity_id(_grid, __short_message);
-                __short_message[8] = CONTROL_MODE_BASE;
-                if (_ECU.landing_mode_on)
-                    __short_message[8] += LANDING_MODE_ON;
-                if (_ECU.CoT_mode_forced)
-                    __short_message[8] += COT_MODE_ON;
-                _was_in_landing_mode = _ECU.landing_mode_on;
-                _was_in_CoT_mode     = _ECU.CoT_mode_forced;
-                MyAPIGateway.Multiplayer.SendMessageToOthers(sync_helper.SHORT_MESSAGE_ID, __short_message);
-            }
-        }
-
-        private void send_client_announce()
-        {
-            if (!_announced && MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
-            {
-                sync_helper.encode_entity_id(_grid, __short_message);
-                __short_message[8] = CLIENT_ANNOUNCE;
-                MyAPIGateway.Multiplayer.SendMessageToServer(sync_helper.SHORT_MESSAGE_ID, __short_message);
-            }
-        }
-
-        private void send_server_acknowledge()
-        {
-            if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
-            {
-                sync_helper.encode_entity_id(_grid, __short_message);
-                __short_message[8] = SERVER_ACKNOWLEDGE;
-                MyAPIGateway.Multiplayer.SendMessageToOthers(sync_helper.SHORT_MESSAGE_ID, __short_message);
-            }
-        }
-        */
 
         private void send_thrust_reduction_message(IMyPlayer controlling_player)
         {
-            if (_ECU == null)
-                return;
-
-            if (controlling_player != null && (controlling_player != _prev_player || _prev_thrust_reduction != _ECU.thrust_reduction))
+            if (_ECU != null && controlling_player != null && (controlling_player != _prev_player || _prev_thrust_reduction != _ECU.thrust_reduction))
             {
-                sync_helper.encode_entity_id(_grid, __short_message);
-                __short_message[8] = (byte) _ECU.thrust_reduction;
-                if (__short_message[8] > 100)
-                    __short_message[8] = 100;
-                _prev_thrust_reduction = __short_message[8];
-                if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
-                    display_thrust_reduction(__short_message[8]);
-                else if (MyAPIGateway.Multiplayer.IsServer)
-                    MyAPIGateway.Multiplayer.SendMessageTo(sync_helper.SHORT_MESSAGE_ID, __short_message, controlling_player.SteamUserId);
+                _prev_thrust_reduction = _ECU.thrust_reduction;
+                __message[0]           = (byte) _prev_thrust_reduction;
+                if (__message[0] > 100)
+                    __message[0] = 100;
+                //log_grid_action("send_thrust_reduction_message", string.Format("TL = {0}", __message[0]));
+                sync_helper.send_message_to(controlling_player.SteamUserId, sync_helper.message_types.THRUST_LOSS, this, __message, 1);
             }
         }
 
@@ -665,15 +506,6 @@ namespace ttdtwm
             }
         }
 
-        static grid_logic()
-        {
-            __long_message[8 + 3 + 0] = __short_message[8 + 1 + 0] = __signature[0] =  6;
-            __long_message[8 + 3 + 1] = __short_message[8 + 1 + 1] = __signature[1] = 60;
-            __long_message[8 + 3 + 2] = __short_message[8 + 1 + 2] = __signature[2] = 33;
-            __long_message[8 + 3 + 3] = __short_message[8 + 1 + 3] = __signature[3] = 39;
-            __long_message[8 + 3 + 4] = __short_message[8 + 1 + 4] = __signature[4] = 66;
-        }
-
         public grid_logic(IMyCubeGrid new_grid, session_handler session_instance)
         {
             _session_ref          = session_instance;
@@ -681,7 +513,7 @@ namespace ttdtwm
             _grid.OnBlockAdded   += on_block_added;
             _grid.OnBlockRemoved += on_block_removed;
             //_ID_on = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).DampenersEnabled;
-            sync_helper.register_logic_object(this, _grid.EntityId);
+            sync_helper.register_entity(this, _grid.EntityId);
 
             var block_list = new List<IMySlimBlock>();
             _grid.GetBlocks(block_list,
@@ -749,7 +581,7 @@ namespace ttdtwm
             {
                 _grid.OnBlockAdded   -= on_block_added;
                 _grid.OnBlockRemoved -= on_block_removed;
-                sync_helper.deregister_logic_object(_grid.EntityId);
+                sync_helper.deregister_entity(_grid.EntityId);
                 _disposed = true;
             }
         }
