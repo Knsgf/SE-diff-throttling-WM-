@@ -219,6 +219,51 @@ namespace ttdtwm
             }
         }
 
+        public Vector3 current_trim
+        {
+            get
+            {
+                Vector3 result;
+
+                recompose_vector(_current_trim, out result);
+                return result;
+            }
+            set
+            {
+                decompose_vector(value, _current_trim);
+            }
+        }
+
+        public Vector3 last_trim
+        {
+            get
+            {
+                Vector3 result;
+
+                recompose_vector(_last_trim, out result);
+                return result;
+            }
+            set
+            {
+                decompose_vector(value, _last_trim);
+            }
+        }
+
+        public Vector3 linear_integral
+        {
+            get
+            {
+                Vector3 result;
+
+                recompose_vector(_linear_integral, out result);
+                return result;
+            }
+            set
+            {
+                decompose_vector(value, _linear_integral);
+            }
+        }
+
         #endregion
 
         #region DEBUG

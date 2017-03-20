@@ -22,8 +22,8 @@ namespace ttdtwm
 
         const ushort SYNC_MESSAGE_ID = 17370;
 
-        internal const int MAX_MESSAGE_LENGTH = 6;
-        internal enum message_types { LINEAR_INPUT, ROTATION_INPUT, TRIM_SETTING, LINEAR_INTEGRAL, CONTROL_LIMIT, THRUST_LOSS };
+        internal const int MAX_MESSAGE_LENGTH = 18;
+        internal enum message_types { LINEAR_INPUT, ROTATION_INPUT, I_TERMS, MANUAL_THROTTLE, CONTROL_LIMIT, THRUST_LOSS };
         private static readonly int num_messages = Enum.GetValues(typeof(message_types)).Length;
 
         const int SIGNATURE_LENGTH = 5;
@@ -50,6 +50,7 @@ namespace ttdtwm
             show_thrust_reduction = show_vertical_speed = true;
 
             message_handlers = new Action<object, byte[]>[num_messages];
+            message_handlers[(int) message_types.I_TERMS      ] = grid_logic.I_terms_handler;
             message_handlers[(int) message_types.CONTROL_LIMIT] = grid_logic.control_warning_handler;
             message_handlers[(int) message_types.THRUST_LOSS  ] = grid_logic.thrust_reduction_handler;
         }

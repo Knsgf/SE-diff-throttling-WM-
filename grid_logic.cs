@@ -18,7 +18,7 @@ namespace ttdtwm
     {
         #region fields
 
-        const float MESSAGE_MULTIPLIER = 10.0f, MESSAGE_SHIFT = 128.0f;
+        const float MESSAGE_MULTIPLIER = 1000.0f, MESSAGE_SHIFT = 128.0f;
         const int   CONTROL_WARNING_OFF = 200, CONTROL_WARNING_ON = 201/*, CLIENT_ANNOUNCE = 202, SERVER_ACKNOWLEDGE = 203*/;
         //const int   CONTROL_MODE_BASE = 204, LANDING_MODE_ON = 1, COT_MODE_ON = 2;  // 204 - 207
         const int   CONTROLS_TIMEOUT = 2;
@@ -34,9 +34,10 @@ namespace ttdtwm
         //private Vector3UByte                   _prev_manual_thrust   = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
         private IMyPlayer                      _prev_player          = null;
 
-        private int  _num_thrusters = 0, _prev_thrust_reduction = 0, _zero_controls_counter = 0;
-        private bool _control_limit_is_visible = false, _thrust_redction_is_visible = false, _vertical_speed_is_visible = false, _disposed = false, _status_shown = false;
-        private bool _was_in_landing_mode = false, _was_in_CoT_mode = false, _ID_on = true;
+        private int     _num_thrusters = 0, _prev_thrust_reduction = 0, _zero_controls_counter = 0;
+        private bool    _control_limit_is_visible = false, _thrust_redction_is_visible = false, _vertical_speed_is_visible = false, _disposed = false, _status_shown = false;
+        private bool    _was_in_landing_mode = false, _was_in_CoT_mode = false, _ID_on = true;
+        private Vector3 _prev_trim, _prev_last_trim, _prev_linear_integral;
         //private bool _announced = false;
 
         #endregion
@@ -291,6 +292,34 @@ namespace ttdtwm
                 instance.display_thrust_reduction(argument[0]);
         }
 
+        private static float structurise_float_from_short(byte[] buffer, int buffer_offset)
+        {
+            return ((short) (buffer[buffer_offset] | (buffer[buffer_offset + 1] << 8))) / MESSAGE_MULTIPLIER;
+        }
+
+        private static Vector3 structurise_vector(byte[] buffer, int buffer_offset)
+        {
+            Vector3 result;
+
+            result.X = structurise_float_from_short(buffer, buffer_offset    );
+            result.Y = structurise_float_from_short(buffer, buffer_offset + 2);
+            result.Z = structurise_float_from_short(buffer, buffer_offset + 4);
+            return result;
+        }
+
+        internal static void I_terms_handler(object entity, byte[] argument)
+        {
+            var instance = entity as grid_logic;
+            if (instance == null || instance._disposed || instance._ECU == null)
+                return;
+
+            engine_control_unit current_ECU = instance._ECU;
+            current_ECU.current_trim    = structurise_vector(argument, 0);
+            current_ECU.last_trim       = structurise_vector(argument, 6);
+            current_ECU.linear_integral = structurise_vector(argument, 12);
+            instance.log_grid_action("I_terms_handler", string.Format("CT = {0}; LT = {1}; LI = {2}", current_ECU.current_trim, current_ECU.last_trim, current_ECU.linear_integral));
+        }
+
         #endregion
 
         #region event triggers
@@ -314,6 +343,42 @@ namespace ttdtwm
                     __message[0] = 100;
                 //log_grid_action("send_thrust_reduction_message", string.Format("TL = {0}", __message[0]));
                 sync_helper.send_message_to(controlling_player.SteamUserId, sync_helper.message_types.THRUST_LOSS, this, __message, 1);
+            }
+        }
+
+        private static void serialise_float_to_short(float value, byte[] buffer, int buffer_offset)
+        {
+            if (value > short.MaxValue / MESSAGE_MULTIPLIER)
+                value = short.MaxValue / MESSAGE_MULTIPLIER;
+            else if (value < short.MinValue / MESSAGE_MULTIPLIER)
+                value = short.MinValue / MESSAGE_MULTIPLIER;
+
+            short value16 = (short) (value * MESSAGE_MULTIPLIER);
+
+            buffer[buffer_offset    ] = (byte) (value16 & 0xFF);
+            buffer[buffer_offset + 1] = (byte) (value16 >> 8);
+        }
+
+        private static void serialise_vector(Vector3 value, byte[] buffer, int buffer_offset)
+        {
+            serialise_float_to_short(value.X, __message, buffer_offset    );
+            serialise_float_to_short(value.Y, __message, buffer_offset + 2);
+            serialise_float_to_short(value.Z, __message, buffer_offset + 4);
+        }
+
+        private void send_I_terms_message(IMyPlayer controlling_player)
+        {
+            if (   _ECU != null && controlling_player != null && (controlling_player != _prev_player 
+                || _ECU.current_trim != _prev_trim || _ECU.last_trim != _prev_last_trim || _ECU.linear_integral != _prev_linear_integral))
+            {
+                _prev_trim            = _ECU.current_trim;
+                _prev_last_trim       = _ECU.last_trim;
+                _prev_linear_integral = _ECU.linear_integral;
+                serialise_vector(_prev_trim           , __message, 0);
+                serialise_vector(_prev_last_trim      , __message, 6);
+                serialise_vector(_prev_linear_integral, __message, 12);
+                log_grid_action("send_I_terms_message", string.Format("CT = {0}; LT = {1}; LI = {2}", _prev_trim, _prev_last_trim, _prev_linear_integral));
+                sync_helper.send_message_to(controlling_player.SteamUserId, sync_helper.message_types.I_TERMS, this, __message, 18);
             }
         }
 
@@ -488,6 +553,8 @@ namespace ttdtwm
                 }
 
                 _ECU.handle_2s_period();
+                if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+                    send_I_terms_message(get_controlling_player());
 
                 /*
                 if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
