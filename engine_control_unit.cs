@@ -163,6 +163,8 @@ namespace ttdtwm
         private Vector3   _sample_sum       = Vector3.Zero;
         private int       _current_index    = 0, _physics_enable_delay = PHYSICS_ENABLE_DELAY;
 
+        private static byte[] __message = new byte[1];
+
         #endregion
 
         #region Properties
@@ -349,6 +351,31 @@ namespace ttdtwm
             }
         }
 
+        internal static void on_manual_throttle_changed(object entity, byte[] argument)
+        {
+            var thruster_entry = entity as thruster_info;
+
+            if (thruster_entry != null)
+            {
+                thruster_entry.manual_throttle = argument[0] / 100.0f;
+                MyAPIGateway.Utilities.SetVariable(thruster_entry.throttle_setting, (uint) argument[0]);
+                //MyLog.Default.WriteLine(string.Format("TTDTWM\tengine_control_unit.on_manual_throttle_changed(): {0}", argument[0]));
+            }
+        }
+
+        private static void send_manual_throttle(thruster_info thruster_entry, bool non_zero_throttle, uint manual_throttle)
+        {
+            float new_throttle = !non_zero_throttle ? 0.0f : (manual_throttle / 100.0f);
+
+            if (thruster_entry.manual_throttle != new_throttle)
+            {
+                thruster_entry.manual_throttle = new_throttle;
+                __message[0] = (byte) manual_throttle;
+                //MyLog.Default.WriteLine(string.Format("TTDTWM\tengine_control_unit.send_manual_throttle(): {0}", __message[0]));
+                sync_helper.send_message_to_others(sync_helper.message_types.MANUAL_THROTTLE, thruster_entry, __message, 1);
+            }
+        }
+
         private void check_manual_override()
         {
             thruster_info cur_thruster_info;
@@ -363,9 +390,9 @@ namespace ttdtwm
             }
             foreach (var cur_thruster in _uncontrolled_thrusters)
             {
-                cur_thruster_info                 = cur_thruster.Value;
-                throttle_setting_stored           = MyAPIGateway.Utilities.GetVariable(cur_thruster_info.throttle_setting, out manual_throttle);
-                cur_thruster_info.manual_throttle = !throttle_setting_stored ? 0.0f : (manual_throttle / 100.0f);
+                cur_thruster_info       = cur_thruster.Value;
+                throttle_setting_stored = MyAPIGateway.Utilities.GetVariable(cur_thruster_info.throttle_setting, out manual_throttle);
+                send_manual_throttle(cur_thruster_info, throttle_setting_stored, manual_throttle);
             }
             foreach (var cur_thruster in _uncontrolled_thrusters)
             {
@@ -381,9 +408,9 @@ namespace ttdtwm
             {
                 foreach (var cur_thruster in _controlled_thrusters[dir_index])
                 {
-                    cur_thruster_info                 = cur_thruster.Value;
-                    throttle_setting_stored           = MyAPIGateway.Utilities.GetVariable(cur_thruster_info.throttle_setting, out manual_throttle);
-                    cur_thruster_info.manual_throttle = !throttle_setting_stored ? 0.0f : (manual_throttle / 100.0f);
+                    cur_thruster_info       = cur_thruster.Value;
+                    throttle_setting_stored = MyAPIGateway.Utilities.GetVariable(cur_thruster_info.throttle_setting, out manual_throttle);
+                    send_manual_throttle(cur_thruster_info, throttle_setting_stored, manual_throttle);
                 }
                 foreach (var cur_thruster in _controlled_thrusters[dir_index])
                 {
@@ -1884,6 +1911,7 @@ namespace ttdtwm
             new_thruster.next_tandem_thruster = new_thruster.prev_tandem_thruster = new_thruster;
             new_thruster.throttle_setting     = "TTDTWM_MT_" + thruster.EntityId.ToString();
             _uncontrolled_thrusters.Add(thruster, new_thruster);
+            sync_helper.register_entity(new_thruster, thruster.EntityId);
             //log_ECU_action("assign_thruster", string.Format("{0} ({1}) [{2}]\n\t\t\tCentre position: {3}",
             //    ((IMyTerminalBlock) thruster).CustomName, new_thruster.nozzle_direction.ToString(), thruster.EntityId, 
             //    new_thruster.grid_centre_pos));
@@ -1899,6 +1927,7 @@ namespace ttdtwm
             if (_uncontrolled_thrusters.ContainsKey(thruster))
             {
                 thruster_found = true;
+                sync_helper.deregister_entity(thruster.EntityId);
                 _uncontrolled_thrusters.Remove(thruster);
                 //log_ECU_action("dispose_thruster", string.Format("{0} ({1}) [{2}]", ((IMyTerminalBlock) thruster).CustomName, get_nozzle_orientation(thruster).ToString(), thruster.EntityId));
             }
@@ -1911,6 +1940,7 @@ namespace ttdtwm
                         thruster_found = _calibration_scheduled[dir_index] = true;
                         remove_thruster_from_lists(thruster, _controlled_thrusters[dir_index][thruster]);
                         _max_force[dir_index] -= _controlled_thrusters[dir_index][thruster].max_force;
+                        sync_helper.deregister_entity(thruster.EntityId);
                         _controlled_thrusters[dir_index].Remove(thruster);
                         //log_ECU_action("dispose_thruster", string.Format("{0} ({1}) [{2}]", ((IMyTerminalBlock) thruster).CustomName, get_nozzle_orientation(thruster).ToString(), thruster.EntityId));
                         break;

@@ -50,9 +50,10 @@ namespace ttdtwm
             show_thrust_reduction = show_vertical_speed = true;
 
             message_handlers = new Action<object, byte[]>[num_messages];
-            message_handlers[(int) message_types.I_TERMS      ] = grid_logic.I_terms_handler;
-            message_handlers[(int) message_types.CONTROL_LIMIT] = grid_logic.control_warning_handler;
-            message_handlers[(int) message_types.THRUST_LOSS  ] = grid_logic.thrust_reduction_handler;
+            message_handlers[(int) message_types.I_TERMS        ] = grid_logic.I_terms_handler;
+            message_handlers[(int) message_types.CONTROL_LIMIT  ] = grid_logic.control_warning_handler;
+            message_handlers[(int) message_types.THRUST_LOSS    ] = grid_logic.thrust_reduction_handler;
+            message_handlers[(int) message_types.MANUAL_THROTTLE] = engine_control_unit.on_manual_throttle_changed;
         }
 
         private static void log_sync_action(string method_name, string message)
@@ -139,7 +140,7 @@ namespace ttdtwm
         {
             int length = message.Length - (SIGNATURE_LENGTH + 1 + 8);
             //log_sync_action("on_message_received", string.Format("length = {0}", length));
-            if (length <= 0 || length >= MAX_MESSAGE_LENGTH || message[SIGNATURE_LENGTH] >= num_messages)
+            if (length <= 0 || length > MAX_MESSAGE_LENGTH || message[SIGNATURE_LENGTH] >= num_messages)
                 return;
             //log_sync_action("on_message_received", string.Format("type = {0}", (message_types) message[SIGNATURE_LENGTH]));
             Action<object, byte[]> invoke_handler = message_handlers[message[SIGNATURE_LENGTH]];
@@ -160,13 +161,13 @@ namespace ttdtwm
             invoke_handler(entity, in_buffer);
         }
 
-        public static void send_message_to_server(message_types message_id, object entity, byte[] message, uint length)
+        public static void send_message_to_others(message_types message_id, object entity, byte[] message, uint length)
         {
-            if (!network_handlers_registered || MyAPIGateway.Multiplayer.IsServer)
+            if (!network_handlers_registered)
                 return;
             byte[] message_buffer = fill_message(message_id, entity, message, length);
             if (message_buffer != null)
-                MyAPIGateway.Multiplayer.SendMessageToServer(SYNC_MESSAGE_ID, message_buffer);
+                MyAPIGateway.Multiplayer.SendMessageToOthers(SYNC_MESSAGE_ID, message_buffer);
         }
 
         public static void send_message_to(ulong recipient, message_types message_id, object entity, byte[] message, uint length)

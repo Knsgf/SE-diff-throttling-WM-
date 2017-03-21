@@ -309,6 +309,9 @@ namespace ttdtwm
 
         internal static void I_terms_handler(object entity, byte[] argument)
         {
+            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+                return;
+
             var instance = entity as grid_logic;
             if (instance == null || instance._disposed || instance._ECU == null)
                 return;
@@ -317,7 +320,7 @@ namespace ttdtwm
             current_ECU.current_trim    = structurise_vector(argument, 0);
             current_ECU.last_trim       = structurise_vector(argument, 6);
             current_ECU.linear_integral = structurise_vector(argument, 12);
-            instance.log_grid_action("I_terms_handler", string.Format("CT = {0}; LT = {1}; LI = {2}", current_ECU.current_trim, current_ECU.last_trim, current_ECU.linear_integral));
+            //instance.log_grid_action("I_terms_handler", string.Format("CT = {0}; LT = {1}; LI = {2}", current_ECU.current_trim, current_ECU.last_trim, current_ECU.linear_integral));
         }
 
         #endregion
@@ -366,10 +369,9 @@ namespace ttdtwm
             serialise_float_to_short(value.Z, __message, buffer_offset + 4);
         }
 
-        private void send_I_terms_message(IMyPlayer controlling_player)
+        private void send_I_terms_message()
         {
-            if (   _ECU != null && controlling_player != null && (controlling_player != _prev_player 
-                || _ECU.current_trim != _prev_trim || _ECU.last_trim != _prev_last_trim || _ECU.linear_integral != _prev_linear_integral))
+            if (_ECU != null && (_ECU.current_trim != _prev_trim || _ECU.last_trim != _prev_last_trim || _ECU.linear_integral != _prev_linear_integral))
             {
                 _prev_trim            = _ECU.current_trim;
                 _prev_last_trim       = _ECU.last_trim;
@@ -377,8 +379,8 @@ namespace ttdtwm
                 serialise_vector(_prev_trim           , __message, 0);
                 serialise_vector(_prev_last_trim      , __message, 6);
                 serialise_vector(_prev_linear_integral, __message, 12);
-                log_grid_action("send_I_terms_message", string.Format("CT = {0}; LT = {1}; LI = {2}", _prev_trim, _prev_last_trim, _prev_linear_integral));
-                sync_helper.send_message_to(controlling_player.SteamUserId, sync_helper.message_types.I_TERMS, this, __message, 18);
+                //log_grid_action("send_I_terms_message", string.Format("CT = {0}; LT = {1}; LI = {2}", _prev_trim, _prev_last_trim, _prev_linear_integral));
+                sync_helper.send_message_to_others(sync_helper.message_types.I_TERMS, this, __message, 18);
             }
         }
 
@@ -553,8 +555,8 @@ namespace ttdtwm
                 }
 
                 _ECU.handle_2s_period();
-                if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
-                    send_I_terms_message(get_controlling_player());
+                if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
+                    send_I_terms_message();
 
                 /*
                 if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
