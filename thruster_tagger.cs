@@ -10,6 +10,7 @@ namespace ttdtwm
         private static IMyTerminalBlock _current_thruster = null;
         private static bool             _current_active_control_available, _current_active_control_on, _current_anti_slip_on, _current_thrust_limiter_on;
         private static uint             _manual_throttle;
+        private static byte[]           _message = new byte[1];
 
         private static void update_flags(IMyTerminalBlock thruster)
         {
@@ -145,7 +146,9 @@ namespace ttdtwm
                 if (_manual_throttle > 100)
                     _manual_throttle = 100;
             }
-            MyAPIGateway.Utilities.SetVariable(_throttle_setting, _manual_throttle);
+            //MyAPIGateway.Utilities.SetVariable(_throttle_setting, _manual_throttle);
+            _message[0] = (byte) (_manual_throttle | 0x80U);
+            sync_helper.send_message_to_self(sync_helper.message_types.MANUAL_THROTTLE, thruster.EntityId, _message, 1);
         }
 
         public static void throttle_status(IMyTerminalBlock thruster, StringBuilder status)

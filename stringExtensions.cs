@@ -5,7 +5,7 @@ namespace ttdtwm
     static class stringExtensions
     {
         const int THR_MASK = 0x1,     SLP_MASK = 0x2,    STAT_MASK = 0x4;
-        const int COT_MASK = 0x1, LANDING_MASK = 0x2, DAMPING_MASK = 0x4;
+        const int COT_MASK = 0x1, LANDING_MASK = 0x2, DAMPING_MASK = 0x4, IC_MASK = 0x8;
 
         private static readonly string m_Prefix  = "[TP&DT2: ";
         private static readonly string m_Suffix  = "]\n";
@@ -178,6 +178,11 @@ namespace ttdtwm
             return (GetTagValue(blockData) & DAMPING_MASK) == 0;
         }
 
+        public static bool ContainsICTag(this string blockData)
+        {
+            return (GetTagValue(blockData) & IC_MASK) != 0;
+        }
+
         #endregion
 
         #region AddTag()
@@ -212,6 +217,11 @@ namespace ttdtwm
             return SetTagValue(blockData, GetTagValue(blockData) & ~DAMPING_MASK);
         }
 
+        public static string AddICTag(this string blockData)
+        {
+            return SetTagValue(blockData, GetTagValue(blockData) | IC_MASK);
+        }
+
         #endregion
 
         #region RemoveTag()
@@ -244,6 +254,11 @@ namespace ttdtwm
         public static string RemoveDAMPINGTag(this string blockData)
         {
             return SetTagValue(blockData, GetTagValue(blockData) | DAMPING_MASK);
+        }
+
+        public static string RemoveICTag(this string blockData)
+        {
+            return SetTagValue(blockData, GetTagValue(blockData) & ~IC_MASK);
         }
 
         #endregion

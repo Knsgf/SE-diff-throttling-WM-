@@ -123,6 +123,27 @@ namespace ttdtwm
             }
         }
 
+        public bool use_individual_calibration
+        {
+            get
+            {
+                return is_CoT_mode_available && _ECU.use_individual_calibration;
+            }
+            set
+            {
+                IMyTerminalBlock controller_terminal;
+
+                if (_ECU == null)
+                    return;
+                _ECU.use_individual_calibration = value;
+                foreach (var cur_controller in _ship_controllers)
+                {
+                    controller_terminal = (IMyTerminalBlock)cur_controller;
+                    controller_terminal.CustomData = value ? controller_terminal.CustomData.AddICTag() : controller_terminal.CustomData.RemoveICTag();
+                }
+            }
+        }
+
         #endregion
 
         #region auxiliaries
@@ -626,21 +647,23 @@ namespace ttdtwm
             }
             if (_ECU != null)
             {
-                bool CoT_mode_on = false, landing_mode_on = false, rotational_damping_on = true;
+                bool CoT_mode_on = false, landing_mode_on = false, rotational_damping_on = true, use_individual_calibration = false;
 
                 foreach (var cur_controller in _ship_controllers)
                 {
                     string controller_data = ((IMyTerminalBlock) cur_controller).CustomData;
-                    CoT_mode_on           = is_CoT_mode_available     && controller_data.ContainsCOTTag();
-                    rotational_damping_on = !is_CoT_mode_available    || controller_data.ContainsDAMPINGTag();
-                    landing_mode_on       = is_landing_mode_available && controller_data.ContainsLANDINGTag();
-                    _ID_on                = cur_controller.EnabledDamping;
+                    CoT_mode_on                =  is_CoT_mode_available     && controller_data.ContainsCOTTag();
+                    rotational_damping_on      = !is_CoT_mode_available     || controller_data.ContainsDAMPINGTag();
+                    use_individual_calibration =  is_CoT_mode_available     && controller_data.ContainsICTag();
+                    landing_mode_on            =  is_landing_mode_available && controller_data.ContainsLANDINGTag();
+                    _ID_on                     = cur_controller.EnabledDamping;
                     break;
                 }
-                _ECU.CoT_mode_on           = CoT_mode_on;
-                _ECU.landing_mode_on       = landing_mode_on;
-                _ECU.rotational_damping_on = rotational_damping_on;
-                _ECU.linear_dampers_on     = _ID_on;
+                _ECU.CoT_mode_on               = CoT_mode_on;
+                _ECU.use_individual_calibration = use_individual_calibration;
+                _ECU.landing_mode_on           = landing_mode_on;
+                _ECU.rotational_damping_on     = rotational_damping_on;
+                _ECU.linear_dampers_on         = _ID_on;
             }
         }
 

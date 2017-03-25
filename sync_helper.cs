@@ -161,6 +161,16 @@ namespace ttdtwm
             invoke_handler(entity, in_buffer);
         }
 
+        public static void send_message_to_self(message_types message_id, long entity_id, byte[] message, uint length)
+        {
+            if (!entities.ContainsKey(entity_id))
+                return;
+
+            byte[] message_buffer = fill_message(message_id, entities[entity_id], message, length);
+            if (message_buffer != null)
+                on_message_received(message_buffer);
+        }
+
         public static void send_message_to_others(message_types message_id, object entity, byte[] message, uint length)
         {
             if (!network_handlers_registered)
