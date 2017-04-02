@@ -393,8 +393,10 @@ namespace ttdtwm
                 if (!_uncontrolled_override_checked[(int) cur_thruster_info.nozzle_direction] && cur_thruster.Key.IsWorking)
                 {
                     if (cur_thruster.Value.manual_throttle >= 0.01f)
+                    { 
                         _thrust_override_vector[(int) cur_thruster_info.nozzle_direction] = 0.01f;
-                    _uncontrolled_override_checked[(int) cur_thruster_info.nozzle_direction] = _is_thrust_override_active = true;
+                        _uncontrolled_override_checked[(int) cur_thruster_info.nozzle_direction] = _is_thrust_override_active = true;
+                    }
                 }
             }
             for (int dir_index = 0; dir_index < 6; ++dir_index)
@@ -1787,8 +1789,8 @@ namespace ttdtwm
             List<thruster_info> thruster_infos, collective_thrusters;
             MyThrust            cur_thruster;
             thruster_info       cur_thruster_info;
-            bool                /*changes_made = false,*/ contains_THR, contains_RCS, contains_STAT, use_active_control, active_control_on;
-            int                 dir_index, opposite_dir;
+            bool                changes_made = false, contains_THR, contains_RCS, contains_STAT, use_active_control, active_control_on;
+            int                 dir_index/*, opposite_dir*/;
             string              thruster_data;
 
             if (_calibration_in_progress)
@@ -1818,7 +1820,7 @@ namespace ttdtwm
                 {
                     enable_control(cur_thruster, cur_thruster_info);
                     cur_thruster_info.enable_rotation = cur_thruster_info.active_control_on = contains_THR || contains_RCS;
-                    //changes_made = true;
+                    changes_made = true;
                 }
             }
 
@@ -1833,7 +1835,7 @@ namespace ttdtwm
                 thruster_infos.Clear();
                 thruster_infos.AddRange(cur_direction.Values);
                 collective_thrusters = _collective_thrusters[dir_index];
-                collective_thrusters.Clear();
+                //collective_thrusters.Clear();
                 active_control_on = false;
                 for (int index = 0; index < _thrusters_copy.Count; ++index)
                 {
@@ -1846,7 +1848,7 @@ namespace ttdtwm
                     if (!contains_THR && !contains_RCS && !contains_STAT || cur_thruster_info.actual_max_force < 0.01f * cur_thruster_info.max_force || !cur_thruster.IsWorking)
                     {
                         disable_control(cur_thruster, cur_thruster_info);
-                        //changes_made = true;
+                        changes_made = true;
                     }
                     else
                     {
@@ -1856,8 +1858,20 @@ namespace ttdtwm
                         active_control_on             |= use_active_control || cur_thruster_info.enable_rotation;
                         cur_thruster_info.is_RCS       = contains_RCS;
                         cur_thruster_info.enable_limit = contains_STAT;
+                        /*
                         if (contains_STAT && !use_active_control && _is_solution_good[dir_index])
                             collective_thrusters.Add(cur_thruster_info);
+                        */
+                        if (contains_STAT)
+                        {
+                            if (!use_active_control && _is_solution_good[dir_index])
+                            {
+                                if (!collective_thrusters.Contains(cur_thruster_info))
+                                    collective_thrusters.Add(cur_thruster_info);
+                            }
+                            else if (collective_thrusters.Contains(cur_thruster_info))
+                                collective_thrusters.Remove(cur_thruster_info);
+                        }
                     }
                 }
 
@@ -1889,6 +1903,7 @@ namespace ttdtwm
                 }
             }
 
+            /*
             if (_current_mode_is_CoT)
                 update_reference_vectors_for_CoT_mode();
             else
@@ -1904,10 +1919,12 @@ namespace ttdtwm
                 else if (_actual_max_force[opposite_dir] >= 1.0f)
                     _min_setting[opposite_dir] *= _actual_max_force[dir_index] / _actual_max_force[opposite_dir];
             }
+            */
 
-            /*
             if (changes_made)
             {
+                _prev_air_density = float.MinValue;
+                /*
                 log_ECU_action("check_thruster_control_changed", string.Format("{0}/{1}/{2}/{3}/{4}/{5} kN",
                     _max_force[(int) thrust_dir.fore     ] / 1000.0f,
                     _max_force[(int) thrust_dir.aft      ] / 1000.0f,
@@ -1915,8 +1932,8 @@ namespace ttdtwm
                     _max_force[(int) thrust_dir.port     ] / 1000.0f,
                     _max_force[(int) thrust_dir.dorsal   ] / 1000.0f,
                     _max_force[(int) thrust_dir.ventral  ] / 1000.0f));
+                */
             }
-            */
 
             if (_individual_calibration_on)
                 perform_individual_calibration();
@@ -2043,6 +2060,20 @@ namespace ttdtwm
             }
             refresh_real_max_forces_for_uncontrolled_thrusters(atmosphere_present, air_density);
             _prev_air_density = air_density;
+
+            if (_current_mode_is_CoT)
+                update_reference_vectors_for_CoT_mode();
+            for (int dir_index = 0, opposite_dir = 3; dir_index < 3; ++dir_index, ++opposite_dir)
+            {
+                _min_setting[dir_index] = _min_setting[opposite_dir] = MIN_OVERRIDE / 100.0f;
+                if (_actual_max_force[dir_index] < _actual_max_force[opposite_dir])
+                {
+                    if (_actual_max_force[dir_index] >= 1.0f)
+                        _min_setting[dir_index] *= _actual_max_force[opposite_dir] / _actual_max_force[dir_index];
+                }
+                else if (_actual_max_force[opposite_dir] >= 1.0f)
+                    _min_setting[opposite_dir] *= _actual_max_force[dir_index] / _actual_max_force[opposite_dir];
+            }
         }
 
         public void assign_thruster(IMyThrust thruster_ref)
