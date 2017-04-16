@@ -156,8 +156,8 @@ namespace ttdtwm
         private float      _angular_speed, _trim_fadeout = 1.0f;
 
         private  bool   _integral_cleared = false, _landing_mode_on = false, _is_thrust_override_active = false;
-        private  bool[] _enable_linear_integral = {  true,  true,  true,  true,  true,  true };
-        private float[] _linear_integral        = {  0.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f };
+        private  bool[] _enable_linear_integral = { true, true, true, true, true, true };
+        private float[] _linear_integral        = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
         private float   _speed, _vertical_speed, _prev_air_density = float.MinValue;
         private Vector3 _manual_thrust, _thrust_override = Vector3.Zero, _linear_control = Vector3.Zero, _prev_control = Vector3.Zero;
 
@@ -452,7 +452,7 @@ namespace ttdtwm
 
             if (_physics_enable_delay > 0)
                 --_physics_enable_delay;
-            else if (_torque.LengthSquared() > MIN_ANGULAR_ACCELERATION * MIN_ANGULAR_ACCELERATION * _spherical_moment_of_inertia * _spherical_moment_of_inertia)
+            else //if (_torque.LengthSquared() > MIN_ANGULAR_ACCELERATION * MIN_ANGULAR_ACCELERATION * _spherical_moment_of_inertia * _spherical_moment_of_inertia)
             {
                 Vector3 world_torque = Vector3.Transform(_torque, _grid.WorldMatrix.GetOrientation());
                 _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, Vector3.Zero, null, world_torque);
@@ -2058,6 +2058,16 @@ namespace ttdtwm
                 _actual_max_force     [dir_index]  = refresh_real_max_forces_for_single_direction(_controlled_thrusters[dir_index], atmosphere_present, air_density);
                 _calibration_scheduled[dir_index] |= !_individual_calibration_on;
             }
+            /*
+            log_ECU_action("refresh_real_max_forces", string.Format("actual forces = {0}/{1}/{2}/{3}/{4}/{5} kN",
+                _actual_max_force[(int) thrust_dir.fore     ] / 1000.0f,
+                _actual_max_force[(int) thrust_dir.aft      ] / 1000.0f,
+                _actual_max_force[(int) thrust_dir.starboard] / 1000.0f,
+                _actual_max_force[(int) thrust_dir.port     ] / 1000.0f,
+                _actual_max_force[(int) thrust_dir.dorsal   ] / 1000.0f,
+                _actual_max_force[(int) thrust_dir.ventral  ] / 1000.0f));
+            */
+
             refresh_real_max_forces_for_uncontrolled_thrusters(atmosphere_present, air_density);
             _prev_air_density = air_density;
 

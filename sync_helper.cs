@@ -14,6 +14,7 @@ namespace ttdtwm
     public struct display_settings
     {
         public bool show_thrust_reduction, show_vertical_speed;
+        public uint min_displayed_reduction;
     };
 
     static class sync_helper
@@ -24,16 +25,18 @@ namespace ttdtwm
 
         internal const int MAX_MESSAGE_LENGTH = 18;
         internal enum message_types { LINEAR_INPUT, ROTATION_INPUT, I_TERMS, MANUAL_THROTTLE, CONTROL_LIMIT, THRUST_LOSS };
-        private static readonly int num_messages = Enum.GetValues(typeof(message_types)).Length;
+        private static readonly int _num_messages = Enum.GetValues(typeof(message_types)).Length;
 
         const int SIGNATURE_LENGTH = 5;
-        private static Dictionary<uint, byte[]> out_buffers = new Dictionary<uint, byte[]>();
-        private static byte[] in_buffer = new byte[MAX_MESSAGE_LENGTH];
-        private static readonly byte[] signature = { 6, 60, 33, 39, 66 };
+        private static Dictionary<uint, byte[]> _out_buffers = new Dictionary<uint, byte[]>();
+        private static                  byte[]  _in_buffer   = new byte[MAX_MESSAGE_LENGTH];
+        private static readonly         byte[]  _signature   = { 6, 60, 33, 39, 66 };
 
-        private static Dictionary<  long, object> entities   = new Dictionary<  long, object>();
-        private static Dictionary<object,   long> entity_ids = new Dictionary<object,   long>();
-        private static readonly Action<object, byte[]>[] message_handlers;
+        private static Dictionary<  long, object> _entities   = new Dictionary<  long, object>();
+        private static Dictionary<object,   long> _entity_ids = new Dictionary<object,   long>();
+
+        private static readonly Action<object, byte[]>[] _message_handlers;
+
         private static bool settings_loaded = false;
         //private static bool F8_pressed = false;
 
@@ -41,19 +44,21 @@ namespace ttdtwm
         //public static bool        is_spectator_mode_on { get; private set; }
         public static bool       show_thrust_reduction { get; private set; }
         public static bool         show_vertical_speed { get; private set; }
+        public static uint     min_displayed_reduction { get; private set; }
 
         public static IMyPlayer             local_player     { get; private set; }
         public static IMyControllableEntity local_controller { get; private set; }
 
         static sync_helper()
         {
-            show_thrust_reduction = show_vertical_speed = true;
+            show_thrust_reduction   = show_vertical_speed = true;
+            min_displayed_reduction = 10;
 
-            message_handlers = new Action<object, byte[]>[num_messages];
-            message_handlers[(int) message_types.I_TERMS        ] = grid_logic.I_terms_handler;
-            message_handlers[(int) message_types.CONTROL_LIMIT  ] = grid_logic.control_warning_handler;
-            message_handlers[(int) message_types.THRUST_LOSS    ] = grid_logic.thrust_reduction_handler;
-            message_handlers[(int) message_types.MANUAL_THROTTLE] = engine_control_unit.on_manual_throttle_changed;
+            _message_handlers = new Action<object, byte[]>[_num_messages];
+            _message_handlers[(int) message_types.I_TERMS        ] = grid_logic.I_terms_handler;
+            _message_handlers[(int) message_types.CONTROL_LIMIT  ] = grid_logic.control_warning_handler;
+            _message_handlers[(int) message_types.THRUST_LOSS    ] = grid_logic.thrust_reduction_handler;
+            _message_handlers[(int) message_types.MANUAL_THROTTLE] = engine_control_unit.on_manual_throttle_changed;
         }
 
         private static void log_sync_action(string method_name, string message)
@@ -79,24 +84,40 @@ namespace ttdtwm
             bool settings_changed = false;
 
             message = message.ToLower();
-            if (message.StartsWith("/tpdt-tl"))
-            {
-                show_thrust_reduction = !show_thrust_reduction;
-                MyAPIGateway.Utilities.ShowMessage("TP&DT", "Thrust loss indicator is now " + (show_thrust_reduction ? "visible" : "hidden"));
-                settings_changed = true;
-            }
-            else if (message.StartsWith("/tpdt-vs"))
+            if (message.StartsWith("/tpdt-vs"))
             {
                 show_vertical_speed = !show_vertical_speed;
                 MyAPIGateway.Utilities.ShowMessage("TP&DT", "Vertical speed indicator is now " + (show_vertical_speed ? "visible" : "hidden"));
                 settings_changed = true;
             }
+            else if (message.StartsWith("/tpdt-tl"))
+            {
+                uint min_thrust_loss  = 0; 
+                bool min_loss_entered = false;
+
+                if (message.Length > 8)
+                    min_loss_entered = uint.TryParse(message.Substring(8), out min_thrust_loss);
+
+                if (!min_loss_entered)
+                {
+                    show_thrust_reduction = !show_thrust_reduction;
+                    MyAPIGateway.Utilities.ShowMessage("TP&DT", "Thrust loss indicator is now " + (show_thrust_reduction ? "visible" : "hidden"));
+                    settings_changed = true;
+                }
+                else if (min_thrust_loss <= 100)
+                {
+                    min_displayed_reduction = min_thrust_loss;
+                    MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("Minimum displayed thrust loss is now {0} %", min_thrust_loss));
+                    settings_changed = true;
+                }
+            }
 
             if (settings_changed)
             {
                 display_settings stored_settings;
-                stored_settings.show_thrust_reduction = show_thrust_reduction;
-                stored_settings.show_vertical_speed   = show_vertical_speed;
+                stored_settings.show_thrust_reduction   = show_thrust_reduction;
+                stored_settings.show_vertical_speed     = show_vertical_speed;
+                stored_settings.min_displayed_reduction = min_displayed_reduction;
 
                 try
                 {
@@ -119,14 +140,14 @@ namespace ttdtwm
         {
             if (length > MAX_MESSAGE_LENGTH)
                 return null;
-            if (!out_buffers.ContainsKey(length))
+            if (!_out_buffers.ContainsKey(length))
             {
-                out_buffers.Add(length, new byte[SIGNATURE_LENGTH + 1 + 8 + length]);
+                _out_buffers.Add(length, new byte[SIGNATURE_LENGTH + 1 + 8 + length]);
                 for (uint index = 0; index < SIGNATURE_LENGTH; ++index)
-                    out_buffers[length][index] = signature[index];
+                    _out_buffers[length][index] = _signature[index];
                 //log_sync_action("fill_message", string.Format("allocated buffer of length {0} ({1} length {2})", SIGNATURE_LENGTH + 1 + 8 + length, message_id, length));
             }
-            byte[] message_buffer = out_buffers[length];
+            byte[] message_buffer = _out_buffers[length];
             message_buffer[SIGNATURE_LENGTH] = (byte) message_id;
             if (!encode_entity_id(entity, message_buffer))
                 return null;
@@ -140,15 +161,15 @@ namespace ttdtwm
         {
             int length = message.Length - (SIGNATURE_LENGTH + 1 + 8);
             //log_sync_action("on_message_received", string.Format("length = {0}", length));
-            if (length <= 0 || length > MAX_MESSAGE_LENGTH || message[SIGNATURE_LENGTH] >= num_messages)
+            if (length <= 0 || length > MAX_MESSAGE_LENGTH || message[SIGNATURE_LENGTH] >= _num_messages)
                 return;
             //log_sync_action("on_message_received", string.Format("type = {0}", (message_types) message[SIGNATURE_LENGTH]));
-            Action<object, byte[]> invoke_handler = message_handlers[message[SIGNATURE_LENGTH]];
+            Action<object, byte[]> invoke_handler = _message_handlers[message[SIGNATURE_LENGTH]];
             if (invoke_handler == null)
                 return;
             for (int index = 0; index < SIGNATURE_LENGTH; ++index)
             {
-                if (message[index] != signature[index])
+                if (message[index] != _signature[index])
                     return;
             }
             //log_sync_action("on_message_received", "signature valid");
@@ -157,16 +178,16 @@ namespace ttdtwm
                 return;
             //log_sync_action("on_message_received", "entity valid");
             for (int index = 0; index < length; ++index)
-                in_buffer[index] = message[SIGNATURE_LENGTH + 1 + 8 + index];
-            invoke_handler(entity, in_buffer);
+                _in_buffer[index] = message[SIGNATURE_LENGTH + 1 + 8 + index];
+            invoke_handler(entity, _in_buffer);
         }
 
         public static void send_message_to_self(message_types message_id, long entity_id, byte[] message, uint length)
         {
-            if (!entities.ContainsKey(entity_id))
+            if (!_entities.ContainsKey(entity_id))
                 return;
 
-            byte[] message_buffer = fill_message(message_id, entities[entity_id], message, length);
+            byte[] message_buffer = fill_message(message_id, _entities[entity_id], message, length);
             if (message_buffer != null)
                 on_message_received(message_buffer);
         }
@@ -214,21 +235,21 @@ namespace ttdtwm
 
         public static void register_entity(object entity, long entity_id)
         {
-            entities.Add(entity_id,    entity);
-            entity_ids.Add( entity, entity_id);
+            _entities.Add(entity_id,    entity);
+            _entity_ids.Add( entity, entity_id);
         }
 
         public static void deregister_entity(long entity_id)
         {
-            entity_ids.Remove(entities[entity_id]);
-            entities.Remove(entity_id);
+            _entity_ids.Remove(_entities[entity_id]);
+            _entities.Remove(entity_id);
         }
 
         private static bool encode_entity_id(object entity, byte[] message)
         {
-            if (!entity_ids.ContainsKey(entity))
+            if (!_entity_ids.ContainsKey(entity))
                 return false;
-            long entity_id = entity_ids[entity];
+            long entity_id = _entity_ids[entity];
             for (int cur_byte = 0; cur_byte < 8; ++cur_byte)
             {
                 message[cur_byte + SIGNATURE_LENGTH + 1] = (byte) (entity_id & 0xFF);
@@ -242,7 +263,7 @@ namespace ttdtwm
             long entity_id = 0;
             for (int cur_byte = 7; cur_byte >= 0; --cur_byte)
                 entity_id = (entity_id << 8) | message[cur_byte + SIGNATURE_LENGTH + 1];
-            return entities.ContainsKey(entity_id) ? entities[entity_id] : null;
+            return _entities.ContainsKey(entity_id) ? _entities[entity_id] : null;
         }
 
         #endregion
@@ -282,11 +303,13 @@ namespace ttdtwm
                 {
                     try
                     {
-                        TextReader input    = MyAPIGateway.Utilities.ReadFileInLocalStorage(settings_file, typeof(display_settings));
-                        var loaded_settings = MyAPIGateway.Utilities.SerializeFromXML<display_settings>(input.ReadToEnd());
+                        TextReader           input = MyAPIGateway.Utilities.ReadFileInLocalStorage(settings_file, typeof(display_settings));
+                        var        loaded_settings = MyAPIGateway.Utilities.SerializeFromXML<display_settings>(input.ReadToEnd());
+
                         input.Close();
-                        show_thrust_reduction = loaded_settings.show_thrust_reduction;
-                        show_vertical_speed   = loaded_settings.show_vertical_speed;
+                        show_thrust_reduction   = loaded_settings.show_thrust_reduction;
+                        show_vertical_speed     = loaded_settings.show_vertical_speed;
+                        min_displayed_reduction = loaded_settings.min_displayed_reduction;
                     }
                     catch (Exception error)
                     {

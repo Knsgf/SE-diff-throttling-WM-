@@ -259,7 +259,7 @@ namespace ttdtwm
             if (_thrust_redction_text == null)
                 return;
 
-            if (thrust_reduction < 5 || !sync_helper.show_thrust_reduction)
+            if (thrust_reduction < sync_helper.min_displayed_reduction || !sync_helper.show_thrust_reduction)
             {
                 if (_thrust_redction_is_visible)
                     _thrust_redction_text.Hide();
@@ -555,7 +555,7 @@ namespace ttdtwm
                 if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
                 {
                     //send_control_modes_message(force_send: false);
-                    send_control_limit_message(   controlling_player);
+                    send_control_limit_message   (controlling_player);
                     send_thrust_reduction_message(controlling_player);
                 }
                 _was_in_landing_mode = _ECU.landing_mode_on;
