@@ -1409,8 +1409,12 @@ namespace ttdtwm
                             _restrict_integral[dir_index] = false;
                             update_inverse_world_matrix   = true;
                         }
-                        else if (_is_gyro_override_active && __angular_velocity[dir_index] > 0.2f)
+                        else if (_is_gyro_override_active)
+                        { 
                             _restrict_integral[dir_index] = _active_control_on[dir_index];
+                            if (_angular_velocity_checkpoint[dir_index] < __angular_velocity[dir_index] * CHECKPOINT_FADE)
+                                _angular_velocity_checkpoint[dir_index] = __angular_velocity[dir_index] * CHECKPOINT_FADE;
+                        }
 
                         trim_change = ANGULAR_INTEGRAL_COEFF * __angular_velocity[dir_index];
                         // _nominal_acceleration is used to combat trim "stickiness" caused by rotational friction
