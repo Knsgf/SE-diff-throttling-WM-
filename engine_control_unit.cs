@@ -463,7 +463,7 @@ namespace ttdtwm
 
         #region thrust calibration
 
-        void start_solver(int dir_index)
+        private void start_solver(int dir_index)
         {
             try
             {
@@ -476,34 +476,12 @@ namespace ttdtwm
             }
         }
 
-        void start_solver_fore()
+        private Action get_solver_starter(thrust_dir direction)
         {
-            start_solver((int) thrust_dir.fore);
-        }
-
-        void start_solver_aft()
-        {
-            start_solver((int) thrust_dir.aft);
-        }
-
-        void start_solver_starboard()
-        {
-            start_solver((int) thrust_dir.starboard);
-        }
-
-        void start_solver_port()
-        {
-            start_solver((int) thrust_dir.port);
-        }
-
-        void start_solver_dorsal()
-        {
-            start_solver((int) thrust_dir.dorsal);
-        }
-
-        void start_solver_ventral()
-        {
-            start_solver((int) thrust_dir.ventral);
+            return delegate()
+            {
+                start_solver((int) direction);
+            };
         }
 
         private void perform_individual_calibration()
@@ -1189,29 +1167,39 @@ namespace ttdtwm
             Action<int> eliminate_direct_opposition = delegate (int dir_index)
             {
                 thruster_info first_opposite_trhuster, cur_opposite_thruster;
+                float         cur_thruster_force, opposite_thruster_force;
 
                 foreach (var cur_thruster_info in _controlled_thrusters[dir_index].Values)
                 {
                     first_opposite_trhuster = cur_thruster_info.opposing_thruster;
                     if (first_opposite_trhuster != null)
                     {
+                        if (cur_thruster_info.actual_max_force < 1.0f)
+                            continue;
+                        cur_thruster_force    = cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
                         cur_opposite_thruster = first_opposite_trhuster;
                         do
                         {
                             //screen_text("", string.Format("CT({0}) = {1:F2}, OT({2}) = {3:F2}", cur_thruster_info.nozzle_direction, cur_thruster_info.current_setting, cur_opposite_thruster.nozzle_direction, cur_opposite_thruster.current_setting), 16, controlled_only: true);
 
-                            if (cur_opposite_thruster.current_setting >= cur_thruster_info.current_setting)
+                            if (cur_opposite_thruster.actual_max_force >= 1.0f)
                             {
-                                cur_opposite_thruster.current_setting -= cur_thruster_info.current_setting;
-                                cur_thruster_info.current_setting      = 0.0f;
-                                break;
+                                opposite_thruster_force = cur_opposite_thruster.current_setting * cur_opposite_thruster.actual_max_force;
+                                if (cur_thruster_force <= opposite_thruster_force)
+                                {
+                                    if (!cur_opposite_thruster.enable_limit || cur_opposite_thruster.active_control_on)
+                                        cur_opposite_thruster.current_setting = (opposite_thruster_force - cur_thruster_force) / cur_opposite_thruster.actual_max_force;
+                                    cur_thruster_force                    = 0.0f;
+                                    break;
+                                }
+                                cur_thruster_force                   -= opposite_thruster_force;
+                                cur_opposite_thruster.current_setting = 0.0f;
                             }
-                            cur_thruster_info.current_setting    -= cur_opposite_thruster.current_setting;
-                            cur_opposite_thruster.current_setting = 0.0f;
-
                             cur_opposite_thruster = cur_opposite_thruster.next_tandem_thruster;
                         }
                         while (cur_opposite_thruster != first_opposite_trhuster);
+                        if (!cur_thruster_info.enable_limit || cur_thruster_info.active_control_on)
+                            cur_thruster_info.current_setting = cur_thruster_force / cur_thruster_info.actual_max_force;
                     }
                 }
             };
@@ -1315,8 +1303,7 @@ namespace ttdtwm
 
             for (int dir_index = 0, opposite_dir = 3; dir_index < 3; ++dir_index, ++opposite_dir)
             { 
-                if (   __requested_force[   dir_index] >= _actual_max_force[   dir_index] * 0.3f && _actual_max_force[   dir_index] >= 0.05f * _grid_mass
-                    || __requested_force[opposite_dir] >= _actual_max_force[opposite_dir] * 0.3f && _actual_max_force[opposite_dir] >= 0.05f * _grid_mass)
+                if (__control_vector[dir_index] >= 0.3f || __control_vector[opposite_dir] >= 0.3f)
                 {
                     zero_thrust_reduction = false;
                     dir_force1 = (__actual_force[dir_index] + __non_THR_force[dir_index]) - (__actual_force[opposite_dir] + __non_THR_force[opposite_dir]);
@@ -1357,7 +1344,7 @@ namespace ttdtwm
                 {
                     linear_force     = (float) Math.Sqrt(   linear_force);
                     requested_force  = (float) Math.Sqrt(requested_force);
-                    thrust_reduction = (requested_force < 0.05f * _grid_mass) ? 0 : ((int) ((1.0f - linear_force / requested_force) * 100.0f + 0.5f));
+                    thrust_reduction = (requested_force < 1.0f) ? 0 : ((int) ((1.0f - linear_force / requested_force) * 100.0f + 0.5f));
 
                     if (thrust_reduction < 0)
                         thrust_reduction = 0;
@@ -2031,9 +2018,6 @@ namespace ttdtwm
 
         private void refresh_real_max_forces()
         {
-            if (_calibration_in_progress)
-                return;
-
             BoundingBoxD grid_bounding_box = _grid.PositionComp.WorldAABB;
             MyPlanet     closest_planetoid = MyGamePruningStructure.GetClosestPlanet(ref grid_bounding_box);
             bool         atmosphere_present;
@@ -2173,12 +2157,8 @@ namespace ttdtwm
             refresh_turn_sensitivity();
 
             _solver_starters = new Action[6];
-            _solver_starters[(int) thrust_dir.fore     ] = start_solver_fore;
-            _solver_starters[(int) thrust_dir.aft      ] = start_solver_aft;
-            _solver_starters[(int) thrust_dir.starboard] = start_solver_starboard;
-            _solver_starters[(int) thrust_dir.port     ] = start_solver_port;
-            _solver_starters[(int) thrust_dir.dorsal   ] = start_solver_dorsal;
-            _solver_starters[(int) thrust_dir.ventral  ] = start_solver_ventral;
+            foreach (thrust_dir direction in Enum.GetValues(typeof(thrust_dir)))
+                _solver_starters[(int) direction] = get_solver_starter(direction);
 
             _control_sectors = new solver_entry[3 * 3];
             for (int index = 0; index < 3 * 3; ++index)
@@ -2398,9 +2378,12 @@ namespace ttdtwm
         {
             try
             {
+                if (_calibration_in_progress)
+                    return;
+
                 var  current_grid_CoM = Vector3D.Transform(_grid.Physics.CenterOfMassWorld, _inverse_world_transform);
                 bool CoM_shifted      = (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
-                if (CoM_shifted && !_calibration_in_progress)
+                if (CoM_shifted)
                 {
                     _grid_CoM_location = current_grid_CoM;
                     refresh_thruster_info();
