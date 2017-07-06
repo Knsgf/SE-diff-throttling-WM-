@@ -466,7 +466,7 @@ namespace ttdtwm
                 _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_FORCE,  world_force, _grid.Physics.CenterOfMassWorld + world_leverage, null);
                 _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_FORCE, -world_force, _grid.Physics.CenterOfMassWorld - world_leverage, null);
                 */
-                _grid.Physics.AddForce(MyPhysicsForceType.ADD_BODY_FORCE_AND_BODY_TORQUE, Vector3.Zero, null, _torque);
+                _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, Vector3.Zero, null, world_torque);
             }
         }
 
