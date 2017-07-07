@@ -150,7 +150,7 @@ namespace ttdtwm
         private float[]    _turn_sensitivity            = new float[6];
         private Vector3?[] _active_CoT = new Vector3?[6];
         private Vector3    _local_angular_velocity, _prev_angular_velocity = Vector3.Zero, _torque, _manual_rotation, _prev_rotation = Vector3.Zero, _target_rotation, _gyro_override = Vector3.Zero;
-        private bool       _CoM_shifted = false, _update_references = false, _current_mode_is_CoT = false, _new_mode_is_CoT = false, _CoT_mode_on = false, _is_gyro_override_active = false, _individual_calibration_on = false;
+        private bool       _CoM_shifted = false, _current_mode_is_CoT = false, _new_mode_is_CoT = false, _CoT_mode_on = false, _is_gyro_override_active = false, _individual_calibration_on = false;
         //private sbyte      _last_control_scheme = -1;
         private bool       _all_engines_off = false, _under_player_control = false, _force_override_refresh = false;
         private float      _angular_speed, _trim_fadeout = 1.0f;
@@ -1942,9 +1942,9 @@ namespace ttdtwm
 
             if (changes_made)
             {
-                _prev_air_density  = float.MinValue;
-                _update_references = true;
-
+                _prev_air_density = float.MinValue;
+                if (!_current_mode_is_CoT)
+                    update_reference_vectors_for_CoM_mode();
                 /*
                 log_ECU_action("check_thruster_control_changed", string.Format("{0}/{1}/{2}/{3}/{4}/{5} kN",
                     _max_force[(int) thrust_dir.fore     ] / 1000.0f,
@@ -2418,19 +2418,15 @@ namespace ttdtwm
         {
             try
             {
-                if (_calibration_in_progress)
-                    return;
-
                 if (_CoM_shifted)
                     refresh_thruster_info();
-                if (_CoM_shifted || _update_references || _current_mode_is_CoT != _new_mode_is_CoT)
+                if (_CoM_shifted || _current_mode_is_CoT != _new_mode_is_CoT)
                 {
                     if (_new_mode_is_CoT)
                         update_reference_vectors_for_CoT_mode();
                     else
                         update_reference_vectors_for_CoM_mode();
                     _current_mode_is_CoT = _new_mode_is_CoT;
-                    _update_references   = false;
                 }
                 if (use_individual_calibration != _individual_calibration_on)
                 {
@@ -2463,11 +2459,14 @@ namespace ttdtwm
             if (_thrust_refresh_task.valid && !_thrust_refresh_task.IsComplete)
                 _thrust_refresh_task.Wait();
 
-            var current_grid_CoM = Vector3D.Transform(_grid.Physics.CenterOfMassWorld, _inverse_world_transform);
-            _CoM_shifted = (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
-            if (_CoM_shifted)
-                _grid_CoM_location = current_grid_CoM;
-            _thrust_refresh_task = MyAPIGateway.Parallel.Start(start_4Hz_refresh_thread);
+            if (!_calibration_in_progress)
+            {
+                var current_grid_CoM = Vector3D.Transform(_grid.Physics.CenterOfMassWorld, _inverse_world_transform);
+                _CoM_shifted = (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
+                if (_CoM_shifted)
+                    _grid_CoM_location = current_grid_CoM;
+                _thrust_refresh_task = MyAPIGateway.Parallel.Start(start_4Hz_refresh_thread);
+            }
             if (CALIBRATION_DEBUG)
                 _thrust_refresh_task.Wait();
         }
