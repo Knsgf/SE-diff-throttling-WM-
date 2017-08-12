@@ -238,15 +238,14 @@ namespace ttdtwm
                 if (RC_block != null)
                     _RC_blocks.Remove(RC_block);
 
-                var thruster = entity as IMyThrust;
-                if (thruster != null)
-                {
-                    if (_ECU != null)
-                        _ECU.dispose_thruster(thruster);
-                    --_num_thrusters;
-                }
                 if (_ECU != null)
                 {
+                    var thruster = entity as IMyThrust;
+                    if (thruster != null)
+                    {
+                        _ECU.dispose_thruster(thruster);
+                        --_num_thrusters;
+                    }
                     var gyro = entity as IMyGyro;
                     if (gyro != null)
                         _ECU.dispose_gyroscope(gyro);
@@ -612,6 +611,7 @@ namespace ttdtwm
                     return block.FatBlock is IMyThrust || block.FatBlock is IMyGyro;
                 }
             );
+            /*
             if (block_list.Count > 0)
             {
                 _ECU = new engine_control_unit(_grid);
@@ -629,6 +629,9 @@ namespace ttdtwm
                         _ECU.assign_gyroscope(gyro);
                 }
             }
+            */
+            foreach (var cur_block in block_list)
+                on_block_added(cur_block);
 
             block_list.Clear();
             _grid.GetBlocks(block_list,
@@ -674,7 +677,19 @@ namespace ttdtwm
                 _grid.OnBlockAdded   -= on_block_added;
                 _grid.OnBlockRemoved -= on_block_removed;
                 sync_helper.deregister_entity(_grid.EntityId);
+
+                var block_list = new List<IMySlimBlock>();
+                _grid.GetBlocks(block_list,
+                    delegate (IMySlimBlock block)
+                    {
+                        return block.FatBlock is IMyThrust || block.FatBlock is IMyGyro || block.FatBlock is IMyCockpit || block.FatBlock is IMyRemoteControl;
+                    }
+                );
+                foreach (var cur_block in block_list)
+                    on_block_removed(cur_block);
+
                 _disposed = true;
+                //log_grid_action("Dispose", "");
             }
         }
     }

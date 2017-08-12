@@ -235,8 +235,8 @@ namespace ttdtwm
 
         public static void register_entity(object entity, long entity_id)
         {
-            _entities.Add(entity_id,    entity);
-            _entity_ids.Add( entity, entity_id);
+            _entities.Add  (entity_id,    entity);
+            _entity_ids.Add(   entity, entity_id);
         }
 
         public static void deregister_entity(long entity_id)
