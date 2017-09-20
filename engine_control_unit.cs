@@ -536,7 +536,7 @@ namespace ttdtwm
                         linear_solver.items.Add(new solver_entry());
                     linear_solver.items[index].x = x;
                     linear_solver.items[index].y = y;
-                    linear_solver.items[index].max_value = thruster_infos[index].max_force;
+                    linear_solver.items[index].max_value = thruster_infos[index].actual_max_force;
                 }
 
                 if (CALIBRATION_DEBUG)
@@ -919,10 +919,10 @@ namespace ttdtwm
 
             _linear_control = Vector3.Clamp(_manual_thrust + _thrust_override, -Vector3.One, Vector3.One);
             decompose_vector(_linear_control, __control_vector);
-            for (int dir_index = 0; dir_index < 6; ++dir_index)
+            for (int dir_index = 0, opposite_dir = 3; dir_index < 3; ++dir_index, ++opposite_dir)
             {
-                if (_actual_max_force[dir_index] < 1.0f)
-                    __control_vector[dir_index] = 0.0f;
+                if (_actual_max_force[dir_index] < 1.0f && _actual_max_force[opposite_dir] < 1.0f)
+                    __control_vector[dir_index] = __control_vector[opposite_dir] = 0.0f;
             }
             //sbyte control_scheme    = get_current_control_scheme();
             float gravity_magnitude = local_gravity_vector.Length();
