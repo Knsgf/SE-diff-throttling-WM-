@@ -216,6 +216,10 @@ namespace ttdtwm
                     if (Math.Abs(_tableau[cur_row][item_index]) > GUARD_VALUE)
                     {
                         items[item_index].result = (float) (_tableau[cur_row][RHS_column] / _tableau[cur_row][item_index]);
+                        if (items[item_index].result < 0.0f)
+                            items[item_index].result = 0.0f;
+                        else if (items[item_index].result > items[item_index].max_value)
+                            items[item_index].result = items[item_index].max_value;
                         break;
                     }
                 }
@@ -239,8 +243,6 @@ namespace ttdtwm
 
             for (int cur_item = 0; cur_item < item_count; ++cur_item)
             {
-                if (items[cur_item].result < 0.0f || items[cur_item].result > items[cur_item].max_value)
-                    return false;
                 if (items[cur_item].max_value > 0.0f && max_ratio < items[cur_item].result / items[cur_item].max_value)
                     max_ratio = items[cur_item].result / items[cur_item].max_value;
                 if (engine_control_unit.CALIBRATION_DEBUG)
@@ -250,7 +252,7 @@ namespace ttdtwm
                 }
             }
             if (engine_control_unit.CALIBRATION_DEBUG)
-                MyLog.Default.WriteLine(string.Format("TT&DT\t\tsimplex_solver.is_solution_good(): {0}/{1} residual static moment", sum_x, sum_y));
+                MyLog.Default.WriteLine(string.Format("TT&DT\t\tsimplex_solver.is_solution_good(): {0}/{1} residual static moment; max = {2}", sum_x, sum_y, max_ratio));
             return max_ratio >= 0.8f;
         }
 

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ParallelTasks;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -19,7 +20,8 @@ namespace ttdtwm
         #region fields
 
         private Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
-        private Action _grids_handle_60Hz = null, _grids_handle_4Hz = null, _grids_handle_2s_period = null;
+        private Action _grids_handle_60Hz = null, _grids_handle_4Hz = null, _grids_handle_2s_period = null, _grids_perform_calibration = null;
+        private Task _manager_task, _calibration_task;
 
         private IMyThrust         _sample_thruster   = null;
         private IMyShipController _sample_controller = null;
@@ -46,9 +48,10 @@ namespace ttdtwm
             if (grid != null)
             {
                 var new_grid_logic = new grid_logic(grid, this);
-                _grids_handle_60Hz      += new_grid_logic.handle_60Hz;
-                _grids_handle_4Hz       += new_grid_logic.handle_4Hz;
-                _grids_handle_2s_period += new_grid_logic.handle_2s_period;
+                _grids_handle_60Hz         += new_grid_logic.handle_60Hz;
+                _grids_handle_4Hz          += new_grid_logic.handle_4Hz;
+                _grids_handle_2s_period    += new_grid_logic.handle_2s_period;
+                _grids_perform_calibration += new_grid_logic.perform_individual_calibration;
                 _grids.Add(grid, new_grid_logic);
             }
         }
@@ -59,9 +62,10 @@ namespace ttdtwm
             if (grid != null && _grids.ContainsKey(grid))
             {
                 grid_logic grid_logic_to_remove = _grids[grid];
-                _grids_handle_60Hz      -= grid_logic_to_remove.handle_60Hz;
-                _grids_handle_4Hz       -= grid_logic_to_remove.handle_4Hz;
-                _grids_handle_2s_period -= grid_logic_to_remove.handle_2s_period;
+                _grids_handle_60Hz         -= grid_logic_to_remove.handle_60Hz;
+                _grids_handle_4Hz          -= grid_logic_to_remove.handle_4Hz;
+                _grids_handle_2s_period    -= grid_logic_to_remove.handle_2s_period;
+                _grids_perform_calibration -= grid_logic_to_remove.perform_individual_calibration;
                 grid_logic_to_remove.Dispose();
                 _grids.Remove(grid);
             }
@@ -314,6 +318,41 @@ namespace ttdtwm
             }
         }
 
+        private void calibration_thread()
+        {
+            try
+            {
+                _grids_perform_calibration();
+            }
+            catch (Exception err)
+            {
+                MyLog.Default.WriteLine(err);
+                throw;
+            }
+        }
+
+        private void manager_thread()
+        {
+            try
+            {
+                if (--_count8 <= 0)
+                {
+                    _count8 = 8;
+                    if (!_calibration_task.valid || _calibration_task.IsComplete)
+                        _calibration_task = MyAPIGateway.Parallel.Start(calibration_thread);
+                    //calibration_thread();
+                    _grids_handle_2s_period();
+                    try_register_handlers();
+                }
+                _grids_handle_4Hz();
+            }
+            catch (Exception err)
+            {
+                MyLog.Default.WriteLine(err);
+                throw;
+            }
+        }
+
         public override void UpdateBeforeSimulation()
         {
             base.UpdateBeforeSimulation();
@@ -324,18 +363,14 @@ namespace ttdtwm
                 try_register_handlers();
                 return;
             }
-            _grids_handle_60Hz();
             if (--_count15 <= 0)
             {
                 _count15 = 15;
-                _grids_handle_4Hz();
-                if (--_count8 <= 0)
-                {
-                    _count8 = 8;
-                    _grids_handle_2s_period();
-                    try_register_handlers();
-                }
+                if (!_manager_task.valid || _manager_task.IsComplete)
+                    _manager_task = MyAPIGateway.Parallel.Start(manager_thread);
+                //manager_thread();
             }
+            _grids_handle_60Hz();
         }
 
         protected override void UnloadData()

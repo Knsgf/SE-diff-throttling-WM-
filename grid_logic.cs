@@ -35,7 +35,7 @@ namespace ttdtwm
         private IMyPlayer                      _prev_player          = null;
 
         private int     _num_thrusters = 0, _prev_thrust_reduction = 0, _zero_controls_counter = 0;
-        private bool    _control_limit_is_visible = false, _thrust_redction_is_visible = false, _vertical_speed_is_visible = false, _disposed = false, _status_shown = false;
+        private bool    _control_limit_is_visible = false, _thrust_redction_is_visible = false, _vertical_speed_is_visible = false, _disposed = false/*, _status_shown = false*/;
         private bool    _was_in_landing_mode = false, _was_in_CoT_mode = false, _ID_on = true;
         private Vector3 _prev_trim, _prev_last_trim, _prev_linear_integral;
         //private bool _announced = false;
@@ -211,6 +211,7 @@ namespace ttdtwm
                     _ECU.assign_thruster(thruster);
                     _session_ref.sample_thruster(thruster);
                     ++_num_thrusters;
+                    //log_grid_action("on_block_added", thruster.EntityId.ToString());
                 }
                 var gyro = entity as IMyGyro;
                 if (gyro != null)
@@ -245,6 +246,7 @@ namespace ttdtwm
                     {
                         _ECU.dispose_thruster(thruster);
                         --_num_thrusters;
+                        //log_grid_action("on_block_removed", thruster.EntityId.ToString());
                     }
                     var gyro = entity as IMyGyro;
                     if (gyro != null)
@@ -468,23 +470,26 @@ namespace ttdtwm
             check_disposed();
             if (!_grid.IsStatic && _ECU != null && _num_thrusters > 0)
             {
-                IMyPlayer controlling_player = get_controlling_player();
-                if (controlling_player == null)
-                {
-                    _ECU.reset_user_input(reset_gyros_only: false);
-                    //_prev_manual_thrust = _prev_manual_rotation = new Vector3UByte(128, 128, 128);
-                }
-                else //if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
-                    handle_user_input(controlling_player.Controller.ControlledEntity);
+                lock (_ECU)
+                { 
+                    IMyPlayer controlling_player = get_controlling_player();
+                    if (controlling_player == null)
+                    {
+                        _ECU.reset_user_input(reset_gyros_only: false);
+                        //_prev_manual_thrust = _prev_manual_rotation = new Vector3UByte(128, 128, 128);
+                    }
+                    else //if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
+                        handle_user_input(controlling_player.Controller.ControlledEntity);
 
-                _ID_on = true;
-                foreach (var cur_controller in _ship_controllers)
-                {
-                    _ID_on = cur_controller.EnabledDamping;
-                    break;
+                    _ID_on = true;
+                    foreach (var cur_controller in _ship_controllers)
+                    {
+                        _ID_on = cur_controller.EnabledDamping;
+                        break;
+                    }
+                    _ECU.linear_dampers_on = _ID_on;
+                    _ECU.handle_60Hz();
                 }
-                _ECU.linear_dampers_on = _ID_on;
-                _ECU.handle_60Hz();
             }
         }
 
@@ -493,106 +498,121 @@ namespace ttdtwm
             check_disposed();
             if (_ECU == null)
                 return;
-            if (_grid.IsStatic || _num_thrusters == 0)
-                _ECU.reset_ECU();
-            else
-            {
-                _ECU.handle_4Hz();
-
-                IMyPlayer controlling_player = get_controlling_player();
-                if (controlling_player == null)
+            lock (_ECU)
+            { 
+                if (_grid.IsStatic || _num_thrusters == 0)
+                    _ECU.reset_ECU();
+                else
                 {
-                    if (_control_limit_is_visible)
-                    {
-                        _control_warning_text.Hide();
-                        _control_limit_is_visible = false;
-                    }
-                    if (_thrust_redction_is_visible)
-                    {
-                        _thrust_redction_text.Hide();
-                        _thrust_redction_is_visible = false;
-                    }
-                }
+                    _ECU.handle_4Hz();
 
-                _ECU.autopilot_on = false;
-                foreach (var cur_RC_block in _RC_blocks)
-                    _ECU.check_autopilot(cur_RC_block);
-
-                if (sync_helper.local_player != null)
-                {
-                    bool display_notification = _ECU.active_control_enabled && _ECU.is_under_control_of(sync_helper.local_controller);
-                    if (_status_shown && !display_notification)
-                        _status_shown = false;
-                    else if (display_notification && _ID_on && (!_status_shown || _ECU.landing_mode_on != _was_in_landing_mode) && MyAPIGateway.Utilities != null)
+                    IMyPlayer controlling_player = get_controlling_player();
+                    if (controlling_player == null)
                     {
-                        MyAPIGateway.Utilities.ShowNotification(_ECU.landing_mode_on ? "Landing mode engaged" : "Flight mode engaged");
-                        _status_shown = true;
-                    }
-                }
-
-                if (_vertical_speed_text != null)
-                {
-                    if (!sync_helper.show_vertical_speed || !_ECU.is_under_control_of(sync_helper.local_controller) || Math.Abs(_ECU.vertical_speed) < 0.1f)
-                    {
-                        if (_vertical_speed_is_visible)
+                        if (_control_limit_is_visible)
                         {
-                            _vertical_speed_text.Hide();
-                            _vertical_speed_is_visible = false;
+                            _control_warning_text.Hide();
+                            _control_limit_is_visible = false;
+                        }
+                        if (_thrust_redction_is_visible)
+                        {
+                            _thrust_redction_text.Hide();
+                            _thrust_redction_is_visible = false;
                         }
                     }
-                    else
+
+                    _ECU.autopilot_on = false;
+                    foreach (var cur_RC_block in _RC_blocks)
+                        _ECU.check_autopilot(cur_RC_block);
+
+                    /*
+                    if (sync_helper.local_player != null)
                     {
-                        _vertical_speed_text.Text = string.Format("Vertical speed: {0:F1} m/s", _ECU.vertical_speed);
-                        if (!_vertical_speed_is_visible)
+                        bool display_notification = _ECU.active_control_enabled && _ECU.is_under_control_of(sync_helper.local_controller);
+                        if (_status_shown && !display_notification)
+                            _status_shown = false;
+                        else if (display_notification && _ID_on && (!_status_shown || _ECU.landing_mode_on != _was_in_landing_mode) && MyAPIGateway.Utilities != null)
                         {
-                            _vertical_speed_text.Show();
-                            _vertical_speed_is_visible = true;
+                            MyAPIGateway.Utilities.ShowNotification(_ECU.landing_mode_on ? "Landing mode engaged" : "Flight mode engaged");
+                            _status_shown = true;
                         }
                     }
-                }
+                    */
 
-                if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
-                {
-                    //send_control_modes_message(force_send: false);
-                    send_control_limit_message   (controlling_player);
-                    send_thrust_reduction_message(controlling_player);
+                    if (_vertical_speed_text != null)
+                    {
+                        if (!sync_helper.show_vertical_speed || !_ECU.is_under_control_of(sync_helper.local_controller) || Math.Abs(_ECU.vertical_speed) < 0.1f)
+                        {
+                            if (_vertical_speed_is_visible)
+                            {
+                                _vertical_speed_text.Hide();
+                                _vertical_speed_is_visible = false;
+                            }
+                        }
+                        else
+                        {
+                            _vertical_speed_text.Text = string.Format("Vertical speed: {0:F1} m/s", _ECU.vertical_speed);
+                            if (!_vertical_speed_is_visible)
+                            {
+                                _vertical_speed_text.Show();
+                                _vertical_speed_is_visible = true;
+                            }
+                        }
+                    }
+
+                    if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+                    {
+                        //send_control_modes_message(force_send: false);
+                        send_control_limit_message   (controlling_player);
+                        send_thrust_reduction_message(controlling_player);
+                    }
+                    _was_in_landing_mode = _ECU.landing_mode_on;
+                    _prev_player         = controlling_player;
                 }
-                _was_in_landing_mode = _ECU.landing_mode_on;
-                _prev_player         = controlling_player;
             }
         }
 
         public void handle_2s_period()
         {
             check_disposed();
+
             if (!_grid.IsStatic && _ECU != null && _num_thrusters > 0)
             {
-                if (_control_warning_text == null && MyAPIGateway.Utilities != null)
-                {
-                    _thrust_redction_text = MyAPIGateway.Utilities.CreateNotification("", 0);
-                    _control_warning_text = MyAPIGateway.Utilities.CreateNotification("WARNING: Control limit reached", 0, MyFontEnum.Red);
-                    _vertical_speed_text  = MyAPIGateway.Utilities.CreateNotification("", 0);
-                }
+                lock (_ECU)
+                { 
+                    if (_control_warning_text == null && MyAPIGateway.Utilities != null)
+                    {
+                        _thrust_redction_text = MyAPIGateway.Utilities.CreateNotification("", 0);
+                        _control_warning_text = MyAPIGateway.Utilities.CreateNotification("WARNING: Control limit reached", 0, MyFontEnum.Red);
+                        _vertical_speed_text  = MyAPIGateway.Utilities.CreateNotification("", 0);
+                    }
 
-                _ECU.handle_2s_period();
-                if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
-                    send_I_terms_message();
+                    _ECU.handle_2s_period();
+                    if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
+                        send_I_terms_message();
 
-                /*
-                if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
-                {
-                    //if (!_announced)
-                    //    send_client_announce();
-                    _prev_manual_rotation = _prev_manual_thrust = new Vector3UByte(128, 128, 128);
+                    /*
+                    if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
+                    {
+                        //if (!_announced)
+                        //    send_client_announce();
+                        _prev_manual_rotation = _prev_manual_thrust = new Vector3UByte(128, 128, 128);
+                    }
+                    else if (_zero_controls_counter++ >= CONTROLS_TIMEOUT)
+                    {
+                        _ECU.reset_user_input(reset_gyros_only: false);
+                        _prev_manual_rotation  = _prev_manual_thrust = new Vector3UByte(128, 128, 128);
+                        _zero_controls_counter = 0;
+                    }
+                    */
                 }
-                else if (_zero_controls_counter++ >= CONTROLS_TIMEOUT)
-                {
-                    _ECU.reset_user_input(reset_gyros_only: false);
-                    _prev_manual_rotation  = _prev_manual_thrust = new Vector3UByte(128, 128, 128);
-                    _zero_controls_counter = 0;
-                }
-                */
             }
+        }
+
+        public void perform_individual_calibration()
+        {
+            if (!_grid.IsStatic && _ECU != null && _num_thrusters > 0)
+                _ECU.perform_individual_calibration();
         }
 
         public grid_logic(IMyCubeGrid new_grid, session_handler session_instance)
@@ -602,6 +622,7 @@ namespace ttdtwm
             _grid.OnBlockAdded   += on_block_added;
             _grid.OnBlockRemoved += on_block_removed;
             //_ID_on = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).DampenersEnabled;
+            //log_grid_action(".ctor", "");
             sync_helper.register_entity(this, _grid.EntityId);
 
             var block_list = new List<IMySlimBlock>();
@@ -668,12 +689,14 @@ namespace ttdtwm
                 _ECU.rotational_damping_on     = rotational_damping_on;
                 _ECU.linear_dampers_on         = _ID_on;
             }
+            //log_grid_action(".ctor", "finished");
         }
 
         public void Dispose()
         {
             if (!_disposed)
             {
+                //log_grid_action("Dispose", "");
                 _grid.OnBlockAdded   -= on_block_added;
                 _grid.OnBlockRemoved -= on_block_removed;
                 sync_helper.deregister_entity(_grid.EntityId);
@@ -689,7 +712,7 @@ namespace ttdtwm
                     on_block_removed(cur_block);
 
                 _disposed = true;
-                //log_grid_action("Dispose", "");
+                //log_grid_action("Dispose", "finished");
             }
         }
     }
