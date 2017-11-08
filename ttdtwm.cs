@@ -20,13 +20,14 @@ namespace ttdtwm
         #region fields
 
         private Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
-        private Action _grids_handle_60Hz = null, _grids_handle_4Hz = null, _grids_handle_2s_period = null, _grids_perform_calibration = null;
+        private Action _grids_handle_60Hz = null, _grids_handle_4Hz_foreground = null, _grids_handle_2s_period_foreground = null;
+        private Action _grids_handle_4Hz_background = null, _grids_handle_2s_period_background = null, _grids_perform_calibration = null;
         private Task _manager_task, _calibration_task;
 
         private IMyThrust         _sample_thruster   = null;
         private IMyShipController _sample_controller = null;
 
-        private int  _count15 = 15, _count8 = 8;
+        private int  _count15 = 15, _count8_foreground = 8, _count8_background = 8;
         private bool _entity_events_set = false, _panel_controls_set = false;
 
         #endregion
@@ -48,10 +49,12 @@ namespace ttdtwm
             if (grid != null)
             {
                 var new_grid_logic = new grid_logic(grid, this);
-                _grids_handle_60Hz         += new_grid_logic.handle_60Hz;
-                _grids_handle_4Hz          += new_grid_logic.handle_4Hz;
-                _grids_handle_2s_period    += new_grid_logic.handle_2s_period;
-                _grids_perform_calibration += new_grid_logic.perform_individual_calibration;
+                _grids_handle_60Hz                 += new_grid_logic.handle_60Hz;
+                _grids_handle_4Hz_foreground       += new_grid_logic.handle_4Hz_foreground;
+                _grids_handle_2s_period_foreground += new_grid_logic.handle_2s_period_foreground;
+                _grids_handle_4Hz_background       += new_grid_logic.handle_4Hz_background;
+                _grids_handle_2s_period_background += new_grid_logic.handle_2s_period_background;
+                _grids_perform_calibration         += new_grid_logic.perform_individual_calibration;
                 _grids.Add(grid, new_grid_logic);
             }
         }
@@ -62,10 +65,12 @@ namespace ttdtwm
             if (grid != null && _grids.ContainsKey(grid))
             {
                 grid_logic grid_logic_to_remove = _grids[grid];
-                _grids_handle_60Hz         -= grid_logic_to_remove.handle_60Hz;
-                _grids_handle_4Hz          -= grid_logic_to_remove.handle_4Hz;
-                _grids_handle_2s_period    -= grid_logic_to_remove.handle_2s_period;
-                _grids_perform_calibration -= grid_logic_to_remove.perform_individual_calibration;
+                _grids_handle_60Hz                 -= grid_logic_to_remove.handle_60Hz;
+                _grids_handle_4Hz_foreground       -= grid_logic_to_remove.handle_4Hz_foreground;
+                _grids_handle_2s_period_foreground -= grid_logic_to_remove.handle_2s_period_foreground;
+                _grids_handle_4Hz_background       -= grid_logic_to_remove.handle_4Hz_background;
+                _grids_handle_2s_period_background -= grid_logic_to_remove.handle_2s_period_background;
+                _grids_perform_calibration         -= grid_logic_to_remove.perform_individual_calibration;
                 grid_logic_to_remove.Dispose();
                 _grids.Remove(grid);
             }
@@ -335,16 +340,15 @@ namespace ttdtwm
         {
             try
             {
-                if (--_count8 <= 0)
+                if (--_count8_background <= 0)
                 {
-                    _count8 = 8;
+                    _count8_background = 8;
                     if (!_calibration_task.valid || _calibration_task.IsComplete)
                         _calibration_task = MyAPIGateway.Parallel.Start(calibration_thread);
                     //calibration_thread();
-                    _grids_handle_2s_period();
-                    try_register_handlers();
+                    _grids_handle_2s_period_background();
                 }
-                _grids_handle_4Hz();
+                _grids_handle_4Hz_background();
             }
             catch (Exception err)
             {
@@ -366,9 +370,17 @@ namespace ttdtwm
             if (--_count15 <= 0)
             {
                 _count15 = 15;
-                if (!_manager_task.valid || _manager_task.IsComplete)
-                    _manager_task = MyAPIGateway.Parallel.Start(manager_thread);
+                if (_manager_task.valid && !_manager_task.IsComplete)
+                    _manager_task.Wait();
+                _manager_task = MyAPIGateway.Parallel.Start(manager_thread);
                 //manager_thread();
+                if (--_count8_foreground <= 0)
+                {
+                    _count8_foreground = 8;
+                    _grids_handle_2s_period_foreground();
+                    try_register_handlers();
+                }
+                _grids_handle_4Hz_foreground();
             }
             _grids_handle_60Hz();
         }

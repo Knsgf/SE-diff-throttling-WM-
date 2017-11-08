@@ -493,7 +493,7 @@ namespace ttdtwm
             }
         }
 
-        public void handle_4Hz()
+        public void handle_4Hz_foreground()
         {
             check_disposed();
             if (_ECU == null)
@@ -504,7 +504,7 @@ namespace ttdtwm
                     _ECU.reset_ECU();
                 else
                 {
-                    _ECU.handle_4Hz();
+                    _ECU.handle_4Hz_foreground();
 
                     IMyPlayer controlling_player = get_controlling_player();
                     if (controlling_player == null)
@@ -572,7 +572,21 @@ namespace ttdtwm
             }
         }
 
-        public void handle_2s_period()
+        public void handle_4Hz_background()
+        {
+            check_disposed();
+            if (_ECU == null)
+                return;
+            lock (_ECU)
+            {
+                if (_grid.IsStatic || _num_thrusters == 0)
+                    _ECU.reset_ECU();
+                else
+                    _ECU.handle_4Hz_background();
+            }
+        }
+
+        public void handle_2s_period_foreground()
         {
             check_disposed();
 
@@ -587,7 +601,7 @@ namespace ttdtwm
                         _vertical_speed_text  = MyAPIGateway.Utilities.CreateNotification("", 0);
                     }
 
-                    _ECU.handle_2s_period();
+                    _ECU.handle_2s_period_foreground();
                     if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
                         send_I_terms_message();
 
@@ -605,6 +619,17 @@ namespace ttdtwm
                         _zero_controls_counter = 0;
                     }
                     */
+                }
+            }
+        }
+
+        public void handle_2s_period_background()
+        {
+            if (!_grid.IsStatic && _ECU != null && _num_thrusters > 0)
+            {
+                lock (_ECU)
+                {
+                    _ECU.handle_2s_period_background();
                 }
             }
         }

@@ -130,9 +130,9 @@ namespace ttdtwm
         private HashSet<MyGyro> _gyroscopes = new HashSet<MyGyro>();
 
         private bool     _calibration_in_progress = false;
-        private Vector3D _grid_CoM_location = Vector3D.Zero, _current_grid_CoM = Vector3D.Zero, _prev_position = Vector3D.Zero;
+        private Vector3D _grid_CoM_location = Vector3D.Zero, _prev_position = Vector3D.Zero;
         private Vector3D _prev_forward = Vector3.Zero, _prev_up = Vector3.Zero, _prev_right = Vector3.Zero;
-        private MatrixD  _inverse_world_transform;
+        //private MatrixD  _inverse_world_transform;
         private Matrix   _inverse_world_rotation_fixed;
         private float    _max_gyro_torque = 0.0f, _spherical_moment_of_inertia = 1.0f, _grid_mass = 0.0f;
 
@@ -1527,7 +1527,7 @@ namespace ttdtwm
             // prevent Dutch Roll-like tendencies at high speeds
             Vector3 local_linear_velocity = Vector3.Transform(world_linear_velocity, _inverse_world_rotation_fixed);
 
-            Matrix       inverse_world_rotation = _inverse_world_transform.GetOrientation();
+            Matrix       inverse_world_rotation = _grid.PositionComp.WorldMatrixNormalizedInv.GetOrientation();
             //BoundingBoxD grid_bounding_box      = _grid.PositionComp.WorldAABB;
             //MyPlanet     closest_planetoid      = MyGamePruningStructure.GetClosestPlanet(ref grid_bounding_box);
             //Vector3      world_gravity          = (closest_planetoid == null) ? Vector3.Zero : closest_planetoid.GetWorldGravity(grid_bounding_box.Center);
@@ -2180,8 +2180,8 @@ namespace ttdtwm
         public engine_control_unit(IMyCubeGrid grid_ref)
         {
             _grid = (MyCubeGrid) grid_ref;
-            _inverse_world_transform      = _grid.PositionComp.WorldMatrixNormalizedInv;
-            _inverse_world_rotation_fixed = _inverse_world_transform.GetOrientation();
+            //_inverse_world_transform      = _grid.PositionComp.WorldMatrixNormalizedInv;
+            _inverse_world_rotation_fixed = _grid.PositionComp.WorldMatrixNormalizedInv.GetOrientation();
             refresh_turn_sensitivity();
 
             _control_sectors = new solver_entry[3 * 3];
@@ -2385,8 +2385,7 @@ namespace ttdtwm
             _prev_right   = right;
 
             _grid_mass               = _grid.Physics.Mass;
-            _inverse_world_transform = _grid.PositionComp.WorldMatrixNormalizedInv;
-            _current_grid_CoM        = Vector3D.Transform(_grid.Physics.CenterOfMassWorld, _inverse_world_transform);
+            //_inverse_world_transform = _grid.PositionComp.WorldMatrixNormalizedInv;
 
             refresh_gyro_info();
             //check_manual_override();
@@ -2406,31 +2405,41 @@ namespace ttdtwm
             }
         }
 
-        public void handle_4Hz()
+        public void handle_4Hz_foreground()
         {
             if (_grid.Physics == null || !_grid.Physics.Enabled || _grid.Physics.IsStatic)
-            {
                 reset_ECU();
-                return;
+            else
+            {
+                Vector3D current_grid_CoM = Vector3D.Transform(_grid.Physics.CenterOfMassWorld, _grid.PositionComp.WorldMatrixNormalizedInv);
+                _CoM_shifted |= (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
+                if (_CoM_shifted)
+                {
+                    //log_ECU_action("handle_4Hz_foreground", "CoM shift = " + (current_grid_CoM - _grid_CoM_location).Length().ToString());
+                    _grid_CoM_location = current_grid_CoM;
+                }
             }
+        }
+
+        public void handle_4Hz_background()
+        {
+            if (_grid.Physics == null || !_grid.Physics.Enabled || _grid.Physics.IsStatic)
+                return;
 
             if (!_calibration_in_progress)
             {
-                _CoM_shifted = (_current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
                 if (_CoM_shifted)
-                {
-                    _grid_CoM_location = _current_grid_CoM;
                     refresh_thruster_info();
-                }
                 if (!_current_mode_is_CoT && _CoM_shifted || _current_mode_is_CoT != _new_mode_is_CoT)
                 {
-                    //log_ECU_action("handle_4Hz", "CoT = " + _new_mode_is_CoT.ToString());
+                    //log_ECU_action("handle_4Hz_background", "CoT = " + _new_mode_is_CoT.ToString());
                     if (_new_mode_is_CoT)
                         update_reference_vectors_for_CoT_mode();
                     else
                         update_reference_vectors_for_CoM_mode();
                     _current_mode_is_CoT = _new_mode_is_CoT;
                 }
+                _CoM_shifted = false;
                 if (use_individual_calibration != _individual_calibration_on)
                 {
                     _individual_calibration_on = use_individual_calibration;
@@ -2445,7 +2454,7 @@ namespace ttdtwm
             }
         }
 
-        public void handle_2s_period()
+        public void handle_2s_period_foreground()
         {
             if (_grid.Physics == null || !_grid.Physics.Enabled || _grid.Physics.IsStatic)
                 return;
@@ -2463,12 +2472,17 @@ namespace ttdtwm
                     cur_thrust_info.enable_limit = cur_thrust_info.enable_rotation = cur_thrust_info.active_control_on = cur_thrust_info.is_RCS = false;
                 }
             }
-            check_thruster_control_changed();
 
             //_inverse_world_rotation_fixed = _inverse_world_transform.GetOrientation();
             _force_override_refresh = true;
             _prev_rotation          = _manual_rotation;
             refresh_turn_sensitivity();
+        }
+
+        public void handle_2s_period_background()
+        {
+            if (_grid.Physics != null && _grid.Physics.Enabled && !_grid.Physics.IsStatic)
+                check_thruster_control_changed();
         }
 
         public void perform_individual_calibration()
