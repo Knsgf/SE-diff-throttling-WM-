@@ -37,14 +37,14 @@ namespace ttdtwm
         private static readonly Vector3I[] _thrust_forward_vectors;
 
         private solver_entry[] _control_sectors;
-        private /*static*/ simplex_solver[] _linear_solvers =
+        private /*static*/ revised_simplex_solver[] _linear_solvers =
         {
-            new simplex_solver(),   // fore
-            new simplex_solver(),   // starboard
-            new simplex_solver(),   // dorsal
-            new simplex_solver(),   // aft
-            new simplex_solver(),   // port
-            new simplex_solver()    // ventral
+            new revised_simplex_solver(),   // fore
+            new revised_simplex_solver(),   // starboard
+            new revised_simplex_solver(),   // dorsal
+            new revised_simplex_solver(),   // aft
+            new revised_simplex_solver(),   // port
+            new revised_simplex_solver()    // ventral
         };
         private bool[] _calibration_scheduled = new bool[6];
 
@@ -483,8 +483,8 @@ namespace ttdtwm
                     continue;
 
                 _calibration_in_progress = true;
-                List<thruster_info> thruster_infos = _thruster_infos[(int) cur_direction];
-                simplex_solver      linear_solver  = _linear_solvers[(int) cur_direction];
+                List<thruster_info>    thruster_infos = _thruster_infos[(int) cur_direction];
+                revised_simplex_solver linear_solver  = _linear_solvers[(int) cur_direction];
 
                 if (CALIBRATION_DEBUG)
                     log_ECU_action("prepare_individual_calibration", "Preparing calibration on " + cur_direction.ToString() + " side");
@@ -530,8 +530,8 @@ namespace ttdtwm
                     continue;
 
                 _calibration_scheduled[(int) cur_direction] = false;
-                List<thruster_info> thruster_infos = _thruster_infos[(int) cur_direction];
-                simplex_solver      linear_solver  = _linear_solvers[(int) cur_direction];
+                List<thruster_info>    thruster_infos = _thruster_infos[(int) cur_direction];
+                revised_simplex_solver linear_solver  = _linear_solvers[(int) cur_direction];
 
                 if (!_is_solution_good[(int) cur_direction])
                 {
@@ -613,7 +613,7 @@ namespace ttdtwm
                     continue;
 
                 Dictionary<MyThrust, thruster_info> thruster_infos = _controlled_thrusters[(int) cur_direction];
-                simplex_solver                      linear_solver  = _linear_solvers      [(int) cur_direction];
+                revised_simplex_solver              linear_solver  = _linear_solvers      [(int) cur_direction];
 
                 for (sector_index = 0; sector_index < 3 * 3; ++sector_index)
                     _control_sectors[sector_index].x = _control_sectors[sector_index].y = _control_sectors[sector_index].max_value = 0.0f;
@@ -2060,7 +2060,7 @@ namespace ttdtwm
                 return;
             for (int dir_index = 0; dir_index < 6; ++dir_index)
             {
-                _actual_max_force     [dir_index]  = refresh_real_max_forces_for_single_direction(_controlled_thrusters[dir_index], atmosphere_present, air_density);
+                _actual_max_force[dir_index] = refresh_real_max_forces_for_single_direction(_controlled_thrusters[dir_index], atmosphere_present, air_density);
                 if (_prev_air_density >= 0.0f)
                     _calibration_scheduled[dir_index] |= !_individual_calibration_on;
             }
