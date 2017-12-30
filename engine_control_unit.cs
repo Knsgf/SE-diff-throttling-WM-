@@ -1525,7 +1525,7 @@ namespace ttdtwm
         {
             // Using "fixed" (it changes orientation only when the player steers a ship) inverse rotation matrix here to 
             // prevent Dutch Roll-like tendencies at high speeds
-            Vector3 local_linear_velocity = Vector3.Transform(world_linear_velocity, _inverse_world_rotation_fixed) * _dampers_axis_enable;
+            Vector3 local_linear_velocity = Vector3.Transform(world_linear_velocity, _inverse_world_rotation_fixed);
 
             Matrix       inverse_world_rotation = _grid.PositionComp.WorldMatrixNormalizedInv.GetOrientation();
             //BoundingBoxD grid_bounding_box      = _grid.PositionComp.WorldAABB;
@@ -1540,7 +1540,7 @@ namespace ttdtwm
             _angular_speed = _local_angular_velocity.Length();
 
             Vector3 desired_angular_velocity;
-            /*sbyte   control_scheme =*/ initialise_linear_controls(local_linear_velocity, local_gravity);
+            /*sbyte   control_scheme =*/ initialise_linear_controls(local_linear_velocity * _dampers_axis_enable, local_gravity * _dampers_axis_enable);
             bool    update_inverse_world_matrix;
             update_inverse_world_matrix = adjust_trim_setting(/*control_scheme,*/ out desired_angular_velocity);
 
