@@ -314,6 +314,14 @@ namespace ttdtwm
                 create_switch  <IMyRemoteControl>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM",           is_grid_CoT_mode_on,           set_grid_CoT_mode,     is_grid_CoT_mode_available);
                 create_switch  <IMyRemoteControl>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad",    use_individual_calibration,   choose_calibration_method,     is_grid_CoT_mode_available);
                 create_switch  <IMyRemoteControl>(          "LandingMode",            "Touchdown Mode", null,   "On",  "Off", "Land", "Flight",       is_grid_landing_mode_on,       set_grid_landing_mode, is_grid_landing_mode_available);
+                var RC_line2 = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyRemoteControl>("TTDTWM_LINE2");
+                MyAPIGateway.TerminalControls.AddControl<IMyRemoteControl>(RC_line2);
+                var RC_ID_override_label = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, IMyRemoteControl>("TTDTWM_ID_OVR");
+                RC_ID_override_label.Label = MyStringId.GetOrCompute("Inertia Damper Overrides");
+                MyAPIGateway.TerminalControls.AddControl<IMyRemoteControl>(RC_ID_override_label);
+                create_checkbox<IMyRemoteControl>(      "ForeAftIDDisable", "Disable fore/aft"      , null, "On", "Off", create_damper_override_reader(2), create_damper_override_setter(2), is_grid_CoT_mode_available);
+                create_checkbox<IMyRemoteControl>("PortStarboardIDDisable", "Disable port/starboard", null, "On", "Off", create_damper_override_reader(0), create_damper_override_setter(0), is_grid_CoT_mode_available);
+                create_checkbox<IMyRemoteControl>("DorsalVentralIDDisable", "Disable dorsal/ventral", null, "On", "Off", create_damper_override_reader(1), create_damper_override_setter(1), is_grid_CoT_mode_available);
 
                 var thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(thruster_line);
