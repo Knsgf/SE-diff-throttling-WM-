@@ -1,5 +1,7 @@
 ﻿using System;
 
+using VRageMath;
+
 namespace ttdtwm
 {
     static class stringExtensions
@@ -80,16 +82,10 @@ namespace ttdtwm
                     return (char) (value + 'A' - 10);
                 if (value < 62)
                     return (char) (value + 'a' - 36);
-                switch (value)
-                {
-                    case 62:
-                        return '+';
-
-                    case 63:
-                        return '-';
-                }
+                if (value < 157)
+                    return (char) (value + 0xA1 - 62);
             }
-            throw new Exception("Tag value must be between 0 and 63 inclusive");
+            throw new ArgumentException("Tag value must be between 0 and 156 inclusive");
         }
 
         private static int ConvertCharToValue(char symbol)
@@ -100,14 +96,8 @@ namespace ttdtwm
                 return symbol + 10 - 'A';
             if (symbol >= 'a' && symbol <= 'z')
                 return symbol + 36 - 'a';
-            switch (symbol)
-            {
-                case '+':
-                    return 62;
-
-                case '-':
-                    return 63;
-            }
+            if (symbol >= 0xA1 && symbol <= 0xFF)
+                return symbol + 62 - 0xA1;
             return 0;
         }
 
@@ -259,6 +249,37 @@ namespace ttdtwm
         public static string RemoveICTag(this string blockData)
         {
             return SetTagValue(blockData, GetTagValue(blockData) & ~IC_MASK);
+        }
+
+        #endregion
+
+        #region ID override
+
+        public static Vector3 IDOverrides(this string blockData)
+        {
+            Vector3 result   = Vector3.Zero;
+            int     tagValue = GetTagValue(blockData);
+
+            if ((tagValue & 0x10) != 0)
+                result.X = 1.0f;
+            if ((tagValue & 0x20) != 0)
+                result.Y = 1.0f;
+            if ((tagValue & 0x40) != 0)
+                result.Z = 1.0f;
+            return result;
+        }
+
+        public static string SetIDOvveride(this string blockData, Vector3 overrideEnable)
+        {
+            int overrideFlags = 0;
+
+            if (Math.Abs(overrideEnable.X) >= 0.5f)
+                overrideFlags |= 0x10;
+            if (Math.Abs(overrideEnable.Y) >= 0.5f)
+                overrideFlags |= 0x20;
+            if (Math.Abs(overrideEnable.Z) >= 0.5f)
+                overrideFlags |= 0x40;
+            return SetTagValue(blockData, (GetTagValue(blockData) & 0xF) | overrideFlags);
         }
 
         #endregion

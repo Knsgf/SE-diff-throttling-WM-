@@ -147,7 +147,7 @@ namespace ttdtwm
         private float[]    _turn_sensitivity            = new float[6];
         private Vector3?[] _active_CoT = new Vector3?[6];
         private Vector3    _local_angular_velocity, _prev_angular_velocity = Vector3.Zero, _torque, _manual_rotation;
-        private Vector3    _prev_rotation = Vector3.Zero, _target_rotation, _gyro_override = Vector3.Zero;
+        private Vector3    _prev_rotation = Vector3.Zero, _target_rotation, _gyro_override = Vector3.Zero, _dampers_axis_enable = new Vector3(1.0f);
         private bool       _CoM_shifted = false, _current_mode_is_CoT = false, _new_mode_is_CoT = false, _CoT_mode_on = false;
         private bool       _is_gyro_override_active = false, _individual_calibration_on = false, _calibration_ready = false, _calibration_complete = false;
         //private sbyte      _last_control_scheme = -1;
@@ -1525,7 +1525,7 @@ namespace ttdtwm
         {
             // Using "fixed" (it changes orientation only when the player steers a ship) inverse rotation matrix here to 
             // prevent Dutch Roll-like tendencies at high speeds
-            Vector3 local_linear_velocity = Vector3.Transform(world_linear_velocity, _inverse_world_rotation_fixed);
+            Vector3 local_linear_velocity = Vector3.Transform(world_linear_velocity, _inverse_world_rotation_fixed) * _dampers_axis_enable;
 
             Matrix       inverse_world_rotation = _grid.PositionComp.WorldMatrixNormalizedInv.GetOrientation();
             //BoundingBoxD grid_bounding_box      = _grid.PositionComp.WorldAABB;
@@ -2301,7 +2301,7 @@ namespace ttdtwm
 
         public void translate_linear_input(Vector3 input_thrust, VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)
         {
-            var controller = current_controller as MyShipController;
+            var controller = current_controller as IMyTerminalBlock;
             if (controller?.CubeGrid != _grid)
             {
                 reset_user_input(reset_gyros_only: false);
@@ -2316,7 +2316,7 @@ namespace ttdtwm
 
         public void translate_rotation_input(Vector3 input_rotation, VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)
         {
-            var controller = current_controller as MyShipController;
+            var controller = current_controller as IMyTerminalBlock;
             if (controller?.CubeGrid != _grid)
             {
                 reset_user_input(reset_gyros_only: false);
@@ -2330,6 +2330,30 @@ namespace ttdtwm
             _target_rotation.Z = input_rotation.Z * (-0.2f);
             _target_rotation   = Vector3.Transform(_target_rotation, cockpit_matrix);
             _under_player_control = true;
+        }
+
+        public void translate_damper_override(Vector3 input_override, IMyTerminalBlock controller)
+        {
+            Matrix cockpit_matrix;
+            controller.Orientation.GetMatrix(out cockpit_matrix);
+
+            Vector3 cockpit_damper_axis_disable = Vector3.Transform(input_override, cockpit_matrix);
+            _dampers_axis_enable.X = (Math.Abs(cockpit_damper_axis_disable.X) >= 0.5f) ? 0.0f : 1.0f;
+            _dampers_axis_enable.Y = (Math.Abs(cockpit_damper_axis_disable.Y) >= 0.5f) ? 0.0f : 1.0f;
+            _dampers_axis_enable.Z = (Math.Abs(cockpit_damper_axis_disable.Z) >= 0.5f) ? 0.0f : 1.0f;
+        }
+
+        public Vector3 get_damper_override_for_cockpit(IMyTerminalBlock controller)
+        {
+            Matrix inv_cockpit_matrix;
+            controller.Orientation.GetMatrix(out inv_cockpit_matrix);
+            inv_cockpit_matrix = Matrix.Invert(inv_cockpit_matrix);
+
+            Vector3 result = Vector3.Transform(_dampers_axis_enable, inv_cockpit_matrix);
+            result.X = (Math.Abs(result.X) >= 0.5f) ? 0.0f : 1.0f;
+            result.Y = (Math.Abs(result.Y) >= 0.5f) ? 0.0f : 1.0f;
+            result.Z = (Math.Abs(result.Z) >= 0.5f) ? 0.0f : 1.0f;
+            return result;
         }
 
         #endregion
@@ -2359,6 +2383,7 @@ namespace ttdtwm
                 _physics_enable_delay = PHYSICS_ENABLE_DELAY;
                 return;
             }
+            //screen_text("", _dampers_axis_enable.ToString(), 16, controlled_only: true);
 
             // Suppress input noise caused by analog controls
             _sample_sum += _target_rotation - _rotation_samples[_current_index];

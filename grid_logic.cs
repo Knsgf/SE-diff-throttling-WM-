@@ -146,6 +146,73 @@ namespace ttdtwm
 
         #endregion
 
+        #region ID overrides
+
+        public bool is_ID_axis_overriden(IMyTerminalBlock controller, int axis)
+        {
+            if (_ECU == null)
+                return false;
+
+            Vector3 current_override = _ECU.get_damper_override_for_cockpit(controller);
+            switch (axis)
+            {
+                case 0:
+                    return current_override.X >= 0.5f;
+
+                case 1:
+                    return current_override.Y >= 0.5f;
+
+                case 2:
+                    return current_override.Z >= 0.5f;
+
+                default:
+                    throw new ArgumentException("Invalid axis");
+            }
+        }
+
+        public void set_ID_override(IMyTerminalBlock controller, int axis = -1, bool new_state_enabled = false)
+        {
+            if (_ECU == null)
+                return;
+
+            if (controller == null)
+            {
+                foreach (var cur_controller in _ship_controllers)
+                {
+                    controller = (IMyTerminalBlock) cur_controller;
+                    break;
+                }
+                if (controller == null)
+                    return;
+            }
+
+            Vector3 new_override = controller.CustomData.IDOverrides();
+            switch (axis)
+            {
+                case 0:
+                    new_override.X = new_state_enabled ? 1.0f : 0.0f;
+                    break;
+
+                case 1:
+                    new_override.Y = new_state_enabled ? 1.0f : 0.0f;
+                    break;
+
+                case 2:
+                    new_override.Z = new_state_enabled ? 1.0f : 0.0f;
+                    break;
+            }
+            _ECU.translate_damper_override(new_override, controller);
+
+            IMyTerminalBlock controller_terminal;
+            foreach (var cur_controller in _ship_controllers)
+            {
+                controller_terminal = (IMyTerminalBlock) cur_controller;
+                controller_terminal.CustomData = controller_terminal.CustomData.SetIDOvveride(_ECU.get_damper_override_for_cockpit(controller_terminal));
+            }
+        }
+
+        #endregion
+
         #region auxiliaries
 
         private void log_grid_action(string method_name, string message)
@@ -194,6 +261,7 @@ namespace ttdtwm
                             controller_terminal.CustomData = controller_terminal.CustomData.AddLANDINGTag();
                         if (!_ECU.rotational_damping_on)
                             controller_terminal.CustomData = controller_terminal.CustomData.RemoveDAMPINGTag();
+                        controller_terminal.CustomData = controller_terminal.CustomData.SetIDOvveride(_ECU.get_damper_override_for_cockpit(controller_terminal));
                     }
                 }
                 var RC_block = entity as IMyRemoteControl;
@@ -207,6 +275,7 @@ namespace ttdtwm
                     {
                         _ECU = new engine_control_unit(_grid);
                         _ECU.rotational_damping_on = true;
+                        set_ID_override(null);
                     }
                     _ECU.assign_thruster(thruster);
                     _session_ref.sample_thruster(thruster);
@@ -220,6 +289,7 @@ namespace ttdtwm
                     {
                         _ECU = new engine_control_unit(_grid);
                         _ECU.rotational_damping_on = true;
+                        set_ID_override(null);
                     }
                     _ECU.assign_gyroscope(gyro);
                 }
@@ -706,13 +776,14 @@ namespace ttdtwm
                     use_individual_calibration =  is_CoT_mode_available     && controller_data.ContainsICTag();
                     landing_mode_on            =  is_landing_mode_available && controller_data.ContainsLANDINGTag();
                     _ID_on                     = cur_controller.EnabledDamping;
+                    _ECU.translate_damper_override(controller_data.IDOverrides(), (IMyTerminalBlock) cur_controller);
                     break;
                 }
-                _ECU.CoT_mode_on               = CoT_mode_on;
+                _ECU.CoT_mode_on                = CoT_mode_on;
                 _ECU.use_individual_calibration = use_individual_calibration;
-                _ECU.landing_mode_on           = landing_mode_on;
-                _ECU.rotational_damping_on     = rotational_damping_on;
-                _ECU.linear_dampers_on         = _ID_on;
+                _ECU.landing_mode_on            = landing_mode_on;
+                _ECU.rotational_damping_on      = rotational_damping_on;
+                _ECU.linear_dampers_on          = _ID_on;
             }
             //log_grid_action(".ctor", "finished");
         }

@@ -28,9 +28,10 @@ namespace ttdtwm
             {
                 if (_height <= 0)
                     throw new ArgumentException("Matrix size must be positive");
-                new_rows = _height;
+                new_rows    = _height;
+                new_columns = _initial_width;
             }
-            if (new_columns <= 0)
+            else if (new_columns <= 0)
                 new_columns = new_rows;
 
             if (new_rows == _height && new_columns == _initial_width)
