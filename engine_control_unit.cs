@@ -353,6 +353,25 @@ namespace ttdtwm
             }
         }
 
+        private Vector3D get_world_combined_CoM()
+        {
+            var                    grid_list     = MyAPIGateway.GridGroups.GetGroup(_grid, GridLinkTypeEnum.Physical);
+            var                    static_moment = Vector3D.Zero;
+            double                 total_mass    = 0.0, cur_mass;
+            MyPhysicsComponentBase grid_body;
+
+            foreach (var cur_grid in grid_list)
+            {
+                grid_body      = cur_grid.Physics;
+                cur_mass       = grid_body.Mass;
+                static_moment += cur_mass * grid_body.CenterOfMassWorld;
+                total_mass    += cur_mass;
+            }
+            if (total_mass == 0.0f)
+                return _grid.Physics.CenterOfMassWorld;
+            return static_moment / total_mass;
+        }
+
         private static void send_manual_throttle(thruster_info thruster_entry, uint manual_throttle)
         {
             __message[0] = (byte) manual_throttle;
@@ -2436,7 +2455,7 @@ namespace ttdtwm
                 reset_ECU();
             else
             {
-                Vector3D current_grid_CoM = Vector3D.Transform(_grid.Physics.CenterOfMassWorld, _grid.PositionComp.WorldMatrixNormalizedInv);
+                Vector3D current_grid_CoM = Vector3D.Transform(get_world_combined_CoM(), _grid.PositionComp.WorldMatrixNormalizedInv);
                 _CoM_shifted |= (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
                 if (_CoM_shifted)
                 {

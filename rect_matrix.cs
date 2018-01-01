@@ -60,7 +60,7 @@ namespace ttdtwm
         public void copy_from(rect_matrix b)
         {
             if (_width != b._width || _height != b._height)
-                throw new ArgumentException("Attempt to copy matrix of different size");
+                clear(b._height, b._width);
 
             double[] cur_row_ref, b_row_ref;
             for (int cur_row = 0; cur_row < _height; ++cur_row)
@@ -75,7 +75,7 @@ namespace ttdtwm
         public void column_vector_from(rect_matrix b, int column)
         {
             if (_width != 1 || _height != b._height)
-                throw new ArgumentException("Attempt to copy column vector of different size");
+                clear(b._height, 1);
 
             for (int cur_row = 0; cur_row < _height; ++cur_row)
                 _contents[cur_row][0] = b._contents[cur_row][column];
@@ -100,6 +100,20 @@ namespace ttdtwm
             if (amount < 0 || _width <= amount)
                 throw new ArgumentException("Shrink amount negative or too big");
             _width -= amount;
+        }
+
+        public void zero_roundoff_errors()
+        {
+            for (int cur_row = 0; cur_row < _height; ++cur_row)
+            {
+                double[] row_ref = _contents[cur_row];
+
+                for (int cur_column = 0; cur_column < _width; ++cur_column)
+                {
+                    if (row_ref[cur_column] > -EPSILON && row_ref[cur_column] < EPSILON)
+                        row_ref[cur_column] = 0.0;
+                }
+            }
         }
 
         #endregion
@@ -138,21 +152,19 @@ namespace ttdtwm
             }
         }
 
-        static public void multiply(rect_matrix result, rect_matrix left, rect_matrix right)
+        static public void multiply(ref rect_matrix result, rect_matrix left, rect_matrix right)
         {
             if (left._width != right._height)
                 throw new ArgumentException("Operand size mismatch");
-            if (result._height != left._height || result._width != right._width)
-                throw new ArgumentException("Result matrix size mismatch");
 
             double[] result_row_ref, left_row_ref, right_row_ref;
             double   left_element;
 
+            result.clear(left._height, right._width);
             for (int cur_row = 0; cur_row < result._height; ++cur_row)
             {
                 left_row_ref   =   left._contents[cur_row];
                 result_row_ref = result._contents[cur_row];
-                Array.Clear(result_row_ref, 0, result._width);
                 for (int sum_index = 0; sum_index < left._width; ++sum_index)
                 {
                     right_row_ref = right._contents[sum_index];
@@ -267,7 +279,7 @@ namespace ttdtwm
         {
             StringBuilder row = new StringBuilder();
 
-            MyLog.Default.WriteLine("\n" + name);
+            MyLog.Default.WriteLine(string.Format("\n{0} {1}x{2}", name, _height, _width));
             for (int cur_row = 0; cur_row < _height; ++cur_row)
             {
                 double[] cur_row_ref = _contents[cur_row];
