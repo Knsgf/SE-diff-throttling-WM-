@@ -5,10 +5,8 @@ using VRage.Utils;
 
 namespace ttdtwm
 {
-    struct rect_matrix
+    struct dense_matrix
     {
-        public const double EPSILON = 1.0E-8;
-
         private int        _width, _initial_width, _height;
         private double[][] _contents;
 
@@ -17,6 +15,22 @@ namespace ttdtwm
             get
             {
                 return _contents[row];
+            }
+        }
+
+        public int rows
+        {
+            get
+            {
+                return _height;
+            }
+        }
+
+        public int columns
+        {
+            get
+            {
+                return _width;
             }
         }
 
@@ -50,6 +64,7 @@ namespace ttdtwm
             }
         }
 
+        /*
         public void set_to_identity(int size = 0)
         {
             clear(size);
@@ -57,7 +72,7 @@ namespace ttdtwm
                 _contents[cur_element][cur_element] = 1.0;
         }
 
-        public void copy_from(rect_matrix b)
+        public void copy_from(dense_matrix b)
         {
             if (_width != b._width || _height != b._height)
                 clear(b._height, b._width);
@@ -71,8 +86,9 @@ namespace ttdtwm
                     cur_row_ref[cur_column] = b_row_ref[cur_column];
             }
         }
+        */
 
-        public void column_vector_from(rect_matrix b, int column)
+        public void column_vector_from(dense_matrix b, int column)
         {
             if (_width != 1 || _height != b._height)
                 clear(b._height, 1);
@@ -81,7 +97,8 @@ namespace ttdtwm
                 _contents[cur_row][0] = b._contents[cur_row][column];
         }
 
-        public static void exchange_columns(rect_matrix a, int column_a, rect_matrix b, int column_b)
+        /*
+        public static void exchange_columns(dense_matrix a, int column_a, dense_matrix b, int column_b)
         {
             if (a._height != b._height)
                 throw new ArgumentException("Row number mismatch");
@@ -94,6 +111,7 @@ namespace ttdtwm
                 b._contents[cur_row][column_b] = temp;
             }
         }
+        */
 
         public void shrink_width(int amount)
         {
@@ -110,7 +128,7 @@ namespace ttdtwm
 
                 for (int cur_column = 0; cur_column < _width; ++cur_column)
                 {
-                    if (row_ref[cur_column] > -EPSILON && row_ref[cur_column] < EPSILON)
+                    if (row_ref[cur_column] > -revised_simplex_solver.EPSILON && row_ref[cur_column] < revised_simplex_solver.EPSILON)
                         row_ref[cur_column] = 0.0;
                 }
             }
@@ -135,9 +153,8 @@ namespace ttdtwm
                     cur_row_ref[cur_column] += b_row_ref[cur_column];
             }
         }
-        */
 
-        public void subtract(rect_matrix b)
+        public void subtract(dense_matrix b)
         {
             if (_width != b._width || _height != b._height)
                 throw new ArgumentException("Attempt to subtract matrix of different size");
@@ -152,7 +169,7 @@ namespace ttdtwm
             }
         }
 
-        static public void multiply(ref rect_matrix result, rect_matrix left, rect_matrix right)
+        static public void multiply(ref dense_matrix result, dense_matrix left, dense_matrix right)
         {
             if (left._width != right._height)
                 throw new ArgumentException("Operand size mismatch");
@@ -172,17 +189,10 @@ namespace ttdtwm
                     for (int cur_column = 0; cur_column < result._width; ++cur_column)
                         result_row_ref[cur_column] += left_element * right_row_ref[cur_column];
                 }
-                /*
-                for (int cur_column = 0; cur_column < result._width; ++cur_column)
-                {
-                    if (result_row_ref[cur_column] > -EPSILON && result_row_ref[cur_column] < EPSILON)
-                        result_row_ref[cur_column] = 0.0;
-                }
-                */
             }
         }
 
-        static public bool invert(ref rect_matrix operand, ref rect_matrix identity)
+        static public bool invert(ref dense_matrix operand, ref dense_matrix identity)
         {
             if (operand._width != operand._height || identity._width != identity._height || operand._height != identity._height)
                 throw new ArgumentException("Cannot invert non-square matrix");
@@ -235,16 +245,18 @@ namespace ttdtwm
                 }
             }
 
-            rect_matrix temp = operand;
+            dense_matrix temp = operand;
             operand          = identity;
             identity         = temp;
             return true;
         }
 
+        */
         #endregion
 
         #region row operations
 
+        /*
         public void add_row(int destination_row, int source_row, int starting_index = 0)
         {
             double[] dest_row_ref = _contents[destination_row], source_row_ref = _contents[source_row];
@@ -272,14 +284,17 @@ namespace ttdtwm
             for (int cur_column = starting_index; cur_column < _width; ++cur_column)
                 row_ref[cur_column] /= divider;
         }
+        */
 
         #endregion
 
-        public void log(string name)
+        public void log(string name, bool show_contents = true)
         {
             StringBuilder row = new StringBuilder();
 
             MyLog.Default.WriteLine(string.Format("\n{0} {1}x{2}", name, _height, _width));
+            if (!show_contents)
+                return;
             for (int cur_row = 0; cur_row < _height; ++cur_row)
             {
                 double[] cur_row_ref = _contents[cur_row];

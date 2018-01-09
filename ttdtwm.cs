@@ -17,6 +17,8 @@ namespace ttdtwm
     [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation)]
     public class session_handler: MySessionComponentBase
     {
+        const bool SINGLE_THREADED_EXEC = false;
+        
         #region fields
 
         private Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
@@ -377,9 +379,10 @@ namespace ttdtwm
                 if (--_count8_background <= 0)
                 {
                     _count8_background = 8;
-                    if (!_calibration_task.valid || _calibration_task.IsComplete)
+                    if (SINGLE_THREADED_EXEC)
+                        calibration_thread();
+                    else if (!_calibration_task.valid || _calibration_task.IsComplete)
                         _calibration_task = MyAPIGateway.Parallel.Start(calibration_thread);
-                    //calibration_thread();
                     _grids_handle_2s_period_background();
                 }
                 _grids_handle_4Hz_background();
@@ -404,10 +407,14 @@ namespace ttdtwm
             if (--_count15 <= 0)
             {
                 _count15 = 15;
-                if (_manager_task.valid && !_manager_task.IsComplete)
-                    _manager_task.Wait();
-                _manager_task = MyAPIGateway.Parallel.Start(manager_thread);
-                //manager_thread();
+                if (SINGLE_THREADED_EXEC)
+                    manager_thread();
+                else
+                {
+                    if (_manager_task.valid && !_manager_task.IsComplete)
+                        _manager_task.Wait();
+                    _manager_task = MyAPIGateway.Parallel.Start(manager_thread);
+                }
                 if (--_count8_foreground <= 0)
                 {
                     _count8_foreground = 8;

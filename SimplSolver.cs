@@ -14,32 +14,44 @@ namespace ttdtwm
 
     sealed class revised_simplex_solver
     {
-        private int         _last_item_count = 0;
-        private int[]       _vB = null, _vN = null, _art_var_pos = new int[2];
-        private rect_matrix _E, _cB, _cN, _B, _N, _b, _B_inv, _z, _z_c;
-        private rect_matrix _result, _entering_column, _dividers, _coeffs, _total;
+        public const double EPSILON = 1.0E-8;
+
+        private int           _last_item_count = 0;
+        private int[]         _vB = null, _vN = null, _art_var_pos = new int[2];
+        private sparse_matrix _E, _cB, _cN, _B, _N, _B_inv;
+        private dense_matrix  _b, _z, _z_c;
+        private sparse_matrix _entering_column;
+        private dense_matrix  _result, _dividers, _total, _coeffs;
 
         public List<solver_entry> items { get; private set; }
 
         private bool is_solution_good(int item_count)
         {
-            float sum_x = 0.0f, sum_y = 0.0f;
             float max_ratio = 0.0f;
+
+            if (!engine_control_unit.CALIBRATION_DEBUG)
+            {
+                for (int cur_item = 0; cur_item < item_count; ++cur_item)
+                {
+                    if (items[cur_item].max_value > 0.0f && max_ratio < items[cur_item].result / items[cur_item].max_value)
+                        max_ratio = items[cur_item].result / items[cur_item].max_value;
+                }
+                return max_ratio >= 0.8f;
+            }
+
+            float moment_x = 0.0f, moment_y = 0.0f, force_x = float.Epsilon, force_y = float.Epsilon;
 
             for (int cur_item = 0; cur_item < item_count; ++cur_item)
             {
-                if (engine_control_unit.CALIBRATION_DEBUG)
-                    MyLog.Default.WriteLine(string.Format("#{0} = {1}/{2}", cur_item, items[cur_item].result, items[cur_item].max_value));
+                MyLog.Default.WriteLine(string.Format("#{0} = {1}/{2}", cur_item, items[cur_item].result, items[cur_item].max_value));
                 if (items[cur_item].max_value > 0.0f && max_ratio < items[cur_item].result / items[cur_item].max_value)
                     max_ratio = items[cur_item].result / items[cur_item].max_value;
-                if (engine_control_unit.CALIBRATION_DEBUG)
-                {
-                    sum_x += items[cur_item].result * items[cur_item].x;
-                    sum_y += items[cur_item].result * items[cur_item].y;
-                }
+                moment_x += items[cur_item].result * items[cur_item].x;
+                moment_y += items[cur_item].result * items[cur_item].y;
+                force_x  += items[cur_item].result;
+                force_y  += items[cur_item].result;
             }
-            if (engine_control_unit.CALIBRATION_DEBUG)
-                MyLog.Default.WriteLine(string.Format("TT&DT\t\tsimplex_solver.is_solution_good(): {0}/{1} residual static moment; max = {2}", sum_x, sum_y, max_ratio));
+            MyLog.Default.WriteLine(string.Format("TT&DT\t\tsimplex_solver.is_solution_good(): {0}/{1} residual offset; max = {2}", moment_x / force_x, moment_y / force_y, max_ratio));
             return max_ratio >= 0.8f;
         }
 
@@ -74,8 +86,8 @@ namespace ttdtwm
             _entering_column.clear(num_vars, 1);
             _dividers.clear       (num_vars, 1);
 
-            double[] B0_ref = _B[0], B1_ref = _B[1];
-            int      cur_index;
+            sparse_row_ref B0_ref = _B[0], B1_ref = _B[1];
+            int            cur_index;
             for (int cur_item = 0; cur_item < item_count; ++cur_item)
             {
                 cur_index = cur_item + 2;
@@ -95,26 +107,36 @@ namespace ttdtwm
             int temp          = _vN[entering_var];
             _vN[entering_var] = _vB[leaving_var];
             _vB[leaving_var]  = temp;
-            rect_matrix.exchange_columns(_cN, entering_var, _cB, leaving_var);
-            rect_matrix.exchange_columns( _N, entering_var,  _B, leaving_var);
-            if ((iterations & 7) == 7)
+            sparse_matrix.exchange_columns(_cN, entering_var, _cB, leaving_var);
+            sparse_matrix.exchange_columns( _N, entering_var,  _B, leaving_var);
+            if ((iterations & 0xF) == 0)
             {
-                if (engine_control_unit.CALIBRATION_DEBUG)
+                if (engine_control_unit.FULL_CALIBRATION_DEBUG)
                     MyLog.Default.WriteLine("B^-1 recalculated from B");
                 _B_inv.copy_from(_B);
-                bool singular_B = !rect_matrix.invert(ref _B_inv, ref _E);
+                bool singular_B = !sparse_matrix.invert(ref _B_inv, ref _E);
                 if (singular_B)
                     return false;
             }
             else
             {
+                double multiplier;
+
                 _B_inv.divide_row(leaving_var, _dividers[leaving_var][0]);
                 for (int cur_row = 0; cur_row < leaving_var; ++cur_row)
-                    _B_inv.subtract_row(cur_row, leaving_var, _dividers[cur_row][0]);
+                {
+                    multiplier = _dividers[cur_row][0];
+                    if (multiplier != 0.0)
+                        _B_inv.subtract_row(cur_row, leaving_var, multiplier);
+                }
                 for (int cur_row = leaving_var + 1; cur_row < num_vars; ++cur_row)
-                    _B_inv.subtract_row(cur_row, leaving_var, _dividers[cur_row][0]);
+                {
+                    multiplier = _dividers[cur_row][0];
+                    if (multiplier != 0.0)
+                        _B_inv.subtract_row(cur_row, leaving_var, multiplier);
+                }
             }
-            _B_inv.zero_roundoff_errors();
+            _B_inv.purge_zeroes();
             return true;
         }
 
@@ -126,11 +148,11 @@ namespace ttdtwm
 
             while (true)
             {
-                rect_matrix.multiply(ref   _z, _cB, _B_inv);
-                rect_matrix.multiply(ref _z_c,  _z, _N);
-                _z_c.subtract(_cN);
+                sparse_matrix.multiply(ref _z  , _cB, _B_inv);
+                sparse_matrix.multiply(ref _z_c,  _z, _N);
+                sparse_matrix.subtract(_z_c, _cN);
                 _z_c.zero_roundoff_errors();
-                rect_matrix.multiply(ref _result, _B_inv, _b);
+                sparse_matrix.multiply(ref _result, _B_inv, _b);
                 _result.zero_roundoff_errors();
 
                 int      entering_var  = -1;
@@ -163,25 +185,29 @@ namespace ttdtwm
                 {
                     if (engine_control_unit.CALIBRATION_DEBUG)
                     {
-                        rect_matrix.multiply(ref _E, _B, _B_inv);
-                        _E.log("E");
-                        _E.set_to_identity();
-                        _cB.log("cB");
-                        _cN.log("cN");
-                        _B.log("B");
-                        _N.log("N");
-                        _B_inv.log("B^-1");
-                        _z.log("cB * B^-1");
-                        _z_c.log("cB * B^-1 * N - cN");
-                        _result.log("B^-1 * b");
-                        rect_matrix.multiply(ref _total, _cB, _result);
+                        if (engine_control_unit.FULL_CALIBRATION_DEBUG)
+                        {
+                            sparse_matrix.multiply(ref _E, _B, _B_inv);
+                            _E.log("E");
+                            _E.set_to_identity();
+                            _cB.log("cB");
+                            _cN.log("cN");
+                            _B.log("B");
+                            _N.log("N");
+                            _B_inv.log("B^-1");
+                            _z.log("cB * B^-1");
+                            _z_c.log("cB * B^-1 * N - cN");
+                            _result.log("B^-1 * b");
+                        }
+                        MyLog.Default.WriteLine("<< FINISHED >>");
+                        sparse_matrix.multiply(ref _total, _cB, _result);
                         MyLog.Default.WriteLine(string.Format("Iteration = {0}; total = {1}", iterations, _total[0][0]));
                     }
                     return true;
                 }
 
                 _entering_column.column_vector_from(_N, entering_var);
-                rect_matrix.multiply(ref _dividers, _B_inv, _entering_column);
+                sparse_matrix.multiply(ref _dividers, _B_inv, _entering_column);
                 _dividers.zero_roundoff_errors();
                 double min_ratio   = double.MaxValue, cur_ratio;
                 int    leaving_var = -1;
@@ -198,36 +224,52 @@ namespace ttdtwm
                     }
                 }
                 if (leaving_var < 0)
+                {
+                    MyLog.Default.WriteLine("<< ABORTED >>");
+                    sparse_matrix.multiply(ref _total, _cB, _result);
+                    log_var("Entering", _vN[entering_var], num_vars);
+                    MyLog.Default.WriteLine(string.Format("Iteration = {0}; total = {1}", iterations, _total[0][0]));
                     return false;
+                }
 
                 increase -= min_neg_coeff * min_ratio;
                 if (engine_control_unit.CALIBRATION_DEBUG)
                 {
-                    rect_matrix.multiply(ref _E, _B, _B_inv);
-                    _E.log("E");
-                    _E.set_to_identity();
-                    _cB.log("cB");
-                    _cN.log("cN");
-                    _B.log("B");
-                    _N.log("N");
-                    _B_inv.log("B^-1");
-                    _z.log("cB * B^-1");
-                    _z_c.log("cB * B^-1 * N - cN");
-                    _result.log("B^-1 * b");
-                    _dividers.log("B^-1 * N[e]");
-                    log_var("Entering", _vN[entering_var], item_count + 2);
-                    log_var( "Leaving", _vB[ leaving_var], item_count + 2);
-                    rect_matrix.multiply(ref _total, _cB, _result);
+                    if (engine_control_unit.FULL_CALIBRATION_DEBUG)
+                    {
+                        sparse_matrix.multiply(ref _E, _B, _B_inv);
+                        _E.log("E");
+                        _E.set_to_identity();
+                        _cB.log("cB");
+                        _cN.log("cN");
+                        _B.log("B");
+                        _N.log("N");
+                        _B_inv.log("B^-1");
+                        _z.log("cB * B^-1");
+                        _z_c.log("cB * B^-1 * N - cN");
+                        _result.log("B^-1 * b");
+                        _dividers.log("B^-1 * N[e]");
+                    }
+                    log_var("Entering", _vN[entering_var], num_vars);
+                    log_var( "Leaving", _vB[ leaving_var], num_vars);
+                    sparse_matrix.multiply(ref _total, _cB, _result);
                     MyLog.Default.WriteLine(string.Format("Iteration = {2}; increase = {0}; Bland's rule = {1}; total = {3}", -min_neg_coeff * min_ratio, use_Blands_rule, iterations, _total[0][0] - min_neg_coeff * min_ratio));
                 }
                 if ((iterations & 3) == 3)
                 {
-                    use_Blands_rule = increase < rect_matrix.EPSILON;
+                    use_Blands_rule = increase < EPSILON;
                     increase        = 0.0;
                 }
                 bool singular_B = !perform_pivot(num_vars, entering_var, leaving_var, iterations++);
                 if (singular_B)
+                {
+                    MyLog.Default.WriteLine("<< SINGULAR >>");
+                    _cB.log("cB");
+                    _cN.log("cN");
+                    _B.log("B");
+                    _N.log("N");
                     return false;
+                }
             }
         }
 
@@ -238,18 +280,18 @@ namespace ttdtwm
 
             fill_matrices(item_count);
 
-            double[] cN_ref = _cN[0], cB_ref = _cB[0];
+            sparse_row_ref cN_ref = _cN[0], cB_ref = _cB[0];
             cB_ref[0] = cB_ref[1] = -1.0;
             _B_inv.copy_from(_B);
-            singular_B = !rect_matrix.invert(ref _B_inv, ref _E);
+            singular_B = !sparse_matrix.invert(ref _B_inv, ref _E);
             if (singular_B)
                 return false;
-            _B_inv.zero_roundoff_errors();
-            rect_matrix.multiply(ref _result, _B_inv, _b);
+            _B_inv.purge_zeroes();
+            sparse_matrix.multiply(ref _result, _B_inv, _b);
             _result.zero_roundoff_errors();
-            if (engine_control_unit.CALIBRATION_DEBUG)
+            if (engine_control_unit.FULL_CALIBRATION_DEBUG)
             {
-                rect_matrix.multiply(ref _E, _B, _B_inv);
+                sparse_matrix.multiply(ref _E, _B, _B_inv);
                 _E.log("E");
                 _E.set_to_identity();
                 _cB.log("cB");
@@ -258,7 +300,7 @@ namespace ttdtwm
                 _N.log("N");
                 _B_inv.log("B^-1");
                 _result.log("B^-1 * b");
-                rect_matrix.multiply(ref _total, _cB, _result);
+                sparse_matrix.multiply(ref _total, _cB, _result);
                 _total.log("Total");
                 MyLog.Default.WriteLine(string.Format("Total = {0}", _total[0][0]));
             }
@@ -267,7 +309,7 @@ namespace ttdtwm
             {
                 if (_result[art_var][0] < 0.0)
                 {
-                    double[] B_row_ref = _B[art_var];
+                    sparse_row_ref B_row_ref = _B[art_var];
 
                     for (int cur_column = 2; cur_column < num_vars; ++cur_column)
                         B_row_ref[cur_column] = -B_row_ref[cur_column];
@@ -277,27 +319,27 @@ namespace ttdtwm
             if (reinvert_B)
             {
                 _B_inv.copy_from(_B);
-                singular_B = !rect_matrix.invert(ref _B_inv, ref _E);
+                singular_B = !sparse_matrix.invert(ref _B_inv, ref _E);
                 if (singular_B)
                     return false;
-                _B_inv.zero_roundoff_errors();
+                _B_inv.purge_zeroes();
             }
-            int  num_terations = 1;
-            bool initial_BFS_present = solve_phase(item_count, num_vars, ref num_terations);
+            int  num_iterations = 1;
+            bool initial_BFS_present = solve_phase(item_count, num_vars, ref num_iterations);
             if (!initial_BFS_present)
                 return false;
-            rect_matrix.multiply(ref _total, _cB, _result);
-            if (_total[0][0] < -rect_matrix.EPSILON)
+            sparse_matrix.multiply(ref _total, _cB, _result);
+            if (_total[0][0] < -EPSILON)
                 return false;
-            initial_BFS_present = remove_artificial_variables(ref item_count, num_vars, ref num_terations);
+            initial_BFS_present = remove_artificial_variables(ref item_count, num_vars, ref num_iterations);
             if (!initial_BFS_present)
                 return false;
 
             for (int cur_var = 0; cur_var < item_count; ++cur_var)
                 cN_ref[cur_var] = (_vN[cur_var] >= num_vars) ? 0.0 : 1.0;
-            for (int cur_var = 0; cur_var < num_vars; ++cur_var)
+            for (int cur_var = 0; cur_var <   num_vars; ++cur_var)
                 cB_ref[cur_var] = (_vB[cur_var] >= num_vars) ? 0.0 : 1.0;
-            return solve_phase(item_count, num_vars, ref num_terations);
+            return solve_phase(item_count, num_vars, ref num_iterations);
         }
 
         private bool remove_artificial_variables(ref int item_count, int num_vars, ref int iterations)
@@ -318,7 +360,7 @@ namespace ttdtwm
                     continue;
                 }
 
-                rect_matrix.multiply(ref _coeffs, _B_inv, _N);
+                sparse_matrix.multiply(ref _coeffs, _B_inv, _N);
                 _coeffs.zero_roundoff_errors();
                 int entering_var = -1;
                 double[] coeffs_row_ref = _coeffs[leaving_var];
@@ -330,9 +372,9 @@ namespace ttdtwm
                         break;
                     }
                 }
-                if (engine_control_unit.CALIBRATION_DEBUG)
+                if (engine_control_unit.FULL_CALIBRATION_DEBUG)
                 {
-                    rect_matrix.multiply(ref _E, _B, _B_inv);
+                    sparse_matrix.multiply(ref _E, _B, _B_inv);
                     _E.log("E");
                     _E.set_to_identity();
                     _cB.log("cB");
@@ -352,9 +394,9 @@ namespace ttdtwm
                 _art_var_pos[leaving_var] = entering_var;
             }
 
-            if (engine_control_unit.CALIBRATION_DEBUG)
+            if (engine_control_unit.FULL_CALIBRATION_DEBUG)
             {
-                rect_matrix.multiply(ref _E, _B, _B_inv);
+                sparse_matrix.multiply(ref _E, _B, _B_inv);
                 _E.log("E");
                 _E.set_to_identity();
                 _cB.log("cB");
@@ -373,12 +415,12 @@ namespace ttdtwm
                     ++next_available_column;
                 if (engine_control_unit.CALIBRATION_DEBUG)
                     MyLog.Default.WriteLine(string.Format("#{0} <--> #{1}", _art_var_pos[art_var] + 1, next_available_column + 1));
-                rect_matrix.exchange_columns(_cN, _art_var_pos[art_var], _cN, next_available_column);
-                rect_matrix.exchange_columns (_N, _art_var_pos[art_var],  _N, next_available_column);
+                sparse_matrix.exchange_columns(_cN, _art_var_pos[art_var], _cN, next_available_column);
+                sparse_matrix.exchange_columns (_N, _art_var_pos[art_var],  _N, next_available_column);
                 _vN[_art_var_pos[art_var]] = _vN[next_available_column];
                 _vN[next_available_column] = art_var + item_count;
             }
-            if (engine_control_unit.CALIBRATION_DEBUG)
+            if (engine_control_unit.FULL_CALIBRATION_DEBUG)
             {
                 _cN.log("cN");
                 _N.log("N");

@@ -272,7 +272,7 @@ namespace ttdtwm
 
         #region DEBUG
 
-        public const bool CALIBRATION_DEBUG = false;
+        public const bool CALIBRATION_DEBUG = false, FULL_CALIBRATION_DEBUG = false;
 
         private void screen_info(string message, int display_time_ms, string font, bool controlled_only)
         {
@@ -437,7 +437,7 @@ namespace ttdtwm
             //if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
             //    return;
 
-            const float MIN_ANGULAR_ACCELERATION = (float) (0.1 * Math.PI / 180.0);
+            //const float MIN_ANGULAR_ACCELERATION = (float) (0.1 * Math.PI / 180.0);
 
             MyThrust thruster;
 
@@ -579,7 +579,6 @@ namespace ttdtwm
                         : string.Format("calibration on {0} side failed", cur_direction));
                 }
             }
-            _calibration_in_progress = _calibration_complete = false;
         }
 
         private string get_sector_name(int sector_number)
@@ -1959,8 +1958,10 @@ namespace ttdtwm
                 */
             }
 
-            if (_individual_calibration_on)
+            if (_individual_calibration_on && !_calibration_in_progress)
                 prepare_individual_calibration();
+            else
+                _calibration_in_progress = _calibration_complete = false;
         }
 
         private void enable_control(MyThrust cur_thruster, thruster_info cur_thruster_info)
@@ -2081,7 +2082,7 @@ namespace ttdtwm
             {
                 _actual_max_force[dir_index] = refresh_real_max_forces_for_single_direction(_controlled_thrusters[dir_index], atmosphere_present, air_density);
                 if (_prev_air_density >= 0.0f)
-                    _calibration_scheduled[dir_index] |= !_individual_calibration_on;
+                    _calibration_scheduled[dir_index] = true;
             }
             /*
             log_ECU_action("refresh_real_max_forces", string.Format("actual forces = {0}/{1}/{2}/{3}/{4}/{5} kN",
