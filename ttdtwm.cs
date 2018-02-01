@@ -14,7 +14,7 @@ using VRage.Utils;
 
 namespace ttdtwm
 {
-    [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation)]
+    [MySessionComponentDescriptor(MyUpdateOrder.AfterSimulation)]
     public class session_handler: MySessionComponentBase
     {
         const bool SINGLE_THREADED_EXEC = false;
@@ -394,9 +394,9 @@ namespace ttdtwm
             }
         }
 
-        public override void UpdateBeforeSimulation()
+        public override void UpdateAfterSimulation()
         {
-            base.UpdateBeforeSimulation();
+            base.UpdateAfterSimulation();
 
             sync_helper.handle_60Hz();
             if (_grids_handle_60Hz == null)

@@ -763,7 +763,7 @@ namespace ttdtwm
 
         private void apply_thrust_settings(bool reset_all_thrusters)
         {
-            float         setting, setting_ratio, thrust_mult, idle_thrust_mult, min_override_mult;
+            float         setting, thrust_mult, idle_thrust_mult, min_override_mult;
             bool          dry_run;
             thruster_info cur_thruster_info;
             IMyThrust     thruster;
@@ -810,7 +810,6 @@ namespace ttdtwm
                 foreach (var cur_thruster in _controlled_thrusters[dir_index])
                 {
                     thruster          = cur_thruster.Key;
-                    thrust_mult       = thruster.ThrustMultiplier;
                     cur_thruster_info = cur_thruster.Value;
                     if (_force_override_refresh)
                         cur_thruster_info.prev_setting = cur_thruster.Key.CurrentStrength * 100.0f;
@@ -832,36 +831,32 @@ namespace ttdtwm
                     }
 
                     setting = cur_thruster_info.current_setting * 100.0f;
-                    if (setting < MIN_OVERRIDE)
+                    if (setting >= MIN_OVERRIDE)
+                    { 
+                        thrust_mult                 = cur_thruster_info.normal_thrust_mult;
+                        cur_thruster_info.is_idling = false;
+                    }
+                    else
                     {
                         if (!cur_thruster_info.is_idling)
                         {
-                            cur_thruster_info.normal_thrust_mult = thrust_mult;
+                            cur_thruster_info.normal_thrust_mult = thruster.ThrustMultiplier;
                             cur_thruster_info.is_idling          = true;
                         }
                         thrust_mult = idle_thrust_mult + setting / MIN_OVERRIDE * min_override_mult * cur_thruster_info.normal_thrust_mult;
                         if (thrust_mult > 1.0f)
                             thrust_mult = 1.0f;
-                        setting_ratio = cur_thruster_info.last_thrust_mult / thrust_mult;
-                        if (setting_ratio <= 0.99f || setting_ratio >= 1.01f)
-                            thruster.ThrustMultiplier = cur_thruster_info.last_thrust_mult = thrust_mult;
-                        else
-                            cur_thruster_info.last_thrust_mult += cur_thruster_info.last_thrust_mult - thrust_mult;
                         setting = MIN_OVERRIDE;
                     }
-                    else if (cur_thruster_info.is_idling)
-                    { 
-                        thruster.ThrustMultiplier   = cur_thruster_info.normal_thrust_mult;
-                        cur_thruster_info.is_idling = false;
-                    }
-                    setting_ratio = cur_thruster_info.prev_setting / setting;
-                    if (setting_ratio > 0.99f && setting_ratio < 1.01f)
-                        cur_thruster_info.prev_setting += cur_thruster_info.prev_setting - setting;
-                    else
+                    if (cur_thruster_info.prev_setting != setting || cur_thruster_info.last_thrust_mult != thrust_mult)
                     {
                         if (!dry_run)
-                            cur_thruster.Key.SetValueFloat("Override", setting);
-                        cur_thruster_info.prev_setting = setting;
+                        {
+                            thruster.ThrustMultiplier = thrust_mult;
+                            thruster.SetValueFloat("Override", setting);
+                        }
+                        cur_thruster_info.prev_setting     = setting;
+                        cur_thruster_info.last_thrust_mult = thrust_mult;
                     }
                 }
             }
@@ -894,9 +889,8 @@ namespace ttdtwm
                     cur_thruster_info.current_setting = 0.0f;
                 if (cur_thruster_info.current_setting < MIN_OVERRIDE / 100.0f)
                     cur_thruster_info.current_setting = 0.0f;
-                setting       = cur_thruster_info.current_setting * 100.0f;
-                setting_ratio = (cur_thruster_info.prev_setting == 0.0f) ? 1.0f : (setting / cur_thruster_info.prev_setting);
-                if (setting_ratio <= 0.9f || setting_ratio >= 1.111f || Math.Abs(setting - cur_thruster_info.prev_setting) >= 1.0f)
+                setting = cur_thruster_info.current_setting * 100.0f;
+                if (cur_thruster_info.prev_setting != setting)
                 {
                     if (!dry_run)
                         cur_thruster.Key.SetValueFloat("Override", setting);
