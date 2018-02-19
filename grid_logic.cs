@@ -279,6 +279,7 @@ namespace ttdtwm
                     }
                     _ECU.assign_thruster(thruster);
                     _session_ref.sample_thruster(thruster);
+                    thruster.AppendingCustomInfo += thruster_tagger.show_thrust_limit;
                     ++_num_thrusters;
                     //log_grid_action("on_block_added", thruster.EntityId.ToString());
                 }
@@ -314,6 +315,7 @@ namespace ttdtwm
                     var thruster = entity as IMyThrust;
                     if (thruster != null)
                     {
+                        thruster.AppendingCustomInfo -= thruster_tagger.show_thrust_limit;
                         _ECU.dispose_thruster(thruster);
                         --_num_thrusters;
                         //log_grid_action("on_block_removed", thruster.EntityId.ToString());

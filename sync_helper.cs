@@ -24,7 +24,7 @@ namespace ttdtwm
         const ushort SYNC_MESSAGE_ID = 17370;
 
         internal const int MAX_MESSAGE_LENGTH = 18;
-        internal enum message_types { LINEAR_INPUT, ROTATION_INPUT, I_TERMS, MANUAL_THROTTLE, CONTROL_LIMIT, THRUST_LOSS };
+        internal enum message_types { LINEAR_INPUT, ROTATION_INPUT, I_TERMS, MANUAL_THROTTLE, CONTROL_LIMIT, THRUST_LOSS, SHOW_THRUST_LIMIT };
         private static readonly int _num_messages = Enum.GetValues(typeof(message_types)).Length;
 
         const int SIGNATURE_LENGTH = 5;
@@ -55,10 +55,11 @@ namespace ttdtwm
             min_displayed_reduction = 10;
 
             _message_handlers = new Action<object, byte[]>[_num_messages];
-            _message_handlers[(int) message_types.I_TERMS        ] = grid_logic.I_terms_handler;
-            _message_handlers[(int) message_types.CONTROL_LIMIT  ] = grid_logic.control_warning_handler;
-            _message_handlers[(int) message_types.THRUST_LOSS    ] = grid_logic.thrust_reduction_handler;
-            _message_handlers[(int) message_types.MANUAL_THROTTLE] = engine_control_unit.on_manual_throttle_changed;
+            _message_handlers[(int) message_types.I_TERMS          ] = grid_logic.I_terms_handler;
+            _message_handlers[(int) message_types.CONTROL_LIMIT    ] = grid_logic.control_warning_handler;
+            _message_handlers[(int) message_types.THRUST_LOSS      ] = grid_logic.thrust_reduction_handler;
+            _message_handlers[(int) message_types.MANUAL_THROTTLE  ] = engine_control_unit.on_manual_throttle_changed;
+            _message_handlers[(int) message_types.SHOW_THRUST_LIMIT] = engine_control_unit.extract_thrust_limit;
         }
 
         private static void log_sync_action(string method_name, string message)

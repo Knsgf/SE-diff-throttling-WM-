@@ -12,6 +12,8 @@ namespace ttdtwm
         private static uint             _manual_throttle;
         private static byte[]           _message = new byte[1];
 
+        public static int displayed_thrust_limit { get; set; }
+
         private static void update_flags(IMyTerminalBlock thruster)
         {
             if (!(thruster is IMyThrust))
@@ -37,6 +39,18 @@ namespace ttdtwm
             bool setting_saved = MyAPIGateway.Utilities.GetVariable(_throttle_setting, out _manual_throttle);
             if (!setting_saved)
                 _manual_throttle = 0;
+
+            thruster.RefreshCustomInfo();
+        }
+
+        public static void show_thrust_limit(IMyTerminalBlock thruster, StringBuilder info_text)
+        {
+            sync_helper.send_message_to_self(sync_helper.message_types.SHOW_THRUST_LIMIT, thruster.EntityId, _message, 1);
+            info_text.Append("Balanced Thrust Level: ");
+            if (displayed_thrust_limit < 0)
+                info_text.Append("N/A");
+            else
+                info_text.Append(displayed_thrust_limit).Append(" %");
         }
 
         public static bool is_active_control_available(IMyTerminalBlock thruster)

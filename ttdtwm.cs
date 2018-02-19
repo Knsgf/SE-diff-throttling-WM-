@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
+using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
 using Sandbox.ModAPI.Interfaces;
 using Sandbox.ModAPI.Interfaces.Terminal;
@@ -11,6 +12,7 @@ using VRage.Game.Components;
 using VRage.Game.ModAPI;
 using VRage.ModAPI;
 using VRage.Utils;
+using PB = Sandbox.ModAPI.Ingame;
 
 namespace ttdtwm
 {
@@ -86,7 +88,12 @@ namespace ttdtwm
 
         private bool is_grid_CoT_mode_available(IMyTerminalBlock controller)
         {
+            if (!((PB.IMyShipController) controller).ControlThrusters)
+                return false;
+
             IMyCubeGrid grid = controller.CubeGrid;
+            if (((MyCubeGrid) grid).HasMainCockpit() && !((PB.IMyShipController) controller).IsMainCockpit)
+                return false;
             return _grids[grid].is_CoT_mode_available;
         }
 
@@ -128,6 +135,9 @@ namespace ttdtwm
 
         private bool is_grid_landing_mode_available(IMyTerminalBlock controller)
         {
+            if (!is_grid_CoT_mode_available(controller))
+                return false;
+
             IMyCubeGrid grid = controller.CubeGrid;
             return _grids[grid].is_landing_mode_available;
         }
@@ -221,19 +231,19 @@ namespace ttdtwm
             panel_switch.SupportsMultipleBlocks = true;
             MyAPIGateway.TerminalControls.AddControl<_block_>(panel_switch);
 
-            create_toggle<_block_>(id + "OnOff", title + " On/Off", toolbar_enabled_text, toolbar_disabled_text,
+            create_toggle<_block_>(id + "OnOff", title + " " + enabled_text + "/" + disabled_text, toolbar_enabled_text, toolbar_disabled_text,
                 delegate (IMyTerminalBlock block)
                 {
                     setter(block, !getter(block));
                 },
                 getter, state, "MissileToggle");
-            create_toggle<_block_>(id + "OnOff_On", title + " On", toolbar_enabled_text, toolbar_disabled_text,
+            create_toggle<_block_>(id + "OnOff_On", title + " " + enabled_text, toolbar_enabled_text, toolbar_disabled_text,
                 delegate (IMyTerminalBlock block)
                 {
                     setter(block, true);
                 },
                 getter, state, "MissileSwitchOn");
-            create_toggle<_block_>(id + "OnOff_Off", title + " Off", toolbar_enabled_text, toolbar_disabled_text,
+            create_toggle<_block_>(id + "OnOff_Off", title + " " + disabled_text, toolbar_enabled_text, toolbar_disabled_text,
                 delegate (IMyTerminalBlock block)
                 {
                     setter(block, false);

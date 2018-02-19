@@ -18,20 +18,21 @@ namespace ttdtwm
         #region fields
 
         const int   NUM_ROTATION_SAMPLES = 6, PHYSICS_ENABLE_DELAY = 6;
-        const float DESCENDING_SPEED     = 0.5f, MIN_OVERRIDE = 1.001f, MIN_THRUST_MULT = 0.015f, LINEAR_INTEGRAL_CONSTANT = 0.05f;
+        const float DESCENDING_SPEED     = 0.5f, MIN_OVERRIDE = 1.001f, MIN_THRUST_MULT = 0.015f, LINEAR_INTEGRAL_CONSTANT = 0.05f, MIN_THROTTLE = 0.00015f;
         const bool  DEBUG_THR_ALWAYS_ON  = false, DEBUG_DISABLE_ALT_HOLD = false;
 
         enum thrust_dir { fore = 0, aft = 3, starboard = 1, port = 4, dorsal = 2, ventral = 5 };
         sealed class thruster_info     // Technically a struct
         {
-            public float         max_force, actual_max_force;
-            public Vector3       max_torque, grid_centre_pos, static_moment, actual_static_moment, CoM_offset, reference_vector;
-            public thrust_dir    nozzle_direction;
-            public float         current_setting, thrust_limit, prev_setting, manual_throttle, normal_thrust_mult, last_thrust_mult;
-            public bool          enable_limit, enable_rotation, active_control_on, is_RCS, skip, throttle_up, apply_limit, is_idling;
-            public thruster_info next_tandem_thruster, prev_tandem_thruster, opposing_thruster;
-            public string        throttle_setting;
-            public int           control_sector;
+            public engine_control_unit host_ECU;
+            public float               max_force, actual_max_force;
+            public Vector3             max_torque, grid_centre_pos, static_moment, actual_static_moment, CoM_offset, reference_vector;
+            public thrust_dir          nozzle_direction;
+            public float               current_setting, thrust_limit, prev_setting, manual_throttle, normal_thrust_mult, last_thrust_mult;
+            public bool                enable_limit, enable_rotation, active_control_on, is_RCS, skip, throttle_up, apply_limit, is_idling;
+            public thruster_info       next_tandem_thruster, prev_tandem_thruster, opposing_thruster;
+            public string              throttle_setting;
+            public int                 control_sector;
         };
 
         private static readonly Vector3I[] _thrust_forward_vectors;
@@ -58,6 +59,8 @@ namespace ttdtwm
             new List<thruster_info>(),  // port
             new List<thruster_info>()   // ventral
         };
+
+        private static readonly Vector3 neg_override_bound = Vector3.One * (-MIN_THROTTLE), pos_override_bound = Vector3.One * MIN_THROTTLE;
 
         private static float[] __control_vector  = new float[6], __control_vector_copy = new float[6];
         private static float[] __braking_vector  = new float[6];
@@ -370,66 +373,6 @@ namespace ttdtwm
             if (total_mass == 0.0f)
                 return _grid.Physics.CenterOfMassWorld;
             return static_moment / total_mass;
-        }
-
-        private static void send_manual_throttle(thruster_info thruster_entry, uint manual_throttle)
-        {
-            __message[0] = (byte) manual_throttle;
-            //MyLog.Default.WriteLine(string.Format("TTDTWM\tengine_control_unit.send_manual_throttle(): {0}", __message[0]));
-            sync_helper.send_message_to_others(sync_helper.message_types.MANUAL_THROTTLE, thruster_entry, __message, 1);
-        }
-
-        internal static void on_manual_throttle_changed(object entity, byte[] argument)
-        {
-            var thruster_entry = entity as thruster_info;
-
-            if (thruster_entry != null)
-            {
-                uint new_throttle = argument[0] & 0x7FU;
-
-                thruster_entry.manual_throttle = new_throttle / 100.0f;
-                MyAPIGateway.Utilities.SetVariable(thruster_entry.throttle_setting, new_throttle);
-                if ((argument[0] & 0x80) != 0)
-                    send_manual_throttle(thruster_entry, new_throttle);
-                //MyLog.Default.WriteLine(string.Format("TTDTWM\tengine_control_unit.on_manual_throttle_changed(): {0}", argument[0]));
-            }
-        }
-
-        private void check_manual_override()
-        {
-            thruster_info cur_thruster_info;
-
-            _is_thrust_override_active = false;
-            for (int dir_index = 0; dir_index < 6; ++dir_index)
-            {
-                _uncontrolled_override_checked[dir_index] = false;
-                _thrust_override_vector       [dir_index] = 0.0f;
-            }
-            foreach (var cur_thruster in _uncontrolled_thrusters)
-            {
-                cur_thruster_info = cur_thruster.Value;
-                if (!_uncontrolled_override_checked[(int) cur_thruster_info.nozzle_direction] && cur_thruster.Key.IsWorking)
-                {
-                    if (cur_thruster.Value.manual_throttle >= 0.01f)
-                    { 
-                        _thrust_override_vector[(int) cur_thruster_info.nozzle_direction] = 0.01f;
-                        _uncontrolled_override_checked[(int) cur_thruster_info.nozzle_direction] = _is_thrust_override_active = true;
-                    }
-                }
-            }
-            for (int dir_index = 0; dir_index < 6; ++dir_index)
-            {
-                foreach (var cur_thruster in _controlled_thrusters[dir_index])
-                {
-                    if (cur_thruster.Value.manual_throttle >= 0.01f && cur_thruster.Key.IsWorking)
-                    {
-                        _thrust_override_vector[dir_index] = 0.01f;
-                        _is_thrust_override_active          = true;
-                        break;
-                    }
-                }
-            }
-            recompose_vector(_thrust_override_vector, out _thrust_override);
         }
 
         private void calculate_and_apply_torque()
@@ -763,7 +706,9 @@ namespace ttdtwm
 
         private void apply_thrust_settings(bool reset_all_thrusters)
         {
-            float         setting, thrust_mult, idle_thrust_mult, min_override_mult;
+            const float MIN_MULT = MIN_THROTTLE * 100.0f / MIN_OVERRIDE;
+
+            float         setting, setting_ratio, thrust_mult, idle_thrust_mult, min_override_mult;
             bool          dry_run;
             thruster_info cur_thruster_info;
             IMyThrust     thruster;
@@ -834,6 +779,7 @@ namespace ttdtwm
                     if (setting >= MIN_OVERRIDE)
                     { 
                         thrust_mult                 = cur_thruster_info.normal_thrust_mult;
+                        setting_ratio               = cur_thruster_info.is_idling ? 0.0f : (cur_thruster_info.prev_setting / setting);
                         cur_thruster_info.is_idling = false;
                     }
                     else
@@ -846,9 +792,12 @@ namespace ttdtwm
                         thrust_mult = idle_thrust_mult + setting / MIN_OVERRIDE * min_override_mult * cur_thruster_info.normal_thrust_mult;
                         if (thrust_mult > 1.0f)
                             thrust_mult = 1.0f;
+                        else if (thrust_mult < MIN_MULT)
+                            thrust_mult = MIN_MULT;
                         setting = MIN_OVERRIDE;
+                        setting_ratio = cur_thruster_info.last_thrust_mult / thrust_mult;
                     }
-                    if (cur_thruster_info.prev_setting != setting || cur_thruster_info.last_thrust_mult != thrust_mult)
+                    if (setting_ratio <= 0.99f || setting_ratio >= 1.01f)
                     {
                         if (!dry_run)
                         {
@@ -958,9 +907,9 @@ namespace ttdtwm
                 for (int dir_index = 0, opposite_dir = 3; dir_index < 3; ++dir_index, ++opposite_dir)
                 {
                     _enable_linear_integral[dir_index] = _enable_linear_integral[opposite_dir] = !DEBUG_DISABLE_ALT_HOLD 
-                        && (  __local_gravity_inv[dir_index] >  0.0f  ||   __local_gravity_inv[opposite_dir] >  0.0f)
-                        &&  __control_vector_copy[dir_index] <  0.01f && __control_vector_copy[opposite_dir] <  0.01f
-                        && (    _actual_max_force[dir_index] >= 1.0f  ||     _actual_max_force[opposite_dir] >= 1.0f);
+                        && (  __local_gravity_inv[dir_index] >         0.0f  ||   __local_gravity_inv[opposite_dir] >  0.0f)
+                        &&  __control_vector_copy[dir_index] <  MIN_THROTTLE && __control_vector_copy[opposite_dir] <  MIN_THROTTLE
+                        && (    _actual_max_force[dir_index] >=        1.0f  ||     _actual_max_force[opposite_dir] >= 1.0f);
 
                     set_brake(   dir_index, opposite_dir);
                     set_brake(opposite_dir,    dir_index);
@@ -1037,7 +986,7 @@ namespace ttdtwm
 
         private void set_brake(int dir_index, int opposite_dir)
         {
-            if (__control_vector_copy[opposite_dir] < 0.01f && _actual_max_force[dir_index] >= 1.0f)
+            if (__control_vector_copy[opposite_dir] < MIN_THROTTLE && _actual_max_force[dir_index] >= 1.0f)
             {
                 float braking_force = __braking_vector[dir_index] + _grid_mass * _linear_integral[dir_index];
 
@@ -1094,7 +1043,7 @@ namespace ttdtwm
 
         private void adjust_thrust_for_steering(int cur_dir, int opposite_dir, Vector3 desired_angular_velocity)
         {
-            const float DAMPING_CONSTANT = 5.0f, MIN_LINEAR_OPPOSITION = 0.1f, MAX_LINEAR_OPPOSITION = 0.2f;
+            const float DAMPING_CONSTANT = 5.0f, MIN_LINEAR_OPPOSITION = 0.01f, MAX_LINEAR_OPPOSITION = 0.1f;
 
             if (_actual_max_force[cur_dir] <= 1.0f)
             {
@@ -1104,11 +1053,11 @@ namespace ttdtwm
 
             Vector3 angular_velocity_diff = desired_angular_velocity - _local_angular_velocity, total_static_moment = Vector3.Zero;
             float   max_linear_opposition, damping = DAMPING_CONSTANT * _grid_mass / _actual_max_force[cur_dir], current_limit = __thrust_limits[cur_dir], 
-                    angular_velocity_diff_magnitude = angular_velocity_diff.Length(), total_force = 0.0f;
+                    angular_velocity_diff_magnitude = angular_velocity_diff.Length(), total_force = 0.0f, linear_opposition = Math.Max(__control_vector[opposite_dir], _thrust_override_vector[opposite_dir]);
             float[] linear_component = __linear_component[cur_dir];
-            bool    enforce_thrust_limit = !_current_mode_is_CoT && __control_vector[opposite_dir] >= 0.01f, THR_mode_used;
+            bool    enforce_thrust_limit = !_current_mode_is_CoT && linear_opposition >= MIN_THROTTLE, THR_mode_used;
 
-            max_linear_opposition = MAX_LINEAR_OPPOSITION * (1.0f - __control_vector[opposite_dir]) + MIN_LINEAR_OPPOSITION * __control_vector[opposite_dir];
+            max_linear_opposition = MAX_LINEAR_OPPOSITION * (1.0f - linear_opposition) + MIN_LINEAR_OPPOSITION * linear_opposition;
             if (_actual_max_force[opposite_dir] < _actual_max_force[cur_dir])
                 max_linear_opposition *= _actual_max_force[opposite_dir] / _actual_max_force[cur_dir];
             if (max_linear_opposition > MAX_LINEAR_OPPOSITION)
@@ -1261,6 +1210,10 @@ namespace ttdtwm
                     max_control = __control_vector[   dir_index];
                 if (max_control < __control_vector[opposite_dir])
                     max_control = __control_vector[opposite_dir];
+                if (max_control < _thrust_override_vector[dir_index])
+                    max_control = _thrust_override_vector[dir_index];
+                if (max_control < _thrust_override_vector[opposite_dir])
+                    max_control = _thrust_override_vector[opposite_dir];
             }
 
             if (max_setting > 0.0f)
@@ -2112,6 +2065,7 @@ namespace ttdtwm
                 thruster_ref.ThrustMultiplier = 1.0f;
             var thruster = (MyThrust) thruster_ref;
             var new_thruster = new thruster_info();
+            new_thruster.host_ECU             = this;
             new_thruster.grid_centre_pos      = (thruster.Min + thruster.Max) * (_grid.GridSize / 2.0f);
             new_thruster.max_force            = new_thruster.actual_max_force = thruster.BlockDefinition.ForceMagnitude;
             new_thruster.CoM_offset           = new_thruster.grid_centre_pos - _grid_CoM_location;
@@ -2296,6 +2250,80 @@ namespace ttdtwm
 
         #region Flight controls handling
 
+        internal static void extract_thrust_limit(object entity, byte[] argument)
+        {
+            var thruster_entry = entity as thruster_info;
+
+            if (thruster_entry != null)
+            {
+                if (thruster_entry.host_ECU._is_solution_good[(int) thruster_entry.nozzle_direction])
+                    thruster_tagger.displayed_thrust_limit = (int) (thruster_entry.thrust_limit * 100.0f + 0.5f);
+                else
+                    thruster_tagger.displayed_thrust_limit = -1;
+            }
+        }
+
+        private static void send_manual_throttle(thruster_info thruster_entry, uint manual_throttle)
+        {
+            __message[0] = (byte) manual_throttle;
+            //MyLog.Default.WriteLine(string.Format("TTDTWM\tengine_control_unit.send_manual_throttle(): {0}", __message[0]));
+            sync_helper.send_message_to_others(sync_helper.message_types.MANUAL_THROTTLE, thruster_entry, __message, 1);
+        }
+
+        internal static void on_manual_throttle_changed(object entity, byte[] argument)
+        {
+            var thruster_entry = entity as thruster_info;
+
+            if (thruster_entry != null)
+            {
+                uint new_throttle = argument[0] & 0x7FU;
+
+                thruster_entry.manual_throttle = new_throttle / 100.0f;
+                MyAPIGateway.Utilities.SetVariable(thruster_entry.throttle_setting, new_throttle);
+                if ((argument[0] & 0x80) != 0)
+                    send_manual_throttle(thruster_entry, new_throttle);
+                //MyLog.Default.WriteLine(string.Format("TTDTWM\tengine_control_unit.on_manual_throttle_changed(): {0}", argument[0]));
+            }
+        }
+
+        private void check_manual_override()
+        {
+            thruster_info cur_thruster_info;
+
+            _is_thrust_override_active = false;
+            for (int dir_index = 0; dir_index < 6; ++dir_index)
+            {
+                _uncontrolled_override_checked[dir_index] = false;
+                _thrust_override_vector       [dir_index] = 0.0f;
+            }
+            foreach (var cur_thruster in _uncontrolled_thrusters)
+            {
+                cur_thruster_info = cur_thruster.Value;
+                if (!_uncontrolled_override_checked[(int) cur_thruster_info.nozzle_direction] && cur_thruster.Key.IsWorking)
+                {
+                    if (cur_thruster_info.manual_throttle >= 0.01f)
+                    { 
+                        _thrust_override_vector[(int) cur_thruster_info.nozzle_direction] = MIN_THROTTLE;
+                        _uncontrolled_override_checked[(int) cur_thruster_info.nozzle_direction] = _is_thrust_override_active = true;
+                    }
+                }
+            }
+            for (int dir_index = 0; dir_index < 6; ++dir_index)
+            {
+                foreach (var cur_thruster in _controlled_thrusters[dir_index])
+                {
+                    cur_thruster_info = cur_thruster.Value;
+                    if (cur_thruster_info.manual_throttle > _thrust_override_vector[dir_index] && cur_thruster.Key.IsWorking)
+                    {
+                        _thrust_override_vector[dir_index] = cur_thruster_info.manual_throttle;
+                        _is_thrust_override_active         = true;
+                    }
+                }
+            }
+            recompose_vector(_thrust_override_vector, out _thrust_override);
+            _thrust_override = Vector3.Clamp(_thrust_override, neg_override_bound, pos_override_bound);
+        }
+
         public bool is_under_control_of(VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)
         {
             var    controller = current_controller as MyShipController;
@@ -2315,12 +2343,16 @@ namespace ttdtwm
 
         public void translate_linear_input(Vector3 input_thrust, VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)
         {
-            var controller = current_controller as IMyTerminalBlock;
-            if (controller?.CubeGrid != _grid)
+            var controller = current_controller as IMyShipController;
+            if (controller == null)
+                return;
+            if (controller.CubeGrid != _grid)
             {
                 reset_user_input(reset_gyros_only: false);
                 return;
             }
+            if (_grid.HasMainCockpit() && !controller.IsMainCockpit)
+                return;
 
             Matrix cockpit_matrix;
             controller.Orientation.GetMatrix(out cockpit_matrix);
@@ -2330,12 +2362,16 @@ namespace ttdtwm
 
         public void translate_rotation_input(Vector3 input_rotation, VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)
         {
-            var controller = current_controller as IMyTerminalBlock;
-            if (controller?.CubeGrid != _grid)
+            var controller = current_controller as IMyShipController;
+            if (controller == null)
+                return;
+            if (controller.CubeGrid != _grid)
             {
                 reset_user_input(reset_gyros_only: false);
                 return;
             }
+            if (_grid.HasMainCockpit() && !controller.IsMainCockpit)
+                return;
 
             Matrix cockpit_matrix;
             controller.Orientation.GetMatrix(out cockpit_matrix);
