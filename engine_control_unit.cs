@@ -514,6 +514,8 @@ namespace ttdtwm
                             log_ECU_action("set_up_thrust_limits", string.Format("{0}/{1} kN ({2})", linear_solver.items[index].result / 1000.0f, linear_solver.items[index].max_value / 1000.0f, cur_direction));
                     }
                 }
+                foreach (var cur_thruster in _controlled_thrusters[(int) cur_direction].Keys)
+                    ((IMyTerminalBlock) cur_thruster).RefreshCustomInfo();
 
                 if (CALIBRATION_DEBUG)
                 {
@@ -644,16 +646,22 @@ namespace ttdtwm
                 _is_solution_good[(int) cur_direction] = linear_solver.calculate_solution(active_sectors);
                 if (!_is_solution_good[(int) cur_direction])
                 {
+                    thruster_info cur_thruster_info;
+
                     if (CALIBRATION_DEBUG)
                         log_ECU_action("perform_quadrant_calibration", "Calibration on " + cur_direction.ToString() + " side failed");
-                    foreach (var cur_thruster_info in thruster_infos.Values)
+                    foreach (var cur_thruster in thruster_infos)
                     {
+                        cur_thruster_info = cur_thruster.Value;
                         cur_thruster_info.thrust_limit    = 0.0f;
                         cur_thruster_info.enable_rotation = true;
+                        ((IMyTerminalBlock) cur_thruster.Key).RefreshCustomInfo();
                     }
                 }
                 else
                 {
+                    thruster_info cur_thruster_info;
+
                     sector_index = 0;
                     for (control_sector = 0; control_sector < 3 * 3; ++control_sector)
                     {
@@ -673,10 +681,12 @@ namespace ttdtwm
                             }
                         }
                     }
-                    foreach (var cur_thruster_info in thruster_infos.Values)
+                    foreach (var cur_thruster in thruster_infos)
                     {
+                        cur_thruster_info = cur_thruster.Value;
                         cur_thruster_info.thrust_limit    = _control_sectors[cur_thruster_info.control_sector].result;
                         cur_thruster_info.enable_rotation = cur_thruster_info.active_control_on;
+                        ((IMyTerminalBlock) cur_thruster.Key).RefreshCustomInfo();
                     }
                 }
                 _calibration_scheduled[(int) cur_direction] = false;
@@ -1938,6 +1948,7 @@ namespace ttdtwm
             _uncontrolled_thrusters.Add(cur_thruster, cur_thruster_info);
             _controlled_thrusters[dir_index].Remove(cur_thruster);
             _calibration_scheduled[dir_index] = true;
+            ((IMyTerminalBlock) cur_thruster).RefreshCustomInfo();
         }
 
         private float refresh_real_max_forces_for_single_direction(Dictionary<MyThrust, thruster_info> thrusters, bool atmosphere_present, float air_density)
@@ -2256,10 +2267,12 @@ namespace ttdtwm
 
             if (thruster_entry != null)
             {
-                if (thruster_entry.host_ECU._is_solution_good[(int) thruster_entry.nozzle_direction])
-                    thruster_tagger.displayed_thrust_limit = (int) (thruster_entry.thrust_limit * 100.0f + 0.5f);
-                else
+                engine_control_unit host = thruster_entry.host_ECU;
+
+                if (!host._is_solution_good[(int) thruster_entry.nozzle_direction] || host._uncontrolled_thrusters.ContainsValue(thruster_entry))
                     thruster_tagger.displayed_thrust_limit = -1;
+                else
+                    thruster_tagger.displayed_thrust_limit = (int) (thruster_entry.thrust_limit * 100.0f + 0.5f);
             }
         }
 

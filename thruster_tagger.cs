@@ -45,6 +45,9 @@ namespace ttdtwm
 
         public static void show_thrust_limit(IMyTerminalBlock thruster, StringBuilder info_text)
         {
+            if (_current_thruster != thruster)
+                return;
+
             sync_helper.send_message_to_self(sync_helper.message_types.SHOW_THRUST_LIMIT, thruster.EntityId, _message, 1);
             info_text.Append("Balanced Thrust Level: ");
             if (displayed_thrust_limit < 0)
