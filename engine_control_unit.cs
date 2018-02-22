@@ -2269,7 +2269,9 @@ namespace ttdtwm
             {
                 engine_control_unit host = thruster_entry.host_ECU;
 
-                if (!host._is_solution_good[(int) thruster_entry.nozzle_direction] || host._uncontrolled_thrusters.ContainsValue(thruster_entry))
+                if (host._uncontrolled_thrusters.ContainsValue(thruster_entry))
+                    thruster_tagger.displayed_thrust_limit = -2;
+                else if (!host._is_solution_good[(int) thruster_entry.nozzle_direction])
                     thruster_tagger.displayed_thrust_limit = -1;
                 else
                     thruster_tagger.displayed_thrust_limit = (int) (thruster_entry.thrust_limit * 100.0f + 0.5f);
@@ -2364,7 +2366,7 @@ namespace ttdtwm
                 reset_user_input(reset_gyros_only: false);
                 return;
             }
-            if (_grid.HasMainCockpit() && !controller.IsMainCockpit)
+            if (!controller.ControlThrusters || _grid.HasMainCockpit() && !controller.IsMainCockpit)
                 return;
 
             Matrix cockpit_matrix;
@@ -2383,7 +2385,7 @@ namespace ttdtwm
                 reset_user_input(reset_gyros_only: false);
                 return;
             }
-            if (_grid.HasMainCockpit() && !controller.IsMainCockpit)
+            if (!controller.ControlThrusters || _grid.HasMainCockpit() && !controller.IsMainCockpit)
                 return;
 
             Matrix cockpit_matrix;

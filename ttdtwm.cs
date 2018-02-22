@@ -363,6 +363,10 @@ namespace ttdtwm
                     },
                     thruster_tagger.throttle_status, "Decrease");
 
+                IMyTerminalControlProperty<float> balanced_level = MyAPIGateway.TerminalControls.CreateProperty<float, IMyThrust>("BalancedLevel");
+                balanced_level.Getter = thruster_tagger.get_thrust_limit;
+                MyAPIGateway.TerminalControls.AddControl<IMyThrust>(balanced_level);
+
                 _panel_controls_set = true;
                 _sample_thruster    = null;
                 _sample_controller  = null;

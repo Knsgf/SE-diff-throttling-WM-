@@ -43,17 +43,29 @@ namespace ttdtwm
             thruster.RefreshCustomInfo();
         }
 
+        public static float get_thrust_limit(IMyTerminalBlock thruster)
+        {
+            lock (_current_thruster)
+            {
+                sync_helper.send_message_to_self(sync_helper.message_types.GET_THRUST_LIMIT, thruster.EntityId, _message, 1);
+                return displayed_thrust_limit;
+            }
+        }
+
         public static void show_thrust_limit(IMyTerminalBlock thruster, StringBuilder info_text)
         {
             if (_current_thruster != thruster)
                 return;
 
-            sync_helper.send_message_to_self(sync_helper.message_types.SHOW_THRUST_LIMIT, thruster.EntityId, _message, 1);
-            info_text.Append("Balanced Thrust Level: ");
-            if (displayed_thrust_limit < 0)
-                info_text.Append("N/A");
-            else
-                info_text.Append(displayed_thrust_limit).Append(" %");
+            sync_helper.send_message_to_self(sync_helper.message_types.GET_THRUST_LIMIT, thruster.EntityId, _message, 1);
+            if (displayed_thrust_limit >= -1)
+            {
+                info_text.Append("Calibrated Thrust Level: ");
+                if (displayed_thrust_limit < 0)
+                    info_text.Append("N/A");
+                else
+                    info_text.Append(displayed_thrust_limit).Append(" %");
+            }
         }
 
         public static bool is_active_control_available(IMyTerminalBlock thruster)
