@@ -82,8 +82,7 @@ namespace ttdtwm
 
         private bool is_grid_CoT_mode_on(IMyTerminalBlock controller)
         {
-            IMyCubeGrid grid = controller.CubeGrid;
-            return _grids[grid].CoT_mode_on;
+            return _grids[controller.CubeGrid].CoT_mode_on;
         }
 
         private bool is_grid_CoT_mode_available(IMyTerminalBlock controller)
@@ -99,61 +98,49 @@ namespace ttdtwm
 
         private void set_grid_CoT_mode(IMyTerminalBlock controller, bool new_state)
         {
-            IMyCubeGrid grid = controller.CubeGrid;
-            _grids[grid].CoT_mode_on = new_state;
+            _grids[controller.CubeGrid].CoT_mode_on = new_state;
         }
 
         private bool use_individual_calibration(IMyTerminalBlock controller)
         {
-            IMyCubeGrid grid = controller.CubeGrid;
-            return _grids[grid].use_individual_calibration;
+            return _grids[controller.CubeGrid].use_individual_calibration;
         }
 
         private void choose_calibration_method(IMyTerminalBlock controller, bool use_individual_calibration)
         {
-            IMyCubeGrid grid = controller.CubeGrid;
-            _grids[grid].use_individual_calibration = use_individual_calibration;
+            _grids[controller.CubeGrid].use_individual_calibration = use_individual_calibration;
         }
 
         private bool is_grid_rotational_damping_on(IMyTerminalBlock controller)
         {
-            IMyCubeGrid grid = controller.CubeGrid;
-            return _grids[grid].rotational_damping_on;
+            return _grids[controller.CubeGrid].rotational_damping_on;
         }
 
         private void set_grid_rotational_damping(IMyTerminalBlock controller, bool new_state)
         {
-            IMyCubeGrid grid = controller.CubeGrid;
-            _grids[grid].rotational_damping_on = new_state;
+            _grids[controller.CubeGrid].rotational_damping_on = new_state;
         }
 
         private bool is_grid_landing_mode_on(IMyTerminalBlock controller)
         {
-            IMyCubeGrid grid = controller.CubeGrid;
-            return _grids[grid].landing_mode_on;
+            return _grids[controller.CubeGrid].landing_mode_on;
         }
 
         private bool is_grid_landing_mode_available(IMyTerminalBlock controller)
         {
-            if (!is_grid_CoT_mode_available(controller))
-                return false;
-
-            IMyCubeGrid grid = controller.CubeGrid;
-            return _grids[grid].is_landing_mode_available;
+            return is_grid_CoT_mode_available(controller) && _grids[controller.CubeGrid].is_landing_mode_available;
         }
 
         private void set_grid_landing_mode(IMyTerminalBlock controller, bool new_state)
         {
-            IMyCubeGrid grid = controller.CubeGrid;
-            _grids[grid].landing_mode_on = new_state;
+            _grids[controller.CubeGrid].landing_mode_on = new_state;
         }
 
         private Func<IMyTerminalBlock, bool> create_damper_override_reader(int axis)
         {
             return delegate(IMyTerminalBlock controller)
             {
-                IMyCubeGrid grid = controller.CubeGrid;
-                return _grids[grid].is_ID_axis_overriden(controller, axis);
+                return _grids[controller.CubeGrid].is_ID_axis_overriden(controller, axis);
             };
         }
 
@@ -161,8 +148,7 @@ namespace ttdtwm
         {
             return delegate(IMyTerminalBlock controller, bool new_state)
             {
-                IMyCubeGrid grid = controller.CubeGrid;
-                _grids[grid].set_ID_override(controller, axis, new_state);
+                _grids[controller.CubeGrid].set_ID_override(controller, axis, new_state);
             };
         }
 
@@ -266,6 +252,55 @@ namespace ttdtwm
 
         #endregion
 
+        private void clear_grid_secondary_flag(List<grid_logic> secondary_grids)
+        {
+            foreach (var cur_grid_object in secondary_grids)
+                cur_grid_object.is_secondary = false;
+        }
+
+        internal void get_secondary_grids(IMyCubeGrid primary, ref List<grid_logic> secondary_grids)
+        {
+            List<IMyCubeGrid> grid_list = MyAPIGateway.GridGroups.GetGroup(primary, GridLinkTypeEnum.Logical);
+
+            _grids[primary].is_secondary = false;
+            if (grid_list.Count <= 1 || !((MyCubeGrid) primary).HasMainCockpit())
+            {
+                if (secondary_grids != null)
+                    clear_grid_secondary_flag(secondary_grids);
+                secondary_grids = null;
+                //log_session_action("get_secondary_grids", string.Format("single grid {0} [{1}]", primary.DisplayName, primary.EntityId));
+                return;
+            }
+            //log_session_action("get_secondary_grids", string.Format("primary grid {0} [{1}]", primary.DisplayName, primary.EntityId));
+            if (secondary_grids == null)
+                secondary_grids = new List<grid_logic>();
+            else
+            {
+                clear_grid_secondary_flag(secondary_grids);
+                secondary_grids.Clear();
+            }
+
+            int primary_count = 0;
+            foreach (var cur_grid in grid_list)
+            {
+                if (((MyCubeGrid) cur_grid).HasMainCockpit())
+                    ++primary_count;
+                else if (cur_grid != primary)
+                {
+                    grid_logic cur_grid_object = _grids[cur_grid];
+                    secondary_grids.Add(cur_grid_object);
+                    cur_grid_object.is_secondary = true;
+                    //log_session_action("get_secondary_grids", string.Format("secondary grid #{2} {0} [{1}]", cur_grid.DisplayName, cur_grid.EntityId, secondary_grids.Count));
+                }
+            }
+            //log_session_action("get_secondary_grids", string.Format("primary grids = {0}", primary_count));
+            if (primary_count != 1)
+            {
+                clear_grid_secondary_flag(secondary_grids);
+                secondary_grids = null;
+            }
+        }
+
         internal void sample_thruster(IMyThrust thruster)
         {
             if (!_panel_controls_set && _sample_thruster == null)
@@ -339,7 +374,7 @@ namespace ttdtwm
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(thruster_line);
                 create_switch<IMyThrust>("ActiveControl",        "Steering", null, "On", "Off", "On", "Off", thruster_tagger.is_under_active_control, thruster_tagger.set_active_control, thruster_tagger.is_active_control_available);
                 create_switch<IMyThrust>(     "AntiSlip", "Thrust Trimming", null, "On", "Off", "On", "Off", thruster_tagger.is_anti_slip           , thruster_tagger.set_anti_slip     , thruster_tagger.is_anti_slip_available     );
-                create_switch<IMyThrust>(  "StaticLimit",  "Thrust Limiter", null, "On", "Off", "On", "Off", thruster_tagger.is_thrust_limited      , thruster_tagger.set_thrust_limited, thruster_tagger.is_thrust_limiter_available);
+                create_switch<IMyThrust>(  "StaticLimit",  "Thrust Limiter", null, "On", "Off", "On", "Off", thruster_tagger.is_thrust_limiter_on   , thruster_tagger.set_thrust_limiter, thruster_tagger.is_thrust_limiter_available);
 
                 var manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
                 manual_throttle.Getter  = thruster_tagger.get_manual_throttle;

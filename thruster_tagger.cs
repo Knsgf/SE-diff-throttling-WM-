@@ -114,7 +114,7 @@ namespace ttdtwm
             update_flags(thruster);
             if (!is_active_control_available(thruster))
                 return;
-            if (is_under_active_control(thruster) && !is_thrust_limited(thruster))
+            if (is_under_active_control(thruster) && !is_thrust_limiter_on(thruster))
             {
                 if (!new_state_on)
                 {
@@ -135,13 +135,13 @@ namespace ttdtwm
             return is_active_control_available(thruster) && (!_current_active_control_on || _current_anti_slip_on);
         }
 
-        public static bool is_thrust_limited(IMyTerminalBlock thruster)
+        public static bool is_thrust_limiter_on(IMyTerminalBlock thruster)
         {
             update_flags(thruster);
             return _current_thrust_limiter_on;
         }
 
-        public static void set_thrust_limited(IMyTerminalBlock thruster, bool new_state_on)
+        public static void set_thrust_limiter(IMyTerminalBlock thruster, bool new_state_on)
         {
             update_flags(thruster);
             if (!is_active_control_available(thruster))
