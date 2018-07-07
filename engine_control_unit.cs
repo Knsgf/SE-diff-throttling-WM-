@@ -27,7 +27,7 @@ namespace ttdtwm
             public Vector3             torque_factor, grid_centre_pos, static_moment, actual_static_moment, CoM_offset, reference_vector;
             public thrust_dir          nozzle_direction;
             public float               current_setting, thrust_limit, prev_setting, manual_throttle;
-            public bool                enable_limit, enable_rotation, active_control_on, is_RCS, skip, throttle_up, apply_limit;
+            public bool                enable_limit, enable_rotation, active_control_on, is_RCS, disable_linear_input, skip, throttle_up, apply_limit;
             public thruster_info       next_tandem_thruster, prev_tandem_thruster, opposing_thruster;
             public string              throttle_setting;
             public int                 control_sector;
@@ -471,7 +471,17 @@ namespace ttdtwm
                 if (CALIBRATION_DEBUG)
                     log_ECU_action("prepare_individual_calibration", "Preparing calibration on " + cur_direction.ToString() + " side");
                 thruster_infos.Clear();
-                thruster_infos.AddRange(_controlled_thrusters[(int) cur_direction].Values);
+                //thruster_infos.AddRange(_controlled_thrusters[(int) cur_direction].Values);
+                foreach (var cur_thruster_info in _controlled_thrusters[(int) cur_direction].Values)
+                {
+                    if (!cur_thruster_info.disable_linear_input)
+                        thruster_infos.Add(cur_thruster_info);
+                    else
+                    {
+                        cur_thruster_info.enable_limit = true;
+                        cur_thruster_info.thrust_limit = 0.0f;
+                    }
+                }
                 for (int index = 0; index < thruster_infos.Count; ++index)
                 {
                     switch (cur_direction)
@@ -602,6 +612,9 @@ namespace ttdtwm
                     _control_sectors[sector_index].x = _control_sectors[sector_index].y = _control_sectors[sector_index].max_value = 0.0f;
                 foreach (var cur_thruster_info in thruster_infos.Values)
                 {
+                    if (cur_thruster_info.disable_linear_input)
+                        continue;
+
                     switch (cur_direction)
                     {
                         case thrust_dir.fore:
@@ -703,6 +716,12 @@ namespace ttdtwm
                     foreach (var cur_thruster in thruster_infos)
                     {
                         cur_thruster_info = cur_thruster.Value;
+                        if (cur_thruster_info.disable_linear_input)
+                        {
+                            cur_thruster_info.enable_limit = true;
+                            cur_thruster_info.thrust_limit = 0.0f;
+                            continue;
+                        }
                         cur_thruster_info.thrust_limit    = _control_sectors[cur_thruster_info.control_sector].result;
                         cur_thruster_info.enable_rotation = cur_thruster_info.active_control_on;
                         cur_thruster.Key.RefreshCustomInfo();
@@ -888,9 +907,9 @@ namespace ttdtwm
                 if (!_landing_mode_on)
                 {
                     if (_vertical_speed >= 0.1f)
-                        _counter_thrust_limit *= 0.95f;
+                        _counter_thrust_limit *= 0.95f;     // Quickly reduce upwards rebound after descending
                     else if (_vertical_speed <= -0.1f)
-                        _counter_thrust_limit = 0.95f * _counter_thrust_limit + 0.05f;
+                        _counter_thrust_limit = 0.95f * _counter_thrust_limit + 0.05f; // When descending, gradually bring counter thrust level back to normal
                 }
                 else
                 {
@@ -939,12 +958,12 @@ namespace ttdtwm
 
                     if (_landing_mode_on)
                     {
-                        float dir_multiplier = (_vertical_speed > -DESCENDING_SPEED * 0.5f) ? 1.0f : gravity_ratio;
+                        //float dir_multiplier = (_vertical_speed > -DESCENDING_SPEED * 0.5f) ? 1.0f : gravity_ratio;
 
-                        _linear_integral[dir_index] -= LINEAR_INTEGRAL_CONSTANT * DESCENDING_SPEED * dir_multiplier;
+                        _linear_integral[dir_index] -= LINEAR_INTEGRAL_CONSTANT * DESCENDING_SPEED * gravity_ratio;
                         if (_linear_integral[dir_index] < 0.0f)
                             _linear_integral[dir_index] = 0.0f;
-                        _linear_integral[opposite_dir] -= LINEAR_INTEGRAL_CONSTANT * DESCENDING_SPEED * dir_multiplier;
+                        _linear_integral[opposite_dir] -= LINEAR_INTEGRAL_CONSTANT * DESCENDING_SPEED * gravity_ratio;
                         if (_linear_integral[opposite_dir] < 0.0f)
                             _linear_integral[opposite_dir] = 0.0f;
                     }
@@ -962,10 +981,13 @@ namespace ttdtwm
                 {
                     if (linear_integral_change > LINEAR_INTEGRAL_CONSTANT)
                         linear_integral_change = LINEAR_INTEGRAL_CONSTANT;
+                    
+                    // Prevent integral from winding up excessively in the direction perpendicular to gravity
                     if (axis_speed < 1.0f)
                         linear_integral_change *= axis_speed * (gravity_ratio - 1.0f) + 1.0f;
                     else
                         linear_integral_change *= gravity_ratio;
+
                     _linear_integral[dir_index] += linear_integral_change;
                 }
                 _linear_integral[opposite_dir] = 0.0f;
@@ -1135,6 +1157,7 @@ namespace ttdtwm
             __new_static_moment[cur_dir] = total_static_moment;
             __new_total_force  [cur_dir] = total_force;
 
+            // Handle triangular thruster arrangements
             if (_CoT_mode_on && _active_CoT[opposite_dir] != null)
             {
                 Vector3 effective_CoT = (Vector3) _active_CoT[opposite_dir], thruster_dir = _thrust_forward_vectors[cur_dir];
@@ -1575,13 +1598,13 @@ namespace ttdtwm
                     else
                     {
                         if (cur_thruster_info.manual_throttle < 0.01f)
-                            cur_thruster_info.current_setting = control;
+                            cur_thruster_info.current_setting = cur_thruster_info.disable_linear_input ? 0.0f : control;
                         else if (cur_thruster_info.enable_limit && !cur_thruster_info.active_control_on && _is_solution_good[dir_index])
                             cur_thruster_info.current_setting = min_collective_throttle;
                         else
                             cur_thruster_info.current_setting = cur_thruster_info.manual_throttle;
                         __requested_force[dir_index] += cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
-                        if (cur_thruster_info.enable_limit && _is_solution_good[dir_index])
+                        if (cur_thruster_info.enable_limit && (_is_solution_good[dir_index] || cur_thruster_info.disable_linear_input))
                             cur_thruster_info.current_setting *= cur_thruster_info.thrust_limit;
                         cur_thruster_info.skip = !cur_thruster_info.enable_rotation;
                     }
@@ -1779,7 +1802,7 @@ namespace ttdtwm
             List<thruster_info> collective_thrusters;
             IMyThrust           thruster;
             thruster_info       cur_thruster_info;
-            bool                changes_made = false, contains_THR, contains_RCS, contains_STAT, use_active_control, active_control_on;
+            bool                changes_made = false, contains_THR, contains_RCS, contains_STAT, use_active_control, active_control_on, disable_linear_input;
             int                 dir_index;
             string              thruster_data;
 
@@ -1837,9 +1860,15 @@ namespace ttdtwm
                             use_active_control = contains_THR || contains_RCS;
                             if (cur_thruster_info.active_control_on != use_active_control)
                                 cur_thruster_info.enable_rotation = cur_thruster_info.active_control_on = use_active_control;
-                            active_control_on             |= use_active_control || cur_thruster_info.enable_rotation;
-                            cur_thruster_info.is_RCS       = contains_RCS;
-                            cur_thruster_info.enable_limit = contains_STAT;
+                            active_control_on       |= use_active_control || cur_thruster_info.enable_rotation;
+                            cur_thruster_info.is_RCS = contains_RCS;
+                            disable_linear_input     = use_active_control && thruster_data.ContainsNLTag();
+                            if (cur_thruster_info.disable_linear_input != disable_linear_input)
+                            {
+                                _calibration_scheduled[dir_index]      = true;
+                                cur_thruster_info.disable_linear_input = disable_linear_input;
+                            }
+                            cur_thruster_info.enable_limit = contains_STAT || disable_linear_input;
                             /*
                             if (contains_STAT && !use_active_control && _is_solution_good[dir_index])
                                 collective_thrusters.Add(cur_thruster_info);

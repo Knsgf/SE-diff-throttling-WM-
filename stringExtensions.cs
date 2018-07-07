@@ -6,7 +6,7 @@ namespace ttdtwm
 {
     static class stringExtensions
     {
-        const int THR_MASK = 0x1,     SLP_MASK = 0x2,    STAT_MASK = 0x4;
+        const int THR_MASK = 0x1,     SLP_MASK = 0x2,    STAT_MASK = 0x4, NL_MASK = 0x8;
         const int COT_MASK = 0x1, LANDING_MASK = 0x2, DAMPING_MASK = 0x4, IC_MASK = 0x8;
 
         private static readonly string m_Prefix  = "[TP&DT2: ";
@@ -17,7 +17,7 @@ namespace ttdtwm
         private static string m_LastSource   = null, m_LastTag = null;
         private static int?   m_LastPosition = null;
 
-        #region Private methods
+        #region Tagging
 
         private static int[] GenerateShiftTable(string tag)
         {
@@ -147,6 +147,11 @@ namespace ttdtwm
             return (GetTagValue(blockData) & SLP_MASK) != 0;
         }
 
+        public static bool ContainsNLTag(this string blockData)
+        {
+            return (GetTagValue(blockData) & NL_MASK) != 0;
+        }
+
         public static bool ContainsSTATTag(this string blockData)
         {
             int tagValue = GetTagValue(blockData);
@@ -192,6 +197,11 @@ namespace ttdtwm
             return SetTagValue(blockData, GetTagValue(blockData) | STAT_MASK);
         }
 
+        public static string AddNLTag(this string blockData)
+        {
+            return SetTagValue(blockData, GetTagValue(blockData) | NL_MASK);
+        }
+
         public static string AddLANDINGTag(this string blockData)
         {
             return SetTagValue(blockData, GetTagValue(blockData) | LANDING_MASK);
@@ -229,6 +239,11 @@ namespace ttdtwm
         public static string RemoveSTATTag(this string blockData)
         {
             return SetTagValue(blockData, GetTagValue(blockData) & ~STAT_MASK);
+        }
+
+        public static string RemoveNLTag(this string blockData)
+        {
+            return SetTagValue(blockData, GetTagValue(blockData) & ~NL_MASK);
         }
 
         public static string RemoveLANDINGTag(this string blockData)
