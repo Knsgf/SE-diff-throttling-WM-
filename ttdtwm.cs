@@ -318,10 +318,10 @@ namespace ttdtwm
             var controller_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE1");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line);
             //create_checkbox<IMyCockpit>("ForceCoTMode", "Force CoT mode", null,               "CoT",   "Auto",     is_grid_CoT_mode_on,     set_grid_CoT_mode,     is_grid_CoT_mode_available);
-            create_checkbox<_controller_type_>(    "RotationalDamping",        "Rotational Damping", null,                   "On",    "Off", is_grid_rotational_damping_on, set_grid_rotational_damping,     is_grid_CoT_mode_available);
-            create_switch  <_controller_type_>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM",           is_grid_CoT_mode_on,           set_grid_CoT_mode,     is_grid_CoT_mode_available);
-            create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad",    use_individual_calibration,   choose_calibration_method,     is_grid_CoT_mode_available);
-            create_switch  <_controller_type_>(          "LandingMode",            "Touchdown Mode", null,   "On",  "Off", "Land", "Flight",       is_grid_landing_mode_on,       set_grid_landing_mode, is_grid_landing_mode_available);
+            //create_checkbox<_controller_type_>(    "RotationalDamping",        "Rotational Damping", null,                   "On",    "Off", is_grid_rotational_damping_on, set_grid_rotational_damping,     is_grid_CoT_mode_available);
+            //create_switch  <_controller_type_>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM",           is_grid_CoT_mode_on,           set_grid_CoT_mode,     is_grid_CoT_mode_available);
+            create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Super", "Norm.", "Super",  "Norm.",    use_individual_calibration,   choose_calibration_method,     is_grid_CoT_mode_available);
+            create_switch  <_controller_type_>(          "LandingMode",            "Touchdown Mode", null,    "On",   "Off",  "Land", "Flight",       is_grid_landing_mode_on,       set_grid_landing_mode, is_grid_landing_mode_available);
             var controller_line2 = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE2");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line2);
             var controller_line_ID_override_label = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_ID_OVR");
@@ -361,6 +361,7 @@ namespace ttdtwm
                 create_controller_widgets<IMyCockpit>();
                 create_controller_widgets<IMyRemoteControl>();
 
+                /*
                 var thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(thruster_line);
                 create_switch  <IMyThrust>(     "ActiveControl",             "Steering", null, "On", "Off", "On", "Off", thruster_tagger.is_under_active_control, thruster_tagger.set_active_control , thruster_tagger.is_active_control_available);
@@ -393,6 +394,7 @@ namespace ttdtwm
                 IMyTerminalControlProperty<float> balanced_level = MyAPIGateway.TerminalControls.CreateProperty<float, IMyThrust>("BalancedLevel");
                 balanced_level.Getter = thruster_tagger.get_thrust_limit;
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(balanced_level);
+                */
 
                 _panel_controls_set = true;
                 _sample_thruster    = null;

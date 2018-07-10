@@ -31,6 +31,7 @@ namespace ttdtwm
             public thruster_info       next_tandem_thruster, prev_tandem_thruster, opposing_thruster;
             public string              throttle_setting;
             public int                 control_sector;
+            public float[]             thrust_limit_ex;
         };
 
         private static readonly Vector3I[] _thrust_forward_vectors;
@@ -455,6 +456,7 @@ namespace ttdtwm
 
         #region thrust calibration
 
+        /*
         private void prepare_individual_calibration()
         {
             float x = 0.0f, y = 0.0f;
@@ -513,7 +515,104 @@ namespace ttdtwm
             }
             _calibration_ready = true;
         }
+        */
 
+        private void prepare_individual_calibration()
+        {
+            bool calibration_scheduled = false;
+            for (int dir_index = 0; dir_index < 6; ++dir_index)
+            {
+                calibration_scheduled |= _calibration_scheduled[dir_index];
+                _calibration_scheduled[dir_index] = false;
+            }
+            if (!calibration_scheduled)
+                return;
+
+            List<thruster_info> thruster_infos = new List<thruster_info>();
+            int[] side_index = new int[7];
+            side_index[0] = 0;
+            for (int dir_index = 0; dir_index < 6; ++dir_index)
+            {
+                thruster_infos.AddRange(_controlled_thrusters[dir_index].Values);
+                side_index[dir_index + 1] = side_index[dir_index] + _controlled_thrusters[dir_index].Count;
+            }
+            int total_count = side_index[6];
+
+            int num_rows = total_count + 11, num_columns = 2 * total_count + 11;
+            double[][] tableau = new double[num_rows][];
+            for (int cur_row = 0; cur_row < num_rows; ++cur_row)
+                tableau[cur_row] = new double[num_columns];
+            for (int cur_Fvar = 0; cur_Fvar < total_count; ++cur_Fvar)
+            {
+                thruster_infos[cur_Fvar].thrust_limit_ex = new float[6];
+
+                Vector3 torque_factor = thruster_infos[cur_Fvar].torque_factor;
+                tableau[0][cur_Fvar] =  torque_factor.X;
+                tableau[1][cur_Fvar] = -torque_factor.X;
+                tableau[2][cur_Fvar] =  torque_factor.Y;
+                tableau[3][cur_Fvar] = -torque_factor.Y;
+                tableau[4][cur_Fvar] =  torque_factor.Z;
+                tableau[5][cur_Fvar] = -torque_factor.Z;
+
+                tableau[cur_Fvar + 10][       cur_Fvar] = 1.0;
+                tableau[cur_Fvar + 10][num_columns - 1] = thruster_infos[cur_Fvar].actual_max_force;
+            }
+            for (int cur_svar = 0; cur_svar < total_count + 10; ++cur_svar)
+                tableau[cur_svar][total_count + cur_svar] = 1.0;
+
+            simplex_solver linear_solver = new simplex_solver();
+            for (int dir_index = 0; dir_index < 6; ++dir_index)
+            {
+                //log_ECU_action("prepare_individual_calibration", string.Format("Performing calibration for {0} movement", (thrust_dir) dir_index));
+
+                for (int cur_column = 0; cur_column < total_count; ++cur_column)
+                {
+                    tableau[6][cur_column] = tableau[7][cur_column] = tableau[8][cur_column] = tableau[9][cur_column] = 0.0;
+                    tableau[num_rows - 1][cur_column] = 0.001;
+                }
+
+                int cur_side;
+                for (int side = 0; side <= 1; ++side)
+                {
+                    cur_side = (dir_index + side + 1) % 6;
+                    int opposite_side = (cur_side + 3) % 6;
+                    for (int cur_column = side_index[cur_side]; cur_column < side_index[cur_side + 1]; ++cur_column)
+                    {
+                        tableau[6 + side * 2][cur_column] =  1.0;
+                        tableau[7 + side * 2][cur_column] = -1.0;
+                    }
+                    for (int cur_column = side_index[opposite_side]; cur_column < side_index[opposite_side + 1]; ++cur_column)
+                    {
+                        tableau[6 + side * 2][cur_column] = -1.0;
+                        tableau[7 + side * 2][cur_column] =  1.0;
+                    }
+                }
+
+                int opposite_dir = (dir_index + 3) % 6;
+                for (int cur_column = side_index[dir_index]; cur_column < side_index[dir_index + 1]; ++cur_column)
+                    tableau[num_rows - 1][cur_column] = -1.0;
+                for (int cur_column = side_index[opposite_dir]; cur_column < side_index[opposite_dir + 1]; ++cur_column)
+                    tableau[num_rows - 1][cur_column] = 1.0;
+
+                _is_solution_good[dir_index] = linear_solver.solve(tableau, num_rows, num_columns, side_index);
+                cur_side = 0;
+                for (int cur_Fvar = 0; cur_Fvar < total_count; ++cur_Fvar)
+                {
+                    if (cur_Fvar >= side_index[cur_side])
+                    {
+                        //MyLog.Default.WriteLine("------------------");
+                        ++cur_side;
+                    }
+                    thruster_info cur_thruster_info = thruster_infos[cur_Fvar];
+                    if (cur_thruster_info.actual_max_force >= 1.0f)
+                        cur_thruster_info.thrust_limit_ex[dir_index] = linear_solver.extract_item_value(cur_Fvar) / cur_thruster_info.actual_max_force;
+                    else
+                        cur_thruster_info.thrust_limit_ex[dir_index] = 0.0f;
+                }
+            }
+        }
+
+        /*
         private void set_up_thrust_limits()
         {
             foreach (thrust_dir cur_direction in Enum.GetValues(typeof(thrust_dir)))
@@ -555,6 +654,7 @@ namespace ttdtwm
                 }
             }
         }
+        */
 
         private string get_sector_name(int sector_number)
         {
@@ -1229,7 +1329,7 @@ namespace ttdtwm
             };
             //for (int dir_index = 0; dir_index < 3; ++dir_index)
             //    eliminate_direct_opposition(dir_index);
-            MyAPIGateway.Parallel.For(0, 3, eliminate_direct_opposition);
+            //MyAPIGateway.Parallel.For(0, 3, eliminate_direct_opposition);
 
             for (int dir_index = 0, opposite_dir = 3; dir_index < 3; ++dir_index, ++opposite_dir)
             { 
@@ -1255,18 +1355,20 @@ namespace ttdtwm
 
             if (max_setting > 0.0f)
             {
+                /*
                 float max_normalisation_multiplier = 1.0f / max_setting;
 
                 if (max_normalisation_multiplier > MAX_NORMALISATION)
                     max_normalisation_multiplier = MAX_NORMALISATION;
                 max_normalisation_multiplier = 1.0f + max_control * (max_normalisation_multiplier - 1.0f);
+                */
 
                 Action<int> normalise_direction = delegate (int dir_index)
                 {
                     __actual_force[dir_index] = __non_THR_force[dir_index] = 0.0f;
                     foreach (var cur_thruster_info in _controlled_thrusters[dir_index].Values)
                     {
-                        cur_thruster_info.current_setting *= max_normalisation_multiplier;
+                        //cur_thruster_info.current_setting *= max_normalisation_multiplier;
                         if (!cur_thruster_info.active_control_on || cur_thruster_info.is_RCS)
                             __non_THR_force[dir_index] += cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
                         else
@@ -1320,7 +1422,7 @@ namespace ttdtwm
             };
             //for (int dir_index = 0; dir_index < 3; ++dir_index)
             //    equalise_2_directions(dir_index);
-            MyAPIGateway.Parallel.For(0, 3, equalise_2_directions);
+            //MyAPIGateway.Parallel.For(0, 3, equalise_2_directions);
 
             for (int dir_index = 0, opposite_dir = 3; dir_index < 3; ++dir_index, ++opposite_dir)
             { 
@@ -1597,24 +1699,49 @@ namespace ttdtwm
                     }
                     else
                     {
-                        if (cur_thruster_info.manual_throttle < 0.01f)
-                            cur_thruster_info.current_setting = cur_thruster_info.disable_linear_input ? 0.0f : control;
+                        //if (cur_thruster_info.manual_throttle < 0.01f)
+                            cur_thruster_info.current_setting = /*cur_thruster_info.disable_linear_input ? 0.0f :*/ control;
+                        /*
                         else if (cur_thruster_info.enable_limit && !cur_thruster_info.active_control_on && _is_solution_good[dir_index])
                             cur_thruster_info.current_setting = min_collective_throttle;
                         else
                             cur_thruster_info.current_setting = cur_thruster_info.manual_throttle;
+                        */
                         __requested_force[dir_index] += cur_thruster_info.current_setting * cur_thruster_info.actual_max_force;
-                        if (cur_thruster_info.enable_limit && (_is_solution_good[dir_index] || cur_thruster_info.disable_linear_input))
+                        if (cur_thruster_info.thrust_limit_ex != null)
+                        {
+                            cur_thruster_info.current_setting = 0.0f;
+                            for (int control_dir = 0; control_dir < 6; ++control_dir)
+                                cur_thruster_info.current_setting += __control_vector[control_dir] * cur_thruster_info.thrust_limit_ex[control_dir];
+                        }
+                        else if (cur_thruster_info.enable_limit && (_is_solution_good[dir_index] || cur_thruster_info.disable_linear_input))
                             cur_thruster_info.current_setting *= cur_thruster_info.thrust_limit;
                         cur_thruster_info.skip = !cur_thruster_info.enable_rotation;
                     }
                 }
-                adjust_thrust_for_steering(dir_index, (dir_index < 3) ? (dir_index + 3) : (dir_index - 3), desired_angular_velocity);
+                //adjust_thrust_for_steering(dir_index, (dir_index < 3) ? (dir_index + 3) : (dir_index - 3), desired_angular_velocity);
             };
 
             MyAPIGateway.Parallel.For(0, 6, set_up_thrusters);
             //for (int dir_index = 0; dir_index < 6; ++dir_index)
             //    set_up_thrusters(dir_index);
+            float max_setting = 0.0f;
+            foreach (var cur_direction in _controlled_thrusters)
+            {
+                foreach (var cur_thruster_info in cur_direction.Values)
+                {
+                    if (max_setting < cur_thruster_info.current_setting)
+                        max_setting = cur_thruster_info.current_setting;
+                }
+            }
+            if (max_setting > 1.0f)
+            {
+                foreach (var cur_direction in _controlled_thrusters)
+                {
+                    foreach (var cur_thruster_info in cur_direction.Values)
+                        cur_thruster_info.current_setting /= max_setting;
+                }
+            }
 
             for (int dir_index = 0, opposite_dir = 3; dir_index < 3; ++dir_index, ++opposite_dir)
             {
@@ -1810,7 +1937,7 @@ namespace ttdtwm
             {
                 if (!_calibration_complete)
                     return;
-                set_up_thrust_limits();
+                //set_up_thrust_limits();
             }
 
             lock (_uncontrolled_thrusters)
@@ -1821,9 +1948,9 @@ namespace ttdtwm
                     cur_thruster_info = cur_thruster.Value;
                     thruster          = cur_thruster.Key;
                     thruster_data     = thruster.CustomData;
-                    contains_THR      = thruster_data.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
-                    contains_RCS      = thruster_data.ContainsRCSTag();
-                    contains_STAT     = thruster_data.ContainsSTATTag();
+                    contains_THR      = false /*thruster_data.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON*/;
+                    contains_RCS      = false /*thruster_data.ContainsRCSTag()*/;
+                    contains_STAT     = true /*thruster_data.ContainsSTATTag()*/;
                     if ((contains_THR || contains_RCS || contains_STAT) && cur_thruster_info.actual_max_force > 0.01f * cur_thruster_info.max_force && thruster.IsWorking)
                     {
                         _thrusters_moved.Add(thruster, cur_thruster_info);
@@ -1847,9 +1974,9 @@ namespace ttdtwm
                         cur_thruster_info = cur_thruster.Value;
                         thruster          = cur_thruster.Key;
                         thruster_data     = thruster.CustomData;
-                        contains_THR      = thruster_data.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON;
-                        contains_RCS      = thruster_data.ContainsRCSTag();
-                        contains_STAT     = !contains_RCS && thruster_data.ContainsSTATTag();
+                        contains_THR      = false /*thruster_data.ContainsTHRTag() || DEBUG_THR_ALWAYS_ON*/;
+                        contains_RCS      = false /*thruster_data.ContainsRCSTag()*/;
+                        contains_STAT     = true /*!contains_RCS && thruster_data.ContainsSTATTag()*/;
                         if (!contains_THR && !contains_RCS && !contains_STAT || cur_thruster_info.actual_max_force < 0.01f * cur_thruster_info.max_force || !thruster.IsWorking)
                         {
                             _thrusters_moved.Add(thruster, cur_thruster_info);
@@ -2294,6 +2421,8 @@ namespace ttdtwm
 
                 if (host._uncontrolled_thrusters.ContainsValue(thruster_entry))
                     thruster_tagger.displayed_thrust_limit = -2;
+                else if (thruster_entry.thrust_limit_ex != null)
+                    thruster_tagger.displayed_thrust_limit = (int) (thruster_entry.thrust_limit_ex[(int) thruster_entry.nozzle_direction] * 100.0f + 0.5f);
                 else if (!host._is_solution_good[(int) thruster_entry.nozzle_direction])
                     thruster_tagger.displayed_thrust_limit = -1;
                 else

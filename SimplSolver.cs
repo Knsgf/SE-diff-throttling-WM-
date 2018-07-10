@@ -1,4 +1,6 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Text;
+using System.Collections.Generic;
 
 using VRage.Utils;
 
@@ -452,6 +454,129 @@ namespace ttdtwm
             }
 
             return is_solution_good(item_count);
+        }
+    }
+
+    sealed class simplex_solver
+    {
+        double[][] _tableau;
+        int _num_rows, _num_columns;
+
+        private void log_tableau(double[][] tableau, int num_rows, int num_columns, int pivot_row, int pivot_column, int[] side_index)
+        {
+            StringBuilder line = new StringBuilder();
+
+            MyLog.Default.WriteLine("============================");
+            for (int cur_row = 0; cur_row < num_rows; ++cur_row)
+            {
+                int cur_side = 0;
+
+                line.Clear();
+                for (int cur_column = 0; cur_column < num_columns; ++cur_column)
+                {
+                    if (cur_side < 7 && cur_column >= side_index[cur_side])
+                    {
+                        line.Append("||");
+                        ++cur_side;
+                    }
+                    line.Append(string.Format("{0,8:G2}{1}", tableau[cur_row][cur_column], (cur_row == pivot_row || cur_column == pivot_column) ? '*' : ' '));
+                }
+                line.AppendLine("|");
+                MyLog.Default.WriteLine(line.ToString());
+            }
+        }
+
+
+        public bool solve(double[][] init_tableau, int num_rows, int num_columns, int[] side_index)
+        {
+            //log_tableau(init_tableau, num_rows, num_columns, -1, -1, side_index);
+
+            _num_rows    = num_rows;
+            _num_columns = num_columns;
+            _tableau = new double[num_rows][];
+            for (int cur_row = 0; cur_row < num_rows; ++cur_row)
+            {
+                _tableau[cur_row] = new double[num_columns];
+                Array.Copy(init_tableau[cur_row], _tableau[cur_row], num_columns);
+            }
+
+            while (true)
+            {
+                double min_negative = 0.0;
+                int    pivot_column = -1;
+                for (int cur_coulumn = 0; cur_coulumn < _num_columns - 1; ++cur_coulumn)
+                {
+                    if (_tableau[_num_rows - 1][cur_coulumn] < min_negative)
+                    {
+                        min_negative = _tableau[_num_rows - 1][cur_coulumn];
+                        pivot_column = cur_coulumn;
+                    }
+                }
+                if (pivot_column < 0)
+                {
+                    //log_tableau(_tableau, num_rows, num_columns, -1, -1, side_index);
+                    return true;
+                }
+
+                double min_ratio = double.MaxValue;
+                int    pivot_row = -1;
+                for (int cur_row = 0; cur_row < _num_rows - 1; ++cur_row)
+                {
+                    if (_tableau[cur_row][pivot_column] > 0.0 && _tableau[cur_row][_num_columns - 1] >= 0.0)
+                    {
+                        double cur_ratio = _tableau[cur_row][_num_columns - 1] / _tableau[cur_row][pivot_column];
+                        if (cur_ratio < min_ratio)
+                        {
+                            min_ratio = cur_ratio;
+                            pivot_row = cur_row;
+                        }
+                    }
+                }
+                if (pivot_row < 0)
+                {
+                    //log_tableau(_tableau, num_rows, num_columns, -1, pivot_column, side_index);
+                    return false;
+                }
+
+                //log_tableau(_tableau, num_rows, num_columns, pivot_row, pivot_column, side_index);
+                double divider = _tableau[pivot_row][pivot_column];
+                for (int cur_column = 0; cur_column < _num_columns; ++cur_column)
+                    _tableau[pivot_row][cur_column] /= divider;
+                _tableau[pivot_row][pivot_column] = 1.0;
+                for (int cur_row = 0; cur_row < _num_rows; ++cur_row)
+                {
+                    if (cur_row == pivot_row)
+                        continue;
+
+                    double multiplier = _tableau[cur_row][pivot_column];
+                    for (int cur_column = 0; cur_column < _num_columns; ++cur_column)
+                    {
+                        _tableau[cur_row][cur_column] -= _tableau[pivot_row][cur_column] * multiplier;
+                        if (Math.Abs(_tableau[cur_row][cur_column]) < revised_simplex_solver.EPSILON)
+                            _tableau[cur_row][cur_column] = 0.0;
+                    }
+                    _tableau[cur_row][pivot_column] = 0.0;
+                }
+            }
+        }
+
+        public float extract_item_value(int item)
+        {
+            float result = 0.0f;
+            int   cur_row = 0;
+
+            while (cur_row < _num_rows - 1 && Math.Abs(_tableau[cur_row][item]) < revised_simplex_solver.EPSILON)
+                ++cur_row;
+            if (cur_row >= _num_rows - 1)
+                return 0.0f;
+            result = (float) (_tableau[cur_row][_num_columns - 1] / _tableau[cur_row][item]);
+            do
+            {
+                ++cur_row;
+            }
+            while (cur_row < _num_rows - 1 && Math.Abs(_tableau[cur_row][item]) < revised_simplex_solver.EPSILON);
+            //MyLog.Default.WriteLine(string.Format("[{0}] = {1}", item, (cur_row >= _num_rows - 1) ? result : 0.0f));
+            return (cur_row >= _num_rows - 1) ? result : 0.0f;
         }
     }
 }
