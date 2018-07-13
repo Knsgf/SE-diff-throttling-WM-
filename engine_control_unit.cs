@@ -343,6 +343,14 @@ namespace ttdtwm
                 cur_thruster_info = cur_thruster_entry.Value;
                 cur_thruster_info.CoM_offset    = cur_thruster_info.grid_centre_pos - _grid_CoM_location;
                 cur_thruster_info.torque_factor = Vector3.Cross(cur_thruster_info.CoM_offset, -_thrust_forward_vectors[(int) cur_thruster_info.nozzle_direction]);
+                if (cur_thruster_info.nozzle_direction == thrust_dir.fore || cur_thruster_info.nozzle_direction == thrust_dir.aft)
+                    cur_thruster_info.torque_factor.Z = 0.0f;
+                else if (cur_thruster_info.nozzle_direction == thrust_dir.port || cur_thruster_info.nozzle_direction == thrust_dir.starboard)
+                    cur_thruster_info.torque_factor.X = 0.0f;
+                else
+                    cur_thruster_info.torque_factor.Y = 0.0f;
+                if (cur_thruster_info.torque_factor.LengthSquared() < 0.01f)
+                    cur_thruster_info.torque_factor = Vector3.Zero;
             }
         }
 
@@ -519,6 +527,66 @@ namespace ttdtwm
 
         private void prepare_individual_calibration()
         {
+            const float MIN_FACTOR = 0.1f;
+
+            bool calibration_scheduled = false;
+            for (int dir_index = 0; dir_index < 6; ++dir_index)
+            {
+                calibration_scheduled |= _calibration_scheduled[dir_index];
+                _calibration_scheduled[dir_index] = false;
+            }
+            if (!calibration_scheduled)
+                return;
+
+            var thruster_infos = new List<thruster_info>();
+            int[] side_index = new int[7];
+            side_index[0] = 0;
+            for (int dir_index = 0; dir_index < 6; ++dir_index)
+            {
+                thruster_infos.AddRange(_controlled_thrusters[dir_index].Values);
+                side_index[dir_index + 1] = side_index[dir_index] + _controlled_thrusters[dir_index].Count;
+            }
+            int total_count = side_index[6];
+
+            var items = new List<solver_entry6>();
+            for (int cur_item = 0; cur_item < total_count; ++cur_item)
+            {
+                var item = new solver_entry6();
+                thruster_info cur_thruster_info = thruster_infos[cur_item];
+                Vector3 torque_factor = cur_thruster_info.torque_factor;
+                item.x = torque_factor.X;
+                item.y = torque_factor.Y;
+                item.z = torque_factor.Z;
+                item.max_value = cur_thruster_info.actual_max_force;
+                item.results = new float[6];
+                items.Add(item);
+            }
+
+            var linear_solver = new revised_simplex_solver6();
+            linear_solver.calculate_solution(items, side_index);
+            for (int cur_item = 0; cur_item < total_count; ++cur_item)
+            {
+                thruster_info cur_thruster_info = thruster_infos[cur_item];
+                float actual_max_force = cur_thruster_info.actual_max_force;
+                cur_thruster_info.thrust_limit_ex = new float[6];
+                if (actual_max_force >= 1.0f)
+                {
+                    solver_entry6 item = items[cur_item];
+                    for (int dir_index = 0; dir_index < 6; ++dir_index)
+                        cur_thruster_info.thrust_limit_ex[dir_index] = item.results[dir_index] / actual_max_force;
+                    if (CALIBRATION_DEBUG)
+                    {
+                        MyLog.Default.WriteLine(string.Format("[{0}] = {1:F2}/{2:F2}/{3:F2}/{4:F2}/{5:F2}/{6:F2}", cur_thruster_info.nozzle_direction, 
+                            cur_thruster_info.thrust_limit_ex[0], cur_thruster_info.thrust_limit_ex[1], cur_thruster_info.thrust_limit_ex[2], 
+                            cur_thruster_info.thrust_limit_ex[3], cur_thruster_info.thrust_limit_ex[4], cur_thruster_info.thrust_limit_ex[5]));
+                    }
+                }
+            }
+        }
+
+        /*
+        private void prepare_individual_calibration()
+        {
             bool calibration_scheduled = false;
             for (int dir_index = 0; dir_index < 6; ++dir_index)
             {
@@ -611,6 +679,7 @@ namespace ttdtwm
                 }
             }
         }
+        */
 
         /*
         private void set_up_thrust_limits()
@@ -1662,7 +1731,7 @@ namespace ttdtwm
             Vector3 desired_angular_velocity;
             /*sbyte   control_scheme =*/ initialise_linear_controls(local_linear_velocity * _dampers_axis_enable, local_gravity * _dampers_axis_enable);
             bool    update_inverse_world_matrix;
-            update_inverse_world_matrix = adjust_trim_setting(/*control_scheme,*/ out desired_angular_velocity);
+            update_inverse_world_matrix = true; // adjust_trim_setting(/*control_scheme,*/ out desired_angular_velocity);
 
             // Update fixed inverse rotation matrix when angle exceeds 11 degrees or speed is low 
             // (decoupling inertia dampers' axes from ship orientation isn't needed at low velocities)

@@ -71,6 +71,7 @@ namespace ttdtwm
             for (int cur_element = 0; cur_element < _width; ++cur_element)
                 _contents[cur_element][cur_element] = 1.0;
         }
+        */
 
         public void copy_from(dense_matrix b)
         {
@@ -86,7 +87,6 @@ namespace ttdtwm
                     cur_row_ref[cur_column] = b_row_ref[cur_column];
             }
         }
-        */
 
         public void column_vector_from(dense_matrix b, int column)
         {

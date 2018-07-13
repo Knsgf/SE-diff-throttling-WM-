@@ -68,7 +68,8 @@ namespace ttdtwm
 
         #endregion
 
-        static private int[] __index_array = null;
+        static private    int[] __index_array = null;
+        static private double[] __neg_row     = null;
 
         private int                       _width, _initial_width, _height;
         private Dictionary<int, double>[] _contents;
@@ -356,6 +357,45 @@ namespace ttdtwm
                     for (int cur_column = 0; cur_column < right_width; ++cur_column)
                         result_row_ref[cur_column] += cur_element * right_row_ref[cur_column];
                 }
+            }
+        }
+
+        static public void slow_multiply(ref dense_matrix result, sparse_matrix left, dense_matrix right)
+        {
+            int right_height = right.rows, right_width = right.columns;
+
+            if (left._width != right_height)
+                throw new ArgumentException("Operand size mismatch");
+
+            Dictionary<int, double> left_row_ref;
+            double[]                result_row_ref, right_row_ref;
+            double                  cur_element, product;
+
+            //MyLog.Default.WriteLine("Width = " + right_width.ToString());
+            result.clear(left._height, right_width);
+            if (__neg_row == null || __neg_row.Length < right_width)
+                __neg_row = new double[right_width];
+            for (int cur_row = 0; cur_row < left._height; ++cur_row)
+            {
+                left_row_ref   = left._contents[cur_row];
+                result_row_ref =         result[cur_row];
+                Array.Clear(__neg_row, 0, right_width);
+                foreach (var cur_diagonal in left_row_ref)
+                {
+                    cur_element   = cur_diagonal.Value;
+                    right_row_ref = right[cur_diagonal.Key];
+                    for (int cur_column = 0; cur_column < right_width; ++cur_column)
+                    {
+                        product = cur_element * right_row_ref[cur_column];
+                        if (product >= 0.0)
+                            result_row_ref[cur_column] += product;
+                        else
+                            __neg_row[cur_column] += product;
+                    }
+                }
+                //MyLog.Default.WriteLine(string.Format("[{0}] := {1} - {2} = {3}", cur_row, result_row_ref[0], -__neg_row[0], result_row_ref[0] + __neg_row[0]));
+                for (int cur_column = 0; cur_column < right_width; ++cur_column)
+                    result_row_ref[cur_column] += __neg_row[cur_column];
             }
         }
 
