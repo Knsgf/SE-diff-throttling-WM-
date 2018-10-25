@@ -128,7 +128,7 @@ namespace ttdtwm
 
                 for (int cur_column = 0; cur_column < _width; ++cur_column)
                 {
-                    if (row_ref[cur_column] > -revised_simplex_solver.EPSILON && row_ref[cur_column] < revised_simplex_solver.EPSILON)
+                    if (row_ref[cur_column] >= -revised_simplex_solver.EPSILON && row_ref[cur_column] <= revised_simplex_solver.EPSILON)
                         row_ref[cur_column] = 0.0;
                 }
             }

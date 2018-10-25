@@ -13,6 +13,8 @@ namespace ttdtwm
 {
     sealed class engine_control_unit
     {
+        public const float TORQUE_FREE_ZONE_BLOCK_RADIUS = 2.0f;
+        
         #region fields
 
         const int   NUM_ROTATION_SAMPLES = 6, PHYSICS_ENABLE_DELAY = 6;
@@ -336,20 +338,16 @@ namespace ttdtwm
         {
             IMyThrust     cur_thruster;
             thruster_info cur_thruster_info;
+            float         dead_zone_radius2 = _grid.GridSize * TORQUE_FREE_ZONE_BLOCK_RADIUS;
 
+            dead_zone_radius2 *= dead_zone_radius2;
             foreach (var cur_thruster_entry in thrusters)
             {
                 cur_thruster      = cur_thruster_entry.Key;
                 cur_thruster_info = cur_thruster_entry.Value;
                 cur_thruster_info.CoM_offset    = cur_thruster_info.grid_centre_pos - _grid_CoM_location;
                 cur_thruster_info.torque_factor = Vector3.Cross(cur_thruster_info.CoM_offset, -_thrust_forward_vectors[(int) cur_thruster_info.nozzle_direction]);
-                if (cur_thruster_info.nozzle_direction == thrust_dir.fore || cur_thruster_info.nozzle_direction == thrust_dir.aft)
-                    cur_thruster_info.torque_factor.Z = 0.0f;
-                else if (cur_thruster_info.nozzle_direction == thrust_dir.port || cur_thruster_info.nozzle_direction == thrust_dir.starboard)
-                    cur_thruster_info.torque_factor.X = 0.0f;
-                else
-                    cur_thruster_info.torque_factor.Y = 0.0f;
-                if (cur_thruster_info.torque_factor.LengthSquared() < 0.01f)
+                if (cur_thruster_info.torque_factor.LengthSquared() <= dead_zone_radius2)
                     cur_thruster_info.torque_factor = Vector3.Zero;
             }
         }
@@ -423,6 +421,9 @@ namespace ttdtwm
                         _torque += cur_thruster.Value.torque_factor * thruster.CurrentThrust;
                 }
             }
+            screen_text("", (_torque.Length() / _grid_mass).ToString(), 16, controlled_only: true);
+            if (_torque.Length() <= _grid_mass * _grid.GridSize * TORQUE_FREE_ZONE_BLOCK_RADIUS)
+                _torque = Vector3.Zero;
             foreach (var cur_thruster in _uncontrolled_thrusters)
             {
                 thruster = cur_thruster.Key;
@@ -562,8 +563,9 @@ namespace ttdtwm
                 items.Add(item);
             }
 
-            var linear_solver = new revised_simplex_solver6();
-            linear_solver.calculate_solution(items, side_index);
+            var   linear_solver    = new revised_simplex_solver6();
+            float dead_zone_radius = _grid.GridSize * TORQUE_FREE_ZONE_BLOCK_RADIUS;
+            linear_solver.calculate_solution(_grid_mass, items, side_index, dead_zone_radius);
             for (int cur_item = 0; cur_item < total_count; ++cur_item)
             {
                 thruster_info cur_thruster_info = thruster_infos[cur_item];
@@ -576,9 +578,10 @@ namespace ttdtwm
                         cur_thruster_info.thrust_limit_ex[dir_index] = item.results[dir_index] / actual_max_force;
                     if (CALIBRATION_DEBUG)
                     {
-                        MyLog.Default.WriteLine(string.Format("[{0}] = {1:F2}/{2:F2}/{3:F2}/{4:F2}/{5:F2}/{6:F2}", cur_thruster_info.nozzle_direction, 
+                        MyLog.Default.WriteLine(string.Format("[{0} #{7}] = {1:F2}/{2:F2}/{3:F2}/{4:F2}/{5:F2}/{6:F2}", cur_thruster_info.nozzle_direction, 
                             cur_thruster_info.thrust_limit_ex[0], cur_thruster_info.thrust_limit_ex[1], cur_thruster_info.thrust_limit_ex[2], 
-                            cur_thruster_info.thrust_limit_ex[3], cur_thruster_info.thrust_limit_ex[4], cur_thruster_info.thrust_limit_ex[5]));
+                            cur_thruster_info.thrust_limit_ex[3], cur_thruster_info.thrust_limit_ex[4], cur_thruster_info.thrust_limit_ex[5],
+                            cur_item + 1));
                     }
                 }
             }
@@ -1783,8 +1786,8 @@ namespace ttdtwm
                             for (int control_dir = 0; control_dir < 6; ++control_dir)
                                 cur_thruster_info.current_setting += __control_vector[control_dir] * cur_thruster_info.thrust_limit_ex[control_dir];
                         }
-                        else if (cur_thruster_info.enable_limit && (_is_solution_good[dir_index] || cur_thruster_info.disable_linear_input))
-                            cur_thruster_info.current_setting *= cur_thruster_info.thrust_limit;
+                        //else if (cur_thruster_info.enable_limit && (_is_solution_good[dir_index] || cur_thruster_info.disable_linear_input))
+                        //    cur_thruster_info.current_setting *= cur_thruster_info.thrust_limit;
                         cur_thruster_info.skip = !cur_thruster_info.enable_rotation;
                     }
                 }

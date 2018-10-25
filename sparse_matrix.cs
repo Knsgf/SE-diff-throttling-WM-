@@ -226,7 +226,7 @@ namespace ttdtwm
 
                 foreach (var cur_element in cur_row_ref)
                 {
-                    if (Math.Abs(cur_element.Value) < revised_simplex_solver.EPSILON)
+                    if (Math.Abs(cur_element.Value) <= revised_simplex_solver.EPSILON)
                         __index_array[num_zeroes++] = cur_element.Key;
                 }
                 for (int cur_index = 0; cur_index < num_zeroes; ++cur_index)
