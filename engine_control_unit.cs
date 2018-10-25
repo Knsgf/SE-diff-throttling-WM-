@@ -5,6 +5,7 @@ using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
 using VRage.Game;
 using VRage.Game.Components;
+using VRage.Game.Entity;
 using VRage.Game.ModAPI;
 using VRage.Utils;
 using VRageMath;
@@ -165,6 +166,8 @@ namespace ttdtwm
         private int       _current_index    = 0, _physics_enable_delay = PHYSICS_ENABLE_DELAY, _num_subgrids = 1;
 
         private static byte[] __message = new byte[1];
+
+        private MyEntity _match_velocity_with = null;
 
         #endregion
 
@@ -2381,6 +2384,8 @@ namespace ttdtwm
 
         public void translate_player_input(Vector3 input_thrust, Vector3 input_rotation, VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)
         {
+            _match_velocity_with = ((Sandbox.Game.Entities.IMyControllableEntity) current_controller).RelativeDampeningEntity;
+
             if (secondary_ECU)
                 return;
             var controller = current_controller as IMyShipController;
@@ -2548,7 +2553,11 @@ namespace ttdtwm
                 _prev_position = _grid.Physics.CenterOfMassWorld;
             Vector3D current_position = _grid.Physics.CenterOfMassWorld;
             if (!is_secondary)
+            {
                 _world_linear_velocity = (_grid.Physics.Mass != _grid_mass) ? ((Vector3D) _grid.Physics.LinearVelocity) : ((current_position - _prev_position) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
+                if (_match_velocity_with?.Physics != null)
+                    _world_linear_velocity -= _match_velocity_with.Physics.LinearVelocity;
+            }
             _speed         = (float) _world_linear_velocity.Length();
             _prev_position = current_position;
 
