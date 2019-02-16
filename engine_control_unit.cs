@@ -2106,8 +2106,7 @@ namespace ttdtwm
             var new_thruster = new thruster_info();
             new_thruster.host_ECU             = this;
             new_thruster.grid_centre_pos      = (thruster.Min + thruster.Max) * (_grid.GridSize / 2.0f);
-            new_thruster.max_force            = thruster.MaxThrust;
-            new_thruster.actual_max_force     = thruster.MaxEffectiveThrust;
+            new_thruster.max_force            = new_thruster.actual_max_force = thruster.MaxThrust;
             new_thruster.CoM_offset           = new_thruster.grid_centre_pos - _grid_CoM_location;
             new_thruster.static_moment        = new_thruster.actual_static_moment = new_thruster.grid_centre_pos * new_thruster.max_force;
             new_thruster.nozzle_direction     = get_nozzle_orientation(thruster);
