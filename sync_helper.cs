@@ -11,16 +11,9 @@ using VRage.Utils;
 
 namespace ttdtwm
 {
-    public struct display_settings
-    {
-        public bool show_thrust_reduction, show_vertical_speed;
-        public uint min_displayed_reduction;
-    };
 
     static class sync_helper
     {
-        const string settings_file = "TTDTWM.CFG";
-
         const ushort SYNC_MESSAGE_ID = 17370;
 
         internal const int MAX_MESSAGE_LENGTH = 18;
@@ -37,23 +30,13 @@ namespace ttdtwm
 
         private static readonly Action<object, byte[]>[] _message_handlers;
 
-        private static bool settings_loaded = false;
         //private static bool F8_pressed = false;
 
         public static bool network_handlers_registered { get; private set; }
         //public static bool        is_spectator_mode_on { get; private set; }
-        public static bool       show_thrust_reduction { get; private set; }
-        public static bool         show_vertical_speed { get; private set; }
-        public static uint     min_displayed_reduction { get; private set; }
-
-        public static IMyPlayer             local_player     { get; private set; }
-        public static IMyControllableEntity local_controller { get; private set; }
 
         static sync_helper()
         {
-            show_thrust_reduction   = show_vertical_speed = true;
-            min_displayed_reduction = 10;
-
             _message_handlers = new Action<object, byte[]>[_num_messages];
             _message_handlers[(int) message_types.I_TERMS         ] = grid_logic.I_terms_handler;
             _message_handlers[(int) message_types.CONTROL_LIMIT   ] = grid_logic.control_warning_handler;
@@ -77,63 +60,6 @@ namespace ttdtwm
             }
             MyLog.Default.WriteLine("TTDTWM SYNC\tsync_helper." + method_name + "(): [" + player_name + "] " + message);
         }
-
-        #region Chat command handling
-
-        private static void command_handler(string message, ref bool dummy)
-        {
-            bool settings_changed = false;
-
-            message = message.ToLower();
-            if (message.StartsWith("/tpdt-vs"))
-            {
-                show_vertical_speed = !show_vertical_speed;
-                MyAPIGateway.Utilities.ShowMessage("TP&DT", "Vertical speed indicator is now " + (show_vertical_speed ? "visible" : "hidden"));
-                settings_changed = true;
-            }
-            else if (message.StartsWith("/tpdt-tl"))
-            {
-                uint min_thrust_loss  = 0; 
-                bool min_loss_entered = false;
-
-                if (message.Length > 8)
-                    min_loss_entered = uint.TryParse(message.Substring(8), out min_thrust_loss);
-
-                if (!min_loss_entered)
-                {
-                    show_thrust_reduction = !show_thrust_reduction;
-                    MyAPIGateway.Utilities.ShowMessage("TP&DT", "Thrust loss indicator is now " + (show_thrust_reduction ? "visible" : "hidden"));
-                    settings_changed = true;
-                }
-                else if (min_thrust_loss <= 100)
-                {
-                    min_displayed_reduction = min_thrust_loss;
-                    MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("Minimum displayed thrust loss is now {0} %", min_thrust_loss));
-                    settings_changed = true;
-                }
-            }
-
-            if (settings_changed)
-            {
-                display_settings stored_settings;
-                stored_settings.show_thrust_reduction   = show_thrust_reduction;
-                stored_settings.show_vertical_speed     = show_vertical_speed;
-                stored_settings.min_displayed_reduction = min_displayed_reduction;
-
-                try
-                {
-                    TextWriter output = MyAPIGateway.Utilities.WriteFileInLocalStorage(settings_file, typeof(display_settings));
-                    output.Write(MyAPIGateway.Utilities.SerializeToXML(stored_settings));
-                    output.Close();
-                }
-                catch (Exception error)
-                {
-                    MyLog.Default.WriteLine(error);
-                }
-            }
-        }
-
-        #endregion
 
         #region Network handlers
 
@@ -213,10 +139,9 @@ namespace ttdtwm
 
         public static void try_register_handlers()
         {
-            if (!network_handlers_registered && MyAPIGateway.Multiplayer != null && MyAPIGateway.Utilities != null)
+            if (!network_handlers_registered && MyAPIGateway.Multiplayer != null)
             {
                 MyAPIGateway.Multiplayer.RegisterMessageHandler(SYNC_MESSAGE_ID, on_message_received);
-                MyAPIGateway.Utilities.MessageEntered += command_handler;
                 network_handlers_registered = true;
             }
         }
@@ -226,7 +151,6 @@ namespace ttdtwm
             if (!network_handlers_registered)
                 return;
             MyAPIGateway.Multiplayer.UnregisterMessageHandler(SYNC_MESSAGE_ID, on_message_received);
-            MyAPIGateway.Utilities.MessageEntered -= command_handler;
             network_handlers_registered = false;
         }
 
@@ -269,7 +193,7 @@ namespace ttdtwm
 
         #endregion
 
-        public static void handle_60Hz()
+        public static void DISABLED_handle_60Hz()
         {
             /*
             if (MyAPIGateway.Session.SessionSettings.EnableSpectator && MyAPIGateway.Input != null)
@@ -295,30 +219,8 @@ namespace ttdtwm
             }
             */
 
-            local_player     = MyAPIGateway.Session.LocalHumanPlayer;
-            local_controller = (local_player == null) ? null : local_player.Controller.ControlledEntity;
-
-            if (!settings_loaded && network_handlers_registered)
-            {
-                if (MyAPIGateway.Utilities.FileExistsInLocalStorage(settings_file, typeof(display_settings)))
-                {
-                    try
-                    {
-                        TextReader           input = MyAPIGateway.Utilities.ReadFileInLocalStorage(settings_file, typeof(display_settings));
-                        var        loaded_settings = MyAPIGateway.Utilities.SerializeFromXML<display_settings>(input.ReadToEnd());
-
-                        input.Close();
-                        show_thrust_reduction   = loaded_settings.show_thrust_reduction;
-                        show_vertical_speed     = loaded_settings.show_vertical_speed;
-                        min_displayed_reduction = loaded_settings.min_displayed_reduction;
-                    }
-                    catch (Exception error)
-                    {
-                        MyLog.Default.WriteLine(error);
-                    }
-                }
-                settings_loaded = true;
-            }
+            //local_player     = MyAPIGateway.Session.LocalHumanPlayer;
+            //local_controller = (local_player == null) ? null : local_player.Controller.ControlledEntity;
         }
     }
 }

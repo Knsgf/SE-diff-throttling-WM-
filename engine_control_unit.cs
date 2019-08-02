@@ -279,20 +279,6 @@ namespace ttdtwm
 
         public const bool CALIBRATION_DEBUG = false, FULL_CALIBRATION_DEBUG = false;
 
-        private void screen_info(string message, int display_time_ms, string font, bool controlled_only)
-        {
-            bool display = !controlled_only;
-
-            if (!display)
-            {
-                var controller = MyAPIGateway.Session.ControlledObject as MyShipController;
-                if (controller != null)
-                    display = controller.CubeGrid == _grid;
-            }
-            if (display)
-                MyAPIGateway.Utilities.ShowNotification(message, display_time_ms, font);
-        }
-
         private void log_ECU_action(string method_name, string message)
         {
             MyLog.Default.WriteLine(string.Format("TTDTWM\tengine_control_unit<{0} [{1}]>.{2}(): {3}", _grid.DisplayName, _grid.EntityId, method_name, message));
@@ -310,17 +296,9 @@ namespace ttdtwm
                 _uncontrolled_thrusters.Count));
         }
 
-        private void screen_text(string method_name, string message, int display_time_ms, bool controlled_only)
-        {
-            if (method_name == "")
-                screen_info(string.Format("{0} {1}", controlled_only ? "" : ("\"" + _grid.DisplayName + "\""), message), display_time_ms, MyFontEnum.White, controlled_only);
-            else
-                screen_info(string.Format("engine_control_unit.{0}(): {1} {2}", method_name, controlled_only ? "" : ("\"" + _grid.DisplayName + "\""), message), display_time_ms, MyFontEnum.White, controlled_only);
-        }
-
         private void screen_vector<type>(string method_name, string vector_name, type[] vector, int display_time_ms, bool controlled_only)
         {
-            screen_text(method_name, string.Format("{0} = {1:F3}/{2:F3}/{3:F3}/{4:F3}/{5:F3}/{6:F3}", 
+            screen_info.screen_text(_grid, method_name, string.Format("{0} = {1:F3}/{2:F3}/{3:F3}/{4:F3}/{5:F3}/{6:F3}", 
                 vector_name,
                 vector[(int) thrust_dir.fore     ],
                 vector[(int) thrust_dir.aft      ],
@@ -1554,6 +1532,7 @@ namespace ttdtwm
             //Vector3      world_gravity          = (closest_planetoid == null) ? Vector3.Zero : closest_planetoid.GetWorldGravity(grid_bounding_box.Center);
             Vector3      local_gravity          = Vector3.Transform(_grid.Physics.Gravity, inverse_world_rotation);
             float        gravity_magnitude      = local_gravity.Length();
+            //screen_info.screen_text(_grid, "", _grid.Physics.Gravity.ToString(), 16, controlled_only: true);
             _vertical_speed = (gravity_magnitude < 0.1f) ? 0.0f : (Vector3.Dot(local_linear_velocity, local_gravity) / (-gravity_magnitude));
             _local_angular_velocity = Vector3.Transform(world_angular_velocity, inverse_world_rotation);
             if (_is_gyro_override_active)

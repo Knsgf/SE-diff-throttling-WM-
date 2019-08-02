@@ -334,8 +334,8 @@ namespace ttdtwm
 
         private void try_register_handlers()
         {
-            if (!sync_helper.network_handlers_registered)
-                sync_helper.try_register_handlers();
+            sync_helper.try_register_handlers();
+            screen_info.try_register_handlers();
             if (!_entity_events_set && MyAPIGateway.Entities != null)
             {
                 var existing_entities = new HashSet<IMyEntity>();
@@ -439,7 +439,7 @@ namespace ttdtwm
         {
             base.UpdateAfterSimulation();
 
-            sync_helper.handle_60Hz();
+            screen_info.refresh_local_player_info();
             if (_grids_handle_60Hz == null)
             {
                 try_register_handlers();
@@ -448,6 +448,7 @@ namespace ttdtwm
             if (--_count15 <= 0)
             {
                 _count15 = 15;
+                screen_info.refresh_local_player_HUD();
                 if (SINGLE_THREADED_EXEC)
                     manager_thread();
                 else
@@ -470,8 +471,8 @@ namespace ttdtwm
         protected override void UnloadData()
         {
             base.UnloadData();
-            if (sync_helper.network_handlers_registered)
-                sync_helper.deregister_handlers();
+            sync_helper.deregister_handlers();
+            screen_info.deregister_handlers();
             foreach (var leftover_grid in _grids.Keys.ToList())
                 on_entity_removed(leftover_grid);
             MyAPIGateway.Entities.OnEntityAdd    -= on_entity_added;

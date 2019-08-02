@@ -30,13 +30,12 @@ namespace ttdtwm
         private HashSet<IMyControllableEntity> _ship_controllers     = new HashSet<IMyControllableEntity>();
         private HashSet<IMyRemoteControl>      _RC_blocks            = new HashSet<IMyRemoteControl>();
         private List<grid_logic>               _secondary_grids      = null;
-        private IMyHudNotification             _thrust_redction_text = null, _control_warning_text = null, _vertical_speed_text = null;
         private engine_control_unit            _ECU                  = null;
         //private Vector3UByte                   _prev_manual_thrust   = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
         private IMyPlayer                      _prev_player          = null;
 
-        private int     _num_thrusters = 0, _prev_thrust_reduction = 0, _zero_controls_counter = 0;
-        private bool    _control_limit_is_visible = false, _thrust_redction_is_visible = false, _vertical_speed_is_visible = false, _disposed = false/*, _status_shown = false*/;
+        private int     _num_thrusters = 0, _prev_thrust_reduction = 0/*, _zero_controls_counter = 0*/;
+        private bool    _control_limit_reached = false, _disposed = false/*, _status_shown = false*/;
         private bool    _was_in_landing_mode = false, _was_in_CoT_mode = false, _ID_on = true, _is_secondary = false;
         private Vector3 _prev_trim, _prev_last_trim, _prev_linear_integral;
         //private bool _announced = false;
@@ -230,9 +229,9 @@ namespace ttdtwm
         {
             if (MyAPIGateway.Multiplayer != null)
                 return MyAPIGateway.Multiplayer.Players.GetPlayerControllingEntity(_grid);
-            if (_ECU == null || !_ECU.is_under_control_of(sync_helper.local_controller))
+            if (_ECU == null || !_ECU.is_under_control_of(screen_info.local_controller))
                 return null;
-            return sync_helper.local_player;
+            return screen_info.local_player;
         }
 
         private void initialise_ECU()
@@ -393,6 +392,7 @@ namespace ttdtwm
             }
         }
 
+        /*
         private void display_thrust_reduction(int thrust_reduction)
         {
             if (_thrust_redction_text == null)
@@ -431,6 +431,7 @@ namespace ttdtwm
             }
             _control_limit_is_visible = is_warning_on;
         }
+        */
 
         internal static void control_warning_handler(object entity, byte[] argument)
         {
@@ -438,7 +439,8 @@ namespace ttdtwm
             if (instance == null || instance._disposed || instance._ECU == null)
                 return;
 
-            instance.display_control_warning(argument[0] != 0);
+            if (instance._ECU.is_under_control_of(screen_info.local_controller))
+                screen_info.set_control_loss_warning_visibility(argument[0] != 0 && !instance._is_secondary && instance._secondary_grids == null);
         }
 
         internal static void thrust_reduction_handler(object entity, byte[] argument)
@@ -448,8 +450,8 @@ namespace ttdtwm
                 return;
 
             //instance.log_grid_action("thrust_reduction_handler", string.Format("TL = {0}", argument[0]));
-            if (argument[0] <= 100)
-                instance.display_thrust_reduction(argument[0]);
+            if (argument[0] <= 100 && instance._ECU.is_under_control_of(screen_info.local_controller))
+                screen_info.set_displayed_thrust_reduction(argument[0], !instance._is_secondary && instance._secondary_grids == null);
         }
 
         private static float structurise_float_from_short(byte[] buffer, int buffer_offset)
@@ -489,10 +491,11 @@ namespace ttdtwm
 
         private void send_control_limit_message(IMyPlayer controlling_player)
         {
-            if (_ECU != null && controlling_player != null && (controlling_player != _prev_player || _control_limit_is_visible != _ECU.control_limit_reached))
+            if (_ECU != null && controlling_player != null && (controlling_player != _prev_player || _control_limit_reached != _ECU.control_limit_reached))
             {
                 __message[0] = (byte) (_ECU.control_limit_reached ? (~0) : 0);
                 sync_helper.send_message_to(controlling_player.SteamUserId, sync_helper.message_types.CONTROL_LIMIT, this, __message, 1);
+                _control_limit_reached = _ECU.control_limit_reached;
             }
         }
 
@@ -506,6 +509,7 @@ namespace ttdtwm
                     __message[0] = 100;
                 //log_grid_action("send_thrust_reduction_message", string.Format("TL = {0}", __message[0]));
                 sync_helper.send_message_to(controlling_player.SteamUserId, sync_helper.message_types.THRUST_LOSS, this, __message, 1);
+                _prev_thrust_reduction = _ECU.thrust_reduction;
             }
         }
 
@@ -601,7 +605,7 @@ namespace ttdtwm
             //_ECU.translate_linear_input  (manual_thrust  , controller);
             //_ECU.translate_rotation_input(manual_rotation, controller);
             _ECU.translate_player_input(manual_thrust, manual_rotation, controller);
-            _zero_controls_counter = 0;
+            //_zero_controls_counter = 0;
         }
 
         public void handle_60Hz()
@@ -684,19 +688,6 @@ namespace ttdtwm
                     _ECU.handle_4Hz_foreground();
 
                     IMyPlayer controlling_player = get_controlling_player();
-                    if (_is_secondary || controlling_player == null)
-                    {
-                        if (_control_limit_is_visible)
-                        {
-                            _control_warning_text.Hide();
-                            _control_limit_is_visible = false;
-                        }
-                        if (_thrust_redction_is_visible)
-                        {
-                            _thrust_redction_text.Hide();
-                            _thrust_redction_is_visible = false;
-                        }
-                    }
 
                     _ECU.autopilot_on = false;
                     foreach (var cur_RC_block in _RC_blocks)
@@ -716,26 +707,8 @@ namespace ttdtwm
                     }
                     */
 
-                    if (!_is_secondary && _vertical_speed_text != null)
-                    {
-                        if (!sync_helper.show_vertical_speed || !_ECU.is_under_control_of(sync_helper.local_controller) || Math.Abs(_ECU.vertical_speed) < 0.1f)
-                        {
-                            if (_vertical_speed_is_visible)
-                            {
-                                _vertical_speed_text.Hide();
-                                _vertical_speed_is_visible = false;
-                            }
-                        }
-                        else
-                        {
-                            _vertical_speed_text.Text = string.Format("Vertical speed: {0:F1} m/s", _ECU.vertical_speed);
-                            if (!_vertical_speed_is_visible)
-                            {
-                                _vertical_speed_text.Show();
-                                _vertical_speed_is_visible = true;
-                            }
-                        }
-                    }
+                    if (_ECU.is_under_control_of(screen_info.local_controller))
+                        screen_info.set_displayed_vertical_speed(_ECU.vertical_speed, !_is_secondary);
 
                     if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
                     {
@@ -769,13 +742,6 @@ namespace ttdtwm
             {
                 lock (_ECU)
                 { 
-                    if (_control_warning_text == null && MyAPIGateway.Utilities != null)
-                    {
-                        _thrust_redction_text = MyAPIGateway.Utilities.CreateNotification("", 0);
-                        _control_warning_text = MyAPIGateway.Utilities.CreateNotification("WARNING: Control limit reached", 0, MyFontEnum.Red);
-                        _vertical_speed_text  = MyAPIGateway.Utilities.CreateNotification("", 0);
-                    }
-
                     _ECU.handle_2s_period_foreground();
                     if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
                         send_I_terms_message();
