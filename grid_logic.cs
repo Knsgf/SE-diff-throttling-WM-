@@ -19,8 +19,7 @@ namespace ttdtwm
         #region fields
 
         const float MESSAGE_MULTIPLIER = 1000.0f, MESSAGE_SHIFT = 128.0f;
-        const int   CONTROL_WARNING_OFF = 200, CONTROL_WARNING_ON = 201/*, CLIENT_ANNOUNCE = 202, SERVER_ACKNOWLEDGE = 203*/;
-        //const int   CONTROL_MODE_BASE = 204, LANDING_MODE_ON = 1, COT_MODE_ON = 2;  // 204 - 207
+        const int   CONTROL_WARNING_OFF = 200, CONTROL_WARNING_ON = 201;
         const int   CONTROLS_TIMEOUT = 2;
 
         private static byte[] __message = new byte[sync_helper.MAX_MESSAGE_LENGTH];
@@ -31,14 +30,12 @@ namespace ttdtwm
         private HashSet<IMyRemoteControl>      _RC_blocks            = new HashSet<IMyRemoteControl>();
         private List<grid_logic>               _secondary_grids      = null;
         private engine_control_unit            _ECU                  = null;
-        //private Vector3UByte                   _prev_manual_thrust   = new Vector3UByte(128, 128, 128), _prev_manual_rotation = new Vector3UByte(128, 128, 128);
         private IMyPlayer                      _prev_player          = null;
 
-        private int     _num_thrusters = 0, _prev_thrust_reduction = 0/*, _zero_controls_counter = 0*/;
-        private bool    _control_limit_reached = false, _disposed = false/*, _status_shown = false*/;
+        private int     _num_thrusters = 0, _prev_thrust_reduction = 0;
+        private bool    _control_limit_reached = false, _disposed = false;
         private bool    _was_in_landing_mode = false, _was_in_CoT_mode = false, _ID_on = true, _is_secondary = false;
         private Vector3 _prev_trim, _prev_last_trim, _prev_linear_integral;
-        //private bool _announced = false;
 
         #endregion
 
@@ -137,7 +134,6 @@ namespace ttdtwm
                 _is_secondary = value;
                 if (_ECU != null)
                     _ECU.secondary_ECU = value;
-                //log_grid_action("is_secondary.set", _grid.DisplayName + (value ? " secondary" : " primary"));
             }
         }
 
@@ -171,19 +167,6 @@ namespace ttdtwm
         {
             if (_ECU == null)
                 return;
-
-            /*
-            if (controller == null)
-            {
-                foreach (var cur_controller in _ship_controllers)
-                {
-                    controller = (IMyTerminalBlock) cur_controller;
-                    break;
-                }
-                if (controller == null)
-                    return;
-            }
-            */
 
             Vector3 new_override = controller.CustomData.IDOverrides();
             switch (axis)
@@ -342,7 +325,6 @@ namespace ttdtwm
                     _session_ref.sample_thruster(thruster);
                     thruster.AppendingCustomInfo += thruster_tagger.show_thrust_limit;
                     ++_num_thrusters;
-                    //log_grid_action("on_block_added", thruster.EntityId.ToString());
                     return;
                 }
 
@@ -381,7 +363,6 @@ namespace ttdtwm
                         thruster.AppendingCustomInfo -= thruster_tagger.show_thrust_limit;
                         _ECU.dispose_thruster(thruster);
                         --_num_thrusters;
-                        //log_grid_action("on_block_removed", thruster.EntityId.ToString());
                         return;
                     }
 
@@ -391,47 +372,6 @@ namespace ttdtwm
                 }
             }
         }
-
-        /*
-        private void display_thrust_reduction(int thrust_reduction)
-        {
-            if (_thrust_redction_text == null)
-                return;
-
-            if (_is_secondary || _secondary_grids != null || thrust_reduction < sync_helper.min_displayed_reduction || !sync_helper.show_thrust_reduction)
-            {
-                if (_thrust_redction_is_visible)
-                    _thrust_redction_text.Hide();
-                _thrust_redction_is_visible = false;
-            }
-            else
-            {
-                _thrust_redction_text.Text = "Thrust loss: " + thrust_reduction.ToString() + " %";
-                _thrust_redction_text.Font = (thrust_reduction > 30) ? MyFontEnum.Red : MyFontEnum.White;
-                if (!_thrust_redction_is_visible)
-                    _thrust_redction_text.Show();
-                _thrust_redction_is_visible = true;
-            }
-        }
-
-        private void display_control_warning(bool is_warning_on)
-        {
-            if (_control_warning_text == null)
-                return;
-
-            if (!is_warning_on || _is_secondary || _secondary_grids != null)
-            {
-                if (_control_limit_is_visible)
-                    _control_warning_text.Hide();
-            }
-            else
-            {
-                if (!_control_limit_is_visible)
-                    _control_warning_text.Show();
-            }
-            _control_limit_is_visible = is_warning_on;
-        }
-        */
 
         internal static void control_warning_handler(object entity, byte[] argument)
         {
@@ -449,7 +389,6 @@ namespace ttdtwm
             if (instance == null || instance._disposed || instance._ECU == null)
                 return;
 
-            //instance.log_grid_action("thrust_reduction_handler", string.Format("TL = {0}", argument[0]));
             if (argument[0] <= 100 && instance._ECU.is_under_control_of(screen_info.local_controller))
                 screen_info.set_displayed_thrust_reduction(argument[0], !instance._is_secondary && instance._secondary_grids == null);
         }
@@ -482,7 +421,6 @@ namespace ttdtwm
             current_ECU.current_trim    = structurise_vector(argument, 0);
             current_ECU.last_trim       = structurise_vector(argument, 6);
             current_ECU.linear_integral = structurise_vector(argument, 12);
-            //instance.log_grid_action("I_terms_handler", string.Format("CT = {0}; LT = {1}; LI = {2}", current_ECU.current_trim, current_ECU.last_trim, current_ECU.linear_integral));
         }
 
         #endregion
@@ -507,7 +445,6 @@ namespace ttdtwm
                 __message[0]           = (byte) _prev_thrust_reduction;
                 if (__message[0] > 100)
                     __message[0] = 100;
-                //log_grid_action("send_thrust_reduction_message", string.Format("TL = {0}", __message[0]));
                 sync_helper.send_message_to(controlling_player.SteamUserId, sync_helper.message_types.THRUST_LOSS, this, __message, 1);
                 _prev_thrust_reduction = _ECU.thrust_reduction;
             }
@@ -543,7 +480,6 @@ namespace ttdtwm
                 serialise_vector(_prev_trim           , __message, 0);
                 serialise_vector(_prev_last_trim      , __message, 6);
                 serialise_vector(_prev_linear_integral, __message, 12);
-                //log_grid_action("send_I_terms_message", string.Format("CT = {0}; LT = {1}; LI = {2}", _prev_trim, _prev_last_trim, _prev_linear_integral));
                 sync_helper.send_message_to_others(sync_helper.message_types.I_TERMS, this, __message, 18);
             }
         }
@@ -554,38 +490,6 @@ namespace ttdtwm
         {
             if (_ECU == null)
                 return;
-
-            /*
-            Vector3 manual_thrust = Vector3.Zero, manual_rotation;
-
-            if (sync_helper.is_spectator_mode_on || MyAPIGateway.Gui.GetCurrentScreen != MyTerminalPageEnum.None || MyAPIGateway.Gui.ChatEntryVisible)
-                manual_rotation = Vector3.Zero;
-            else
-            {
-                if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.LOOKAROUND))
-                    manual_rotation = Vector3.Zero;
-                else
-                {
-                    Vector2 pitch_yaw = MyAPIGateway.Input.GetRotation();
-                    manual_rotation.X = pitch_yaw.X;
-                    manual_rotation.Y = pitch_yaw.Y;
-                    manual_rotation.Z = MyAPIGateway.Input.GetRoll();
-                }
-
-                if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.FORWARD))
-                    manual_thrust += Vector3.Forward;
-                if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.BACKWARD))
-                    manual_thrust += Vector3.Backward;
-                if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.STRAFE_LEFT))
-                    manual_thrust += Vector3.Left;
-                if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.STRAFE_RIGHT))
-                    manual_thrust += Vector3.Right;
-                if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.JUMP))
-                    manual_thrust += Vector3.Up;
-                if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.CROUCH))
-                    manual_thrust += Vector3.Down;
-            }
-            */
 
             var ship_controller = controller as Sandbox.ModAPI.Ingame.IMyShipController;
             Vector3 manual_thrust, manual_rotation;
@@ -599,13 +503,7 @@ namespace ttdtwm
                 manual_rotation.Y = ship_controller.RotationIndicator.Y;
                 manual_rotation.Z = ship_controller.RollIndicator;
             }
-
-            //send_linear_message  (manual_thrust  );
-            //send_rotation_message(manual_rotation);
-            //_ECU.translate_linear_input  (manual_thrust  , controller);
-            //_ECU.translate_rotation_input(manual_rotation, controller);
             _ECU.translate_player_input(manual_thrust, manual_rotation, controller);
-            //_zero_controls_counter = 0;
         }
 
         public void handle_60Hz()
@@ -618,10 +516,14 @@ namespace ttdtwm
                     if (!_is_secondary)
                     {
                         IMyPlayer controlling_player = get_controlling_player();
-                        if (controlling_player == null)
+                        if (controlling_player != null)
+                        {
+                            if (controlling_player == screen_info.local_player)
+                                handle_user_input(controlling_player.Controller.ControlledEntity);
+                        }
+                        else
                         {
                             _ECU.reset_user_input(reset_gyros_only: false);
-                            //_prev_manual_thrust = _prev_manual_rotation = new Vector3UByte(128, 128, 128);
                             if (_secondary_grids != null)
                             {
                                 foreach (var cur_secondary in _secondary_grids)
@@ -631,8 +533,6 @@ namespace ttdtwm
                                 }
                             }
                         }
-                        else //if (!sync_helper.network_handlers_registered || MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || MyAPIGateway.Multiplayer.IsServerPlayer(controlling_player.Client))
-                            handle_user_input(controlling_player.Controller.ControlledEntity);
 
                         _ID_on = true;
                         foreach (var cur_controller in _ship_controllers)
@@ -642,11 +542,12 @@ namespace ttdtwm
                             break;
                         }
 
-                        Vector3D world_linear_velocity, world_angular_velocity;
-                        Vector3  linear_control, rotation_control, gyro_override;
-                        bool     gyro_override_active;
                         if (_secondary_grids != null)
                         {
+                            Vector3D world_linear_velocity, world_angular_velocity;
+                            Vector3  linear_control, rotation_control, gyro_override;
+                            bool     gyro_override_active;
+
                             _ECU.get_primary_control_parameters(out world_linear_velocity, out world_angular_velocity, 
                                 out linear_control, out rotation_control, out gyro_override_active, out gyro_override);
                             foreach (var cur_secondary in _secondary_grids)
@@ -692,27 +593,11 @@ namespace ttdtwm
                     _ECU.autopilot_on = false;
                     foreach (var cur_RC_block in _RC_blocks)
                         _ECU.check_autopilot(cur_RC_block);
-
-                    /*
-                    if (sync_helper.local_player != null)
-                    {
-                        bool display_notification = _ECU.active_control_enabled && _ECU.is_under_control_of(sync_helper.local_controller);
-                        if (_status_shown && !display_notification)
-                            _status_shown = false;
-                        else if (display_notification && _ID_on && (!_status_shown || _ECU.landing_mode_on != _was_in_landing_mode) && MyAPIGateway.Utilities != null)
-                        {
-                            MyAPIGateway.Utilities.ShowNotification(_ECU.landing_mode_on ? "Landing mode engaged" : "Flight mode engaged");
-                            _status_shown = true;
-                        }
-                    }
-                    */
-
                     if (_ECU.is_under_control_of(screen_info.local_controller))
                         screen_info.set_displayed_vertical_speed(_ECU.vertical_speed, !_is_secondary);
 
                     if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
                     {
-                        //send_control_modes_message(force_send: false);
                         send_control_limit_message   (controlling_player);
                         send_thrust_reduction_message(controlling_player);
                     }
@@ -745,21 +630,6 @@ namespace ttdtwm
                     _ECU.handle_2s_period_foreground();
                     if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
                         send_I_terms_message();
-
-                    /*
-                    if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
-                    {
-                        //if (!_announced)
-                        //    send_client_announce();
-                        _prev_manual_rotation = _prev_manual_thrust = new Vector3UByte(128, 128, 128);
-                    }
-                    else if (_zero_controls_counter++ >= CONTROLS_TIMEOUT)
-                    {
-                        _ECU.reset_user_input(reset_gyros_only: false);
-                        _prev_manual_rotation  = _prev_manual_thrust = new Vector3UByte(128, 128, 128);
-                        _zero_controls_counter = 0;
-                    }
-                    */
                 }
             }
         }
@@ -787,8 +657,6 @@ namespace ttdtwm
             _grid                 = new_grid;
             _grid.OnBlockAdded   += on_block_added;
             _grid.OnBlockRemoved += on_block_removed;
-            //_ID_on = ((MyObjectBuilder_CubeGrid) _grid.GetObjectBuilder()).DampenersEnabled;
-            //log_grid_action(".ctor", "");
             sync_helper.register_entity(this, _grid.EntityId);
 
             var block_list = new List<IMySlimBlock>();
@@ -810,15 +678,12 @@ namespace ttdtwm
             );
             foreach (var cur_block in block_list)
                 on_block_added(cur_block);
-
-            //log_grid_action(".ctor", "finished");
         }
 
         public void Dispose()
         {
             if (!_disposed)
             {
-                //log_grid_action("Dispose", "");
                 _grid.OnBlockAdded   -= on_block_added;
                 _grid.OnBlockRemoved -= on_block_removed;
                 sync_helper.deregister_entity(_grid.EntityId);
@@ -834,7 +699,6 @@ namespace ttdtwm
                     on_block_removed(cur_block);
 
                 _disposed = true;
-                //log_grid_action("Dispose", "finished");
             }
         }
     }

@@ -19,7 +19,7 @@ namespace ttdtwm
     [MySessionComponentDescriptor(MyUpdateOrder.AfterSimulation)]
     public class session_handler: MySessionComponentBase
     {
-        const bool SINGLE_THREADED_EXEC = false;
+        public const bool SINGLE_THREADED_EXEC = false;
         
         #region fields
 
@@ -61,6 +61,10 @@ namespace ttdtwm
                 _grids_perform_calibration         += new_grid_logic.perform_individual_calibration;
                 _grids.Add(grid, new_grid_logic);
             }
+
+            var planetoid = entity as MyPlanet;
+            if (planetoid != null)
+                gravity_and_physics.register_gravity_source(planetoid);
         }
 
         private void on_entity_removed(IMyEntity entity)
@@ -78,6 +82,10 @@ namespace ttdtwm
                 grid_logic_to_remove.Dispose();
                 _grids.Remove(grid);
             }
+
+            var planetoid = entity as MyPlanet;
+            if (planetoid != null)
+                gravity_and_physics.deregister_gravity_source(planetoid);
         }
 
         private bool is_grid_CoT_mode_on(IMyTerminalBlock controller)
@@ -268,10 +276,8 @@ namespace ttdtwm
                 if (secondary_grids != null)
                     clear_grid_secondary_flag(secondary_grids);
                 secondary_grids = null;
-                //log_session_action("get_secondary_grids", string.Format("single grid {0} [{1}]", primary.DisplayName, primary.EntityId));
                 return;
             }
-            //log_session_action("get_secondary_grids", string.Format("primary grid {0} [{1}]", primary.DisplayName, primary.EntityId));
             if (secondary_grids == null)
                 secondary_grids = new List<grid_logic>();
             else
@@ -290,10 +296,8 @@ namespace ttdtwm
                     grid_logic cur_grid_object = _grids[cur_grid];
                     secondary_grids.Add(cur_grid_object);
                     cur_grid_object.is_secondary = true;
-                    //log_session_action("get_secondary_grids", string.Format("secondary grid #{2} {0} [{1}]", cur_grid.DisplayName, cur_grid.EntityId, secondary_grids.Count));
                 }
             }
-            //log_session_action("get_secondary_grids", string.Format("primary grids = {0}", primary_count));
             if (primary_count != 1)
             {
                 clear_grid_secondary_flag(secondary_grids);
@@ -317,7 +321,6 @@ namespace ttdtwm
         {
             var controller_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE1");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line);
-            //create_checkbox<IMyCockpit>("ForceCoTMode", "Force CoT mode", null,               "CoT",   "Auto",     is_grid_CoT_mode_on,     set_grid_CoT_mode,     is_grid_CoT_mode_available);
             create_checkbox<_controller_type_>(    "RotationalDamping",        "Rotational Damping", null,                   "On",    "Off", is_grid_rotational_damping_on, set_grid_rotational_damping,     is_grid_CoT_mode_available);
             create_switch  <_controller_type_>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM",           is_grid_CoT_mode_on,           set_grid_CoT_mode,     is_grid_CoT_mode_available);
             create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad",    use_individual_calibration,   choose_calibration_method,     is_grid_CoT_mode_available);
@@ -371,7 +374,6 @@ namespace ttdtwm
                 var manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
                 manual_throttle.Getter  = thruster_tagger.get_manual_throttle;
                 manual_throttle.Setter  = thruster_tagger.set_manual_throttle;
-                //manual_throttle.Enabled = thruster_tagger.is_under_active_control;
                 manual_throttle.SupportsMultipleBlocks = true;
                 manual_throttle.Title  = MyStringId.GetOrCompute("Manual throttle");
                 manual_throttle.Writer = thruster_tagger.throttle_status;
