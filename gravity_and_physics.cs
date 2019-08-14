@@ -33,6 +33,14 @@ namespace ttdtwm
         private Vector3D _eccentricity_vector, _specific_angular_momentum;
         private Vector3D _grid_forward, _grid_right, _grid_up;
 
+        public static bool world_has_gravity
+        {
+            get
+            {
+                return _gravity_sources.Count > 0;
+            }
+        }
+
         public static void register_gravity_source(MyPlanet new_planetoid)
         {
             gravity_source new_gravity_source = new gravity_source();
@@ -88,8 +96,15 @@ namespace ttdtwm
             {
                 cur_body_vector = grid_position - cur_body.centre_position;
                 distance2       = cur_body_vector.LengthSquared();
-                gravity         = (distance2 >= cur_body.mean_radius2) ? (cur_body.standard_gravitational_parameter / distance2) 
-                                                                       : (cur_body.surface_gravity * Math.Sqrt(distance2 / cur_body.mean_radius2));
+                if (distance2 <= cur_body.mean_radius2)
+                {
+                    gravity_magnitude = cur_body.surface_gravity * Math.Sqrt(distance2 / cur_body.mean_radius2);
+                    distance          = Math.Sqrt(distance2);
+                    grid_vector       = cur_body_vector;
+                    return cur_body;
+                }
+
+                gravity = cur_body.standard_gravitational_parameter / distance2;
                 if (gravity_magnitude < gravity)
                 {
                     gravity_magnitude = gravity;
@@ -106,33 +121,60 @@ namespace ttdtwm
 
         #region Orbit information
 
-        public Vector3D get_circular_orbit_velocity(Vector3D manual_velocity_change, bool recalculate_plane)
+        public Vector3D get_circular_orbit_velocity()
         {
-            Vector3D       grid_vector;
-            double         grid_vector_length, dummy;
-            gravity_source reference_body = get_reference_body(_grid_position, out grid_vector, out grid_vector_length, out dummy);
+            if (_current_reference == null)
+                return Vector3D.Zero;
 
-            if (recalculate_plane || _current_reference != reference_body || Vector3D.IsZero(_specific_angular_momentum))
-            {
-                _specific_angular_momentum = Vector3D.Cross(grid_vector, _absolute_velocity);
-                _current_reference         = reference_body;
-            }
-            else
-            {
-                Vector3D circular_velocity = Vector3D.Normalize(Vector3D.Cross(_specific_angular_momentum, grid_vector)) * (_specific_angular_momentum.Length() / grid_vector_length);
-                _specific_angular_momentum = Vector3D.Cross(grid_vector, circular_velocity + manual_velocity_change * (circular_velocity.Length() / _absolute_velocity.Length()));
-            }
+            Vector3D grid_vector               = _grid_position - _current_reference.centre_position;
+            double   grid_vector_length        = grid_vector.Length();
+            Vector3D specific_angular_momentum = Vector3D.Cross(grid_vector, _absolute_velocity);
+            if (specific_angular_momentum.LengthSquared() < 1.0E-6)
+                return Vector3D.Zero;
+            return Vector3D.Normalize(Vector3D.Cross(specific_angular_momentum, grid_vector)) * Math.Sqrt(_current_reference.standard_gravitational_parameter / grid_vector_length);
+        }
 
-            return Vector3D.Normalize(Vector3D.Cross(_specific_angular_momentum, grid_vector)) * Math.Sqrt(reference_body.standard_gravitational_parameter / grid_vector_length);
+        public Vector3 get_maneuvre_direction(engine_control_unit.ID_maneuvres selection)
+        {
+            if (selection == engine_control_unit.ID_maneuvres.maneuvre_off || _current_reference == null)
+                return Vector3.Zero;
+
+            if (selection == engine_control_unit.ID_maneuvres.burn_prograde)
+                return Vector3.Normalize(_absolute_velocity);
+            if (selection == engine_control_unit.ID_maneuvres.burn_retrograde)
+                return -Vector3.Normalize(_absolute_velocity);
+
+            Vector3D grid_vector = _grid_position - _current_reference.centre_position;
+            Vector3  normal      = Vector3.Cross(grid_vector, _absolute_velocity);
+            if (normal.LengthSquared() > 0.0f)
+                normal.Normalize();
+            if (selection == engine_control_unit.ID_maneuvres.burn_normal)
+                return normal;
+            if (selection == engine_control_unit.ID_maneuvres.burn_antinormal)
+                return -normal;
+
+            Vector3 outward = Vector3.Cross(_absolute_velocity, normal);
+            if (outward.LengthSquared() > 0.0f)
+                outward.Normalize();
+            if (selection == engine_control_unit.ID_maneuvres.burn_outward)
+                return outward;
+            if (selection == engine_control_unit.ID_maneuvres.burn_inward)
+                return -outward;
+            return Vector3.Zero;
+
         }
 
         private void calculate_elements()
         {
-            Vector3D       grid_vector;
-            double         grid_vector_length, gravity_magnitude;
-            gravity_source reference_body = get_reference_body(_grid_position, out grid_vector, out grid_vector_length, out gravity_magnitude);
-            double         SGP            = reference_body.standard_gravitational_parameter;
+            if (_current_reference == null)
+            {
+                return;
+            }
 
+            Vector3D grid_vector               = _grid_position - _current_reference.centre_position;
+            double   grid_vector_length        = grid_vector.Length();
+            double   SGP                       = _current_reference.standard_gravitational_parameter;
+            double   gravity_magnitude         = SGP / (grid_vector_length * grid_vector_length);
             Vector3D specific_angular_momentum = Vector3D.Cross(grid_vector, _absolute_velocity);
             double   speed                     = _absolute_velocity.Length();
             double   gravity_energy            = SGP / grid_vector_length;
@@ -268,15 +310,17 @@ namespace ttdtwm
 
         public void apply_gravity_and_torque(Vector3 absolute_torque, bool linear_damping_on)
         {
-            Vector3D       grid_vector;
-            double         grid_vector_length, gravity_magnitude;
-            gravity_source reference_body           = get_reference_body(_grid_position, out grid_vector, out grid_vector_length, out gravity_magnitude);
-            Vector3D       gravity_vector           = (grid_vector_length >= 1.0) ? (grid_vector / grid_vector_length * (-gravity_magnitude)) : Vector3D.Zero;
-            Vector3D       gravity_correction_force = _grid.Physics.Mass * (gravity_vector - _grid.Physics.Gravity) + _accumulated_gravity;
+            Vector3D grid_vector;
+            double   grid_vector_length, gravity_magnitude;
+
+            _current_reference                = get_reference_body(_grid_position, out grid_vector, out grid_vector_length, out gravity_magnitude);
+            Vector3D gravity_vector           = (grid_vector_length >= 1.0) ? (grid_vector / grid_vector_length * (-gravity_magnitude)) : Vector3D.Zero;
+            Vector3  stock_gravity_force      = _grid.Physics.Gravity;
+            Vector3D gravity_correction_force = _grid.Physics.Mass * (gravity_vector - _grid.Physics.Gravity) + _accumulated_gravity;
 
             if (gravity_correction_force.LengthSquared() >= 1.0 || absolute_torque.LengthSquared() >= 1.0f)
                 _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND /*Vector3.Zero*/, _grid_position, absolute_torque /*Vector3.Zero*/);
-            if (!linear_damping_on && _grid.Physics.LinearVelocity.LengthSquared() <= 0.01f)
+            if (!linear_damping_on && _grid.Physics.LinearVelocity.LengthSquared() <= 0.01f && stock_gravity_force.LengthSquared() < 0.0001f)
                 _accumulated_gravity += gravity_correction_force;
             else
                 _accumulated_gravity = Vector3D.Zero;

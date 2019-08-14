@@ -1,14 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-//using System.Text;
 
-//using Sandbox.Game;
-//using Sandbox.Game.Gui;
 using Sandbox.ModAPI;
-using VRage.Game;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
-//using VRage.Input;
 using VRage.Utils;
 using VRageMath;
 
@@ -26,15 +21,15 @@ namespace ttdtwm
 
         private session_handler                _session_ref;
         private IMyCubeGrid                    _grid;
-        private HashSet<IMyControllableEntity> _ship_controllers     = new HashSet<IMyControllableEntity>();
-        private HashSet<IMyRemoteControl>      _RC_blocks            = new HashSet<IMyRemoteControl>();
-        private List<grid_logic>               _secondary_grids      = null;
-        private engine_control_unit            _ECU                  = null;
-        private IMyPlayer                      _prev_player          = null;
+        private HashSet<IMyControllableEntity> _ship_controllers = new HashSet<IMyControllableEntity>();
+        private HashSet<IMyRemoteControl>      _RC_blocks        = new HashSet<IMyRemoteControl>();
+        private List<grid_logic>               _secondary_grids  = null;
+        private engine_control_unit            _ECU              = null;
+        private IMyPlayer                      _prev_player      = null;
 
         private int     _num_thrusters = 0, _prev_thrust_reduction = 0;
         private bool    _control_limit_reached = false, _disposed = false;
-        private bool    _was_in_landing_mode = false, _was_in_CoT_mode = false, _ID_on = true, _is_secondary = false;
+        private bool    _was_in_landing_mode = false, _ID_on = true, _is_secondary = false;
         private Vector3 _prev_trim, _prev_last_trim, _prev_linear_integral;
 
         #endregion
@@ -61,7 +56,7 @@ namespace ttdtwm
 
                 if (_ECU == null)
                     return;
-                _ECU.CoT_mode_on = value;
+                _ECU.CoT_mode_on = value && is_CoT_mode_available;
                 foreach (var cur_controller in _ship_controllers)
                 {
                     controller_terminal = (IMyTerminalBlock) cur_controller;
@@ -114,11 +109,40 @@ namespace ttdtwm
 
                 if (_ECU == null)
                     return;
-                _ECU.use_individual_calibration = value;
+                _ECU.use_individual_calibration = value && is_CoT_mode_available;
                 foreach (var cur_controller in _ship_controllers)
                 {
                     controller_terminal = (IMyTerminalBlock)cur_controller;
                     controller_terminal.CustomData = value ? controller_terminal.CustomData.AddICTag() : controller_terminal.CustomData.RemoveICTag();
+                }
+            }
+        }
+
+        public bool is_circularisation_avaiable
+        {
+            get
+            {
+                return gravity_and_physics.world_has_gravity && _ECU != null && _ECU.current_speed >= engine_control_unit.MIN_CIRCULARISATION_SPEED;
+            }
+        }
+
+        public bool circularise
+        {
+            get
+            {
+                return is_circularisation_avaiable && _ECU.circularise_on;
+            }
+            set
+            {
+                IMyTerminalBlock controller_terminal;
+
+                if (_ECU == null)
+                    return;
+                _ECU.circularise_on = value && is_circularisation_avaiable;
+                foreach (var cur_controller in _ship_controllers)
+                {
+                    controller_terminal = (IMyTerminalBlock)cur_controller;
+                    controller_terminal.CustomData = value ? controller_terminal.CustomData.AddCIRCULARISETag() : controller_terminal.CustomData.RemoveCIRCULARISETag();
                 }
             }
         }
@@ -139,7 +163,7 @@ namespace ttdtwm
 
         #endregion
 
-        #region ID overrides
+        #region ID overrides and maneuvres
 
         public bool is_ID_axis_overriden(IMyTerminalBlock controller, int axis)
         {
@@ -193,6 +217,12 @@ namespace ttdtwm
             }
         }
 
+        public void start_maneuvre(engine_control_unit.ID_maneuvres selection)
+        {
+            if (is_circularisation_avaiable)
+                _ECU.begin_maneuvre(selection);
+        }
+
         #endregion
 
         #region auxiliaries
@@ -219,7 +249,7 @@ namespace ttdtwm
 
         private void initialise_ECU()
         {
-            bool CoT_mode_on = false, landing_mode_on = false, rotational_damping_on = true, use_individual_calibration = false;
+            bool CoT_mode_on = false, landing_mode_on = false, rotational_damping_on = true, use_individual_calibration = false, circularise_on = false;
 
             _ECU = new engine_control_unit(_grid);
             foreach (var cur_controller in _ship_controllers)
@@ -228,6 +258,7 @@ namespace ttdtwm
                 CoT_mode_on                = controller_data.ContainsCOTTag();
                 rotational_damping_on      = controller_data.ContainsDAMPINGTag();
                 use_individual_calibration = controller_data.ContainsICTag();
+                circularise_on             = controller_data.ContainsCIRCULARISETag();
                 landing_mode_on            = controller_data.ContainsLANDINGTag() && is_landing_mode_available;
                 _ID_on                     = cur_controller.EnabledDamping;
                 _ECU.translate_damper_override(controller_data.IDOverrides(), (IMyTerminalBlock) cur_controller);
@@ -238,6 +269,7 @@ namespace ttdtwm
             _ECU.landing_mode_on            = landing_mode_on;
             _ECU.rotational_damping_on      = rotational_damping_on;
             _ECU.linear_dampers_on          = _ID_on;
+            _ECU.circularise_on             = circularise_on;
             _ECU.secondary_ECU              = _is_secondary;
         }
 
@@ -307,6 +339,10 @@ namespace ttdtwm
                             controller_terminal.CustomData = controller_terminal.CustomData.AddLANDINGTag();
                         if (!_ECU.rotational_damping_on)
                             controller_terminal.CustomData = controller_terminal.CustomData.RemoveDAMPINGTag();
+                        if (_ECU.use_individual_calibration)
+                            controller_terminal.CustomData = controller_terminal.CustomData.AddICTag();
+                        if (_ECU.circularise_on)
+                            controller_terminal.CustomData = controller_terminal.CustomData.AddCIRCULARISETag();
                         controller_terminal.CustomData = controller_terminal.CustomData.SetIDOvveride(_ECU.get_damper_override_for_cockpit(controller_terminal));
                     }
 

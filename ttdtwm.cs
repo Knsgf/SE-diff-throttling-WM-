@@ -160,6 +160,39 @@ namespace ttdtwm
             };
         }
 
+        private bool is_grid_circularise_mode_available(IMyTerminalBlock controller)
+        {
+            return is_grid_CoT_mode_available(controller) && _grids[controller.CubeGrid].is_circularisation_avaiable && !_grids[controller.CubeGrid].circularise;
+        }
+
+        private bool is_grid_full_stop_mode_available(IMyTerminalBlock controller)
+        {
+            return is_grid_CoT_mode_available(controller) && _grids[controller.CubeGrid].circularise;
+        }
+
+        private void select_grid_full_stop_mode(IMyTerminalBlock controller)
+        {
+            _grids[controller.CubeGrid].circularise = false;
+        }
+
+        private void select_grid_circularisation_mode(IMyTerminalBlock controller)
+        {
+            _grids[controller.CubeGrid].circularise = true;
+        }
+
+        private bool is_grid_maneuvre_available(IMyTerminalBlock controller)
+        {
+            return is_grid_CoT_mode_available(controller) && _grids[controller.CubeGrid].is_circularisation_avaiable;
+        }
+
+        private Action<IMyTerminalBlock> create_maneuvre_starter(engine_control_unit.ID_maneuvres maneuvre)
+        {
+            return delegate (IMyTerminalBlock controller)
+            {
+                _grids[controller.CubeGrid].start_maneuvre(maneuvre);
+            };
+        }
+
         #endregion
 
         #region UI helpers
@@ -245,6 +278,24 @@ namespace ttdtwm
                 getter, state, "MissileSwitchOff");
         }
 
+        private void create_button<_block_>(string id, string title, string tooltip, string action_prefix, Action<IMyTerminalBlock> button_function, Func<IMyTerminalBlock, bool> state)
+        {
+            var new_button    = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlButton, _block_>(id);
+            var button_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id + "Activate");
+
+            new_button.Title   = MyStringId.GetOrCompute(title);
+            button_action.Name = new StringBuilder(action_prefix + " " + title);
+            if (tooltip != null)
+                new_button.Tooltip = MyStringId.GetOrCompute(tooltip);
+            new_button.Action = button_action.Action = button_function;
+            if (state != null)
+                new_button.Enabled = button_action.Enabled = state;
+            new_button.SupportsMultipleBlocks = button_action.ValidForGroups = false;
+            button_action.Icon = @"Textures\GUI\Icons\Actions\MissileToggle.dds";
+            MyAPIGateway.TerminalControls.AddControl<_block_>(   new_button);
+            MyAPIGateway.TerminalControls.AddAction <_block_>(button_action);
+        }
+
         private void create_slider_action<_block_>(string id, string title, Action<IMyTerminalBlock> action, Action<IMyTerminalBlock, StringBuilder> status, string icon)
         {
             var toggle_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id);
@@ -325,6 +376,7 @@ namespace ttdtwm
             create_switch  <_controller_type_>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM",           is_grid_CoT_mode_on,           set_grid_CoT_mode,     is_grid_CoT_mode_available);
             create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad",    use_individual_calibration,   choose_calibration_method,     is_grid_CoT_mode_available);
             create_switch  <_controller_type_>(          "LandingMode",            "Touchdown Mode", null,   "On",  "Off", "Land", "Flight",       is_grid_landing_mode_on,       set_grid_landing_mode, is_grid_landing_mode_available);
+
             var controller_line2 = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE2");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line2);
             var controller_line_ID_override_label = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_ID_OVR");
@@ -333,6 +385,22 @@ namespace ttdtwm
             create_checkbox<_controller_type_>(      "ForeAftIDDisable", "Disable fore/aft"      , null, "On", "Off", create_damper_override_reader(2), create_damper_override_setter(2), is_grid_CoT_mode_available);
             create_checkbox<_controller_type_>("PortStarboardIDDisable", "Disable port/starboard", null, "On", "Off", create_damper_override_reader(0), create_damper_override_setter(0), is_grid_CoT_mode_available);
             create_checkbox<_controller_type_>("DorsalVentralIDDisable", "Disable dorsal/ventral", null, "On", "Off", create_damper_override_reader(1), create_damper_override_setter(1), is_grid_CoT_mode_available);
+
+            var controller_line_ID_mode   = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDMODE");
+            controller_line_ID_mode.Label = MyStringId.GetOrCompute("Inertia Damper Mode");
+            MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_ID_mode);
+            create_button<_controller_type_>("IDFullStop"   ,   "Full Stop", null, "Select", select_grid_full_stop_mode      , is_grid_full_stop_mode_available  );
+            create_button<_controller_type_>("IDCircularise", "Circularise", null, "Select", select_grid_circularisation_mode, is_grid_circularise_mode_available);
+
+            var controller_line_maneuvre   = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDMANEUVRE");
+            controller_line_maneuvre.Label = MyStringId.GetOrCompute("Maneuvres");
+            MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_maneuvre);
+            create_button<_controller_type_>("IDPrograde"  ,    "Prograde", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_prograde  ), is_grid_maneuvre_available);
+            create_button<_controller_type_>("IDRetrograde",  "Retrograde", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_retrograde), is_grid_maneuvre_available);
+            create_button<_controller_type_>("IDNormal"    ,      "Normal", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_normal    ), is_grid_maneuvre_available);
+            create_button<_controller_type_>("IDAntiNormal", "Anti-normal", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_antinormal), is_grid_maneuvre_available);
+            create_button<_controller_type_>("IDOutward"   ,     "Outward", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_outward   ), is_grid_maneuvre_available);
+            create_button<_controller_type_>("IDInward"    ,      "Inward", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_inward    ), is_grid_maneuvre_available);
         }
 
         private void try_register_handlers()

@@ -7,7 +7,8 @@ namespace ttdtwm
     static class stringExtensions
     {
         const int THR_MASK = 0x1,     SLP_MASK = 0x2,    STAT_MASK = 0x4, NL_MASK = 0x8;
-        const int COT_MASK = 0x1, LANDING_MASK = 0x2, DAMPING_MASK = 0x4, IC_MASK = 0x8;
+        const int COT_MASK = 0x1, LANDING_MASK = 0x2, DAMPING_MASK = 0x4, IC_MASK = 0x8, CIRCULARISE_MASK = 0x80;
+        const int IDO_FORE_AFT = 0x40, IDO_PORT_STARBOARD = 0x10, IDO_DORSAL_VENTRAL = 0x20, IDO_MASK = ~(IDO_FORE_AFT | IDO_PORT_STARBOARD | IDO_DORSAL_VENTRAL);
 
         private static readonly string m_Prefix  = "[TP&DT2: ";
         private static readonly string m_Suffix  = "]\n";
@@ -82,10 +83,12 @@ namespace ttdtwm
                     return (char) (value + 'A' - 10);
                 if (value < 62)
                     return (char) (value + 'a' - 36);
-                if (value < 157)
-                    return (char) (value + 0xA1 - 62);
+                if (value == 62)
+                    return '+';
+                if (value == 63)
+                    return '-';
             }
-            throw new ArgumentException("Tag value must be between 0 and 156 inclusive");
+            throw new ArgumentException("Tag value must be between 0 and 63 inclusive");
         }
 
         private static int ConvertCharToValue(char symbol)
@@ -96,6 +99,12 @@ namespace ttdtwm
                 return symbol + 10 - 'A';
             if (symbol >= 'a' && symbol <= 'z')
                 return symbol + 36 - 'a';
+            if (symbol == '+')
+                return 62;
+            if (symbol == '-')
+                return 63;
+
+            // Deprecated
             if (symbol >= 0xA1 && symbol <= 0xFF)
                 return symbol + 62 - 0xA1;
             return 0;
@@ -105,12 +114,26 @@ namespace ttdtwm
         {
             int? tagPosition = TagPosition(source, m_Prefix, m_PrefixShiftTable);
 
+            int    newValueLow  = newValue  & 0x3F;
+            int    newValueHigh = newValue >> 6;
+            string result;
+
             if (tagPosition == null)
-                return m_Prefix + ConvertValueToChar(newValue) + m_Suffix + source;
-            int    tagIndex = (int) tagPosition + m_PrefixLength;
-            string result   = source.Substring(0, tagIndex) + ConvertValueToChar(newValue);
-            if (source.Length > tagIndex + 1)
-                result += source.Substring(tagIndex + 1);
+            {
+                result = m_Prefix + ConvertValueToChar(newValueLow);
+                if (newValueHigh > 0)
+                    result += ConvertValueToChar(newValueHigh);
+                return result + m_Suffix + source;
+            }
+            int tagIndex = (int) tagPosition + m_PrefixLength;
+            result       = source.Substring(0, tagIndex) + ConvertValueToChar(newValueLow);
+            if (newValueHigh > 0)
+                result += ConvertValueToChar(newValueHigh);
+            int tagEnd = tagIndex + 1;
+            if (tagEnd < source.Length && source[tagEnd] != m_Suffix[0])
+                ++tagEnd;
+            if (tagEnd < source.Length)
+                result += source.Substring(tagEnd);
             return result;
         }
 
@@ -123,7 +146,10 @@ namespace ttdtwm
             int tagIndex = (int) tagPosition + m_PrefixLength;
             if (source.Length <= tagIndex)
                 return 0;
-            return ConvertCharToValue(source[tagIndex]);
+            int result = ConvertCharToValue(source[tagIndex]);
+            if (tagIndex < source.Length - 1 && source[++tagIndex] != m_Suffix[0])
+                result |= ConvertCharToValue(source[tagIndex]) << 6;
+            return result;
         }
 
         #endregion
@@ -178,6 +204,11 @@ namespace ttdtwm
             return (GetTagValue(blockData) & IC_MASK) != 0;
         }
 
+        public static bool ContainsCIRCULARISETag(this string blockData)
+        {
+            return (GetTagValue(blockData) & CIRCULARISE_MASK) != 0;
+        }
+
         #endregion
 
         #region AddTag()
@@ -220,6 +251,11 @@ namespace ttdtwm
         public static string AddICTag(this string blockData)
         {
             return SetTagValue(blockData, GetTagValue(blockData) | IC_MASK);
+        }
+
+        public static string AddCIRCULARISETag(this string blockData)
+        {
+            return SetTagValue(blockData, GetTagValue(blockData) | CIRCULARISE_MASK);
         }
 
         #endregion
@@ -266,6 +302,11 @@ namespace ttdtwm
             return SetTagValue(blockData, GetTagValue(blockData) & ~IC_MASK);
         }
 
+        public static string RemoveCIRCULARISETag(this string blockData)
+        {
+            return SetTagValue(blockData, GetTagValue(blockData) & ~CIRCULARISE_MASK);
+        }
+
         #endregion
 
         #region ID override
@@ -275,11 +316,11 @@ namespace ttdtwm
             Vector3 result   = Vector3.Zero;
             int     tagValue = GetTagValue(blockData);
 
-            if ((tagValue & 0x10) != 0)
+            if ((tagValue & IDO_PORT_STARBOARD) != 0)
                 result.X = 1.0f;
-            if ((tagValue & 0x20) != 0)
+            if ((tagValue & IDO_DORSAL_VENTRAL) != 0)
                 result.Y = 1.0f;
-            if ((tagValue & 0x40) != 0)
+            if ((tagValue & IDO_FORE_AFT      ) != 0)
                 result.Z = 1.0f;
             return result;
         }
@@ -289,12 +330,12 @@ namespace ttdtwm
             int overrideFlags = 0;
 
             if (Math.Abs(overrideEnable.X) >= 0.5f)
-                overrideFlags |= 0x10;
+                overrideFlags |= IDO_PORT_STARBOARD;
             if (Math.Abs(overrideEnable.Y) >= 0.5f)
-                overrideFlags |= 0x20;
+                overrideFlags |= IDO_DORSAL_VENTRAL;
             if (Math.Abs(overrideEnable.Z) >= 0.5f)
-                overrideFlags |= 0x40;
-            return SetTagValue(blockData, (GetTagValue(blockData) & 0xF) | overrideFlags);
+                overrideFlags |= IDO_FORE_AFT;
+            return SetTagValue(blockData, (GetTagValue(blockData) & IDO_MASK) | overrideFlags);
         }
 
         #endregion
