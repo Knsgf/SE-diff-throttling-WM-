@@ -12,6 +12,7 @@ using VRage.Game.Components;
 using VRage.Game.ModAPI;
 using VRage.ModAPI;
 using VRage.Utils;
+using VRageMath;
 using PB = Sandbox.ModAPI.Ingame;
 
 namespace ttdtwm
@@ -28,11 +29,15 @@ namespace ttdtwm
         private Action _grids_handle_4Hz_background = null, _grids_handle_2s_period_background = null, _grids_perform_calibration = null;
         private Task _manager_task, _calibration_task;
 
-        private IMyThrust         _sample_thruster   = null;
-        private IMyShipController _sample_controller = null;
+        private static IMyThrust         _sample_thruster   = null;
+        private static IMyShipController _sample_controller = null;
 
         private int  _count15 = 15, _count8_foreground = 8, _count8_background = 8;
-        private bool _entity_events_set = false, _panel_controls_set = false;
+        private bool _entity_events_set = false;
+
+        private static bool _panel_controls_set = false;
+
+        private static session_handler _session_ref;
 
         #endregion
 
@@ -52,7 +57,7 @@ namespace ttdtwm
             var grid = entity as IMyCubeGrid;
             if (grid != null)
             {
-                var new_grid_logic = new grid_logic(grid, this);
+                var new_grid_logic = new grid_logic(grid);
                 _grids_handle_60Hz                 += new_grid_logic.handle_60Hz;
                 _grids_handle_4Hz_foreground       += new_grid_logic.handle_4Hz_foreground;
                 _grids_handle_2s_period_foreground += new_grid_logic.handle_2s_period_foreground;
@@ -162,27 +167,25 @@ namespace ttdtwm
 
         private bool is_grid_circularise_mode_available(IMyTerminalBlock controller)
         {
-            return is_grid_CoT_mode_available(controller) && _grids[controller.CubeGrid].is_circularisation_avaiable && !_grids[controller.CubeGrid].circularise;
-        }
-
-        private bool is_grid_full_stop_mode_available(IMyTerminalBlock controller)
-        {
-            return is_grid_CoT_mode_available(controller) && _grids[controller.CubeGrid].circularise;
-        }
-
-        private void select_grid_full_stop_mode(IMyTerminalBlock controller)
-        {
-            _grids[controller.CubeGrid].circularise = false;
-        }
-
-        private void select_grid_circularisation_mode(IMyTerminalBlock controller)
-        {
-            _grids[controller.CubeGrid].circularise = true;
-        }
-
-        private bool is_grid_maneuvre_available(IMyTerminalBlock controller)
-        {
             return is_grid_CoT_mode_available(controller) && _grids[controller.CubeGrid].is_circularisation_avaiable;
+        }
+
+        private Action<IMyTerminalBlock> create_ID_mode_selector(bool select_circularise)
+        {
+            return delegate (IMyTerminalBlock controller)
+            {
+                _grids[controller.CubeGrid].circularise = select_circularise;
+            };
+        }
+
+        private Action<IMyTerminalBlock, StringBuilder> create_ID_mode_indicator(bool circularisation_indicator)
+        {
+            return delegate (IMyTerminalBlock controller, StringBuilder status)
+            {
+                status.Clear();
+                if (_grids[controller.CubeGrid].circularise == circularisation_indicator)
+                    status.Append("Select");
+            };
         }
 
         private Action<IMyTerminalBlock> create_maneuvre_starter(engine_control_unit.ID_maneuvres maneuvre)
@@ -191,6 +194,36 @@ namespace ttdtwm
             {
                 _grids[controller.CubeGrid].start_maneuvre(maneuvre);
             };
+        }
+
+        private Action<IMyTerminalBlock, StringBuilder> create_maneuvre_indicator(engine_control_unit.ID_maneuvres maneuvre)
+        {
+            return delegate (IMyTerminalBlock controller, StringBuilder status)
+            {
+                status.Clear();
+                if (_grids[controller.CubeGrid].current_maneuvre == maneuvre)
+                    status.Append("Active");
+            };
+        }
+
+        private static string get_reference_body_name(IMyTerminalBlock block)
+        {
+            return gravity_and_physics.get_current_reference(block.CubeGrid);
+        }
+
+        private static void set_reference_body_name(IMyTerminalBlock block, string new_reference)
+        {
+            gravity_and_physics.set_current_reference(block.CubeGrid, new_reference);
+        }
+
+        private static Vector3D[] get_vector_orbit_elements(IMyTerminalBlock block)
+        {
+            return gravity_and_physics.fill_vector_elements(block.CubeGrid);
+        }
+
+        private static double[] get_scalar_orbit_elements(IMyTerminalBlock block)
+        {
+            return gravity_and_physics.fill_scalar_elements(block.CubeGrid);
         }
 
         #endregion
@@ -278,7 +311,8 @@ namespace ttdtwm
                 getter, state, "MissileSwitchOff");
         }
 
-        private void create_button<_block_>(string id, string title, string tooltip, string action_prefix, Action<IMyTerminalBlock> button_function, Func<IMyTerminalBlock, bool> state)
+        private void create_button<_block_>(string id, string title, string tooltip, string action_prefix, Action<IMyTerminalBlock> button_function, 
+            Func<IMyTerminalBlock, bool> state, Action<IMyTerminalBlock, StringBuilder> status)
         {
             var new_button    = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlButton, _block_>(id);
             var button_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id + "Activate");
@@ -289,9 +323,10 @@ namespace ttdtwm
                 new_button.Tooltip = MyStringId.GetOrCompute(tooltip);
             new_button.Action = button_action.Action = button_function;
             if (state != null)
-                new_button.Enabled = button_action.Enabled = state;
+                new_button.Enabled = state;
             new_button.SupportsMultipleBlocks = button_action.ValidForGroups = false;
-            button_action.Icon = @"Textures\GUI\Icons\Actions\MissileToggle.dds";
+            button_action.Icon   = @"Textures\GUI\Icons\Actions\MissileToggle.dds";
+            button_action.Writer = status;
             MyAPIGateway.TerminalControls.AddControl<_block_>(   new_button);
             MyAPIGateway.TerminalControls.AddAction <_block_>(button_action);
         }
@@ -309,20 +344,30 @@ namespace ttdtwm
             MyAPIGateway.TerminalControls.AddAction<_block_>(toggle_action);
         }
 
+        private void create_PB_property<_type_, _block_>(string id, Func<IMyTerminalBlock, _type_> getter, Action<IMyTerminalBlock, _type_> setter = null)
+        {
+            var new_property = MyAPIGateway.TerminalControls.CreateProperty<_type_, _block_>(id);
+            new_property.Getter = getter;
+            if (setter != null)
+                new_property.Setter = setter;
+            MyAPIGateway.TerminalControls.AddControl<_block_>(new_property);
+        }
+
         #endregion
 
-        private void clear_grid_secondary_flag(List<grid_logic> secondary_grids)
+        private static void clear_grid_secondary_flag(List<grid_logic> secondary_grids)
         {
             foreach (var cur_grid_object in secondary_grids)
                 cur_grid_object.is_secondary = false;
         }
 
-        internal void get_secondary_grids(IMyCubeGrid primary, ref List<grid_logic> secondary_grids)
+        internal static void get_secondary_grids(IMyCubeGrid primary, ref List<grid_logic> secondary_grids)
         {
-            List<IMyCubeGrid> grid_list = MyAPIGateway.GridGroups.GetGroup(primary, GridLinkTypeEnum.Logical);
+            List      <IMyCubeGrid>             connected_grid_list = MyAPIGateway.GridGroups.GetGroup(primary, GridLinkTypeEnum.Logical);
+            Dictionary<IMyCubeGrid, grid_logic> grid_list           = _session_ref._grids;
 
-            _grids[primary].is_secondary = false;
-            if (grid_list.Count <= 1 || !((MyCubeGrid) primary).HasMainCockpit())
+            grid_list[primary].is_secondary = false;
+            if (connected_grid_list.Count <= 1 || !((MyCubeGrid) primary).HasMainCockpit())
             {
                 if (secondary_grids != null)
                     clear_grid_secondary_flag(secondary_grids);
@@ -338,13 +383,13 @@ namespace ttdtwm
             }
 
             int primary_count = 0;
-            foreach (var cur_grid in grid_list)
+            foreach (var cur_grid in connected_grid_list)
             {
                 if (((MyCubeGrid) cur_grid).HasMainCockpit())
                     ++primary_count;
                 else if (cur_grid != primary)
                 {
-                    grid_logic cur_grid_object = _grids[cur_grid];
+                    grid_logic cur_grid_object = grid_list[cur_grid];
                     secondary_grids.Add(cur_grid_object);
                     cur_grid_object.is_secondary = true;
                 }
@@ -356,13 +401,13 @@ namespace ttdtwm
             }
         }
 
-        internal void sample_thruster(IMyThrust thruster)
+        internal static void sample_thruster(IMyThrust thruster)
         {
             if (!_panel_controls_set && _sample_thruster == null)
                 _sample_thruster = thruster;
         }
 
-        internal void sample_controller(IMyShipController controller)
+        internal static void sample_controller(IMyShipController controller)
         {
             if (!_panel_controls_set && _sample_controller == null)
                 _sample_controller = controller;
@@ -389,18 +434,18 @@ namespace ttdtwm
             var controller_line_ID_mode   = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDMODE");
             controller_line_ID_mode.Label = MyStringId.GetOrCompute("Inertia Damper Mode");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_ID_mode);
-            create_button<_controller_type_>("IDFullStop"   ,   "Full Stop", null, "Select", select_grid_full_stop_mode      , is_grid_full_stop_mode_available  );
-            create_button<_controller_type_>("IDCircularise", "Circularise", null, "Select", select_grid_circularisation_mode, is_grid_circularise_mode_available);
+            create_button<_controller_type_>("IDFullStop"   ,   "Full Stop", null, "Select", create_ID_mode_selector(false), is_grid_CoT_mode_available        , create_ID_mode_indicator(false));
+            create_button<_controller_type_>("IDCircularise", "Circularise", null, "Select", create_ID_mode_selector( true), is_grid_circularise_mode_available, create_ID_mode_indicator( true));
 
             var controller_line_maneuvre   = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDMANEUVRE");
             controller_line_maneuvre.Label = MyStringId.GetOrCompute("Maneuvres");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_maneuvre);
-            create_button<_controller_type_>("IDPrograde"  ,    "Prograde", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_prograde  ), is_grid_maneuvre_available);
-            create_button<_controller_type_>("IDRetrograde",  "Retrograde", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_retrograde), is_grid_maneuvre_available);
-            create_button<_controller_type_>("IDNormal"    ,      "Normal", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_normal    ), is_grid_maneuvre_available);
-            create_button<_controller_type_>("IDAntiNormal", "Anti-normal", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_antinormal), is_grid_maneuvre_available);
-            create_button<_controller_type_>("IDOutward"   ,     "Outward", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_outward   ), is_grid_maneuvre_available);
-            create_button<_controller_type_>("IDInward"    ,      "Inward", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_inward    ), is_grid_maneuvre_available);
+            create_button<_controller_type_>("IDPrograde"  ,    "Prograde", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_prograde  ), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_prograde  ));
+            create_button<_controller_type_>("IDRetrograde",  "Retrograde", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_retrograde), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_retrograde));
+            create_button<_controller_type_>("IDNormal"    ,      "Normal", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_normal    ), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_normal    ));
+            create_button<_controller_type_>("IDAntiNormal", "Anti-normal", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_antinormal), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_antinormal));
+            create_button<_controller_type_>("IDOutward"   ,     "Outward", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_outward   ), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_outward   ));
+            create_button<_controller_type_>("IDInward"    ,      "Inward", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_inward    ), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_inward    ));
         }
 
         private void try_register_handlers()
@@ -431,6 +476,9 @@ namespace ttdtwm
 
                 create_controller_widgets<IMyCockpit>();
                 create_controller_widgets<IMyRemoteControl>();
+                create_PB_property<    string, IMyRemoteControl>("OrbitReferenceBody" , get_reference_body_name, set_reference_body_name);
+                create_PB_property<Vector3D[], IMyRemoteControl>("OrbitVectorElements", get_vector_orbit_elements);
+                create_PB_property<  double[], IMyRemoteControl>("OrbitScalarElements", get_scalar_orbit_elements);
 
                 var thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(thruster_line);
@@ -459,10 +507,7 @@ namespace ttdtwm
                         thruster_tagger.set_manual_throttle(thruster, thruster_tagger.get_manual_throttle(thruster) - 5.0f);
                     },
                     thruster_tagger.throttle_status, "Decrease");
-
-                IMyTerminalControlProperty<float> balanced_level = MyAPIGateway.TerminalControls.CreateProperty<float, IMyThrust>("BalancedLevel");
-                balanced_level.Getter = thruster_tagger.get_thrust_limit;
-                MyAPIGateway.TerminalControls.AddControl<IMyThrust>(balanced_level);
+                create_PB_property<float, IMyThrust>("BalancedLevel", thruster_tagger.get_thrust_limit);
 
                 _panel_controls_set = true;
                 _sample_thruster    = null;
@@ -538,6 +583,11 @@ namespace ttdtwm
             _grids_handle_60Hz();
         }
 
+        public session_handler()
+        {
+            _session_ref = this;
+        }
+
         protected override void UnloadData()
         {
             base.UnloadData();
@@ -547,6 +597,10 @@ namespace ttdtwm
                 on_entity_removed(leftover_grid);
             MyAPIGateway.Entities.OnEntityAdd    -= on_entity_added;
             MyAPIGateway.Entities.OnEntityRemove -= on_entity_removed;
+            _sample_controller  = null;
+            _sample_thruster    = null;
+            _panel_controls_set = false;
+            _session_ref        = null;
         }
     }
 }
