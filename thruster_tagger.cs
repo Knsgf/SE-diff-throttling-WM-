@@ -61,6 +61,8 @@ namespace ttdtwm
             sync_helper.send_message_to_self(sync_helper.message_types.GET_THRUST_LIMIT, thruster.EntityId, _message, 1);
             if (displayed_thrust_limit >= -1)
             {
+                if (info_text.Length > 0)
+                    info_text.AppendLine();
                 info_text.Append("Calibrated Thrust Level: ");
                 if (displayed_thrust_limit < 0)
                     info_text.Append("N/A");

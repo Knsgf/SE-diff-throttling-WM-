@@ -332,12 +332,13 @@ namespace ttdtwm
                 var ship_controller = entity as IMyShipController;
                 if (controller != null && ship_controller != null)
                 {
+                    var controller_terminal = (IMyTerminalBlock) controller;
+
+                    controller_terminal.AppendingCustomInfo += gravity_and_physics.list_current_elements;
                     _ship_controllers.Add(controller);
                     session_handler.sample_controller(ship_controller);
                     if (_ECU != null)
                     {
-                        var controller_terminal = (IMyTerminalBlock) controller;
-
                         if (_ECU.CoT_mode_on)
                             controller_terminal.CustomData = controller_terminal.CustomData.AddCOTTag();
                         if (_ECU.landing_mode_on)
@@ -388,6 +389,7 @@ namespace ttdtwm
                 var controller = entity as IMyControllableEntity;
                 if (controller != null)
                 {
+                    ((IMyTerminalBlock) controller).AppendingCustomInfo -= gravity_and_physics.list_current_elements;
                     _ship_controllers.Remove(controller);
 
                     var RC_block = entity as IMyRemoteControl;
@@ -606,6 +608,7 @@ namespace ttdtwm
             check_disposed();
 
             screen_info.set_displayed_orbital_elements(_grid, _grid_physics.current_elements_reader);
+            screen_info.set_displayed_target_plane    (_grid, _grid_physics.plane_alignment_reader );
             _grid_physics.mark_elements_for_refresh();
             if (!_is_secondary)
                 session_handler.get_secondary_grids(_grid, ref _secondary_grids);

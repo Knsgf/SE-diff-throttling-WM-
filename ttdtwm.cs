@@ -32,6 +32,8 @@ namespace ttdtwm
         private static IMyThrust         _sample_thruster   = null;
         private static IMyShipController _sample_controller = null;
 
+        private IMyCubeGrid _last_grid;
+
         private int  _count15 = 15, _count8_foreground = 8, _count8_background = 8;
         private bool _entity_events_set = false;
 
@@ -98,7 +100,7 @@ namespace ttdtwm
             return _grids[controller.CubeGrid].CoT_mode_on;
         }
 
-        private bool is_grid_CoT_mode_available(IMyTerminalBlock controller)
+        private bool is_grid_control_available(IMyTerminalBlock controller)
         {
             if (!((PB.IMyShipController) controller).ControlThrusters)
                 return false;
@@ -106,6 +108,11 @@ namespace ttdtwm
             IMyCubeGrid grid = controller.CubeGrid;
             if (((MyCubeGrid) grid).HasMainCockpit() && !((PB.IMyShipController) controller).IsMainCockpit)
                 return false;
+            if (grid != _last_grid)
+            {
+                controller.RefreshCustomInfo();
+                _last_grid = grid;
+            }
             return _grids[grid].is_CoT_mode_available;
         }
 
@@ -141,7 +148,7 @@ namespace ttdtwm
 
         private bool is_grid_landing_mode_available(IMyTerminalBlock controller)
         {
-            return is_grid_CoT_mode_available(controller) && _grids[controller.CubeGrid].is_landing_mode_available;
+            return is_grid_control_available(controller) && _grids[controller.CubeGrid].is_landing_mode_available;
         }
 
         private void set_grid_landing_mode(IMyTerminalBlock controller, bool new_state)
@@ -167,7 +174,7 @@ namespace ttdtwm
 
         private bool is_grid_circularise_mode_available(IMyTerminalBlock controller)
         {
-            return is_grid_CoT_mode_available(controller) && _grids[controller.CubeGrid].is_circularisation_avaiable;
+            return is_grid_control_available(controller) && _grids[controller.CubeGrid].is_circularisation_avaiable;
         }
 
         private Action<IMyTerminalBlock> create_ID_mode_selector(bool select_circularise)
@@ -417,9 +424,9 @@ namespace ttdtwm
         {
             var controller_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE1");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line);
-            create_checkbox<_controller_type_>(    "RotationalDamping",        "Rotational Damping", null,                   "On",    "Off", is_grid_rotational_damping_on, set_grid_rotational_damping,     is_grid_CoT_mode_available);
-            create_switch  <_controller_type_>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM",           is_grid_CoT_mode_on,           set_grid_CoT_mode,     is_grid_CoT_mode_available);
-            create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad",    use_individual_calibration,   choose_calibration_method,     is_grid_CoT_mode_available);
+            create_checkbox<_controller_type_>(    "RotationalDamping",        "Rotational Damping", null,                   "On",    "Off", is_grid_rotational_damping_on, set_grid_rotational_damping,      is_grid_control_available);
+            create_switch  <_controller_type_>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM",           is_grid_CoT_mode_on,           set_grid_CoT_mode,      is_grid_control_available);
+            create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad",    use_individual_calibration,   choose_calibration_method,      is_grid_control_available);
             create_switch  <_controller_type_>(          "LandingMode",            "Touchdown Mode", null,   "On",  "Off", "Land", "Flight",       is_grid_landing_mode_on,       set_grid_landing_mode, is_grid_landing_mode_available);
 
             var controller_line2 = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE2");
@@ -427,14 +434,14 @@ namespace ttdtwm
             var controller_line_ID_override_label = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_ID_OVR");
             controller_line_ID_override_label.Label = MyStringId.GetOrCompute("Inertia Damper Overrides");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_ID_override_label);
-            create_checkbox<_controller_type_>(      "ForeAftIDDisable", "Disable fore/aft"      , null, "On", "Off", create_damper_override_reader(2), create_damper_override_setter(2), is_grid_CoT_mode_available);
-            create_checkbox<_controller_type_>("PortStarboardIDDisable", "Disable port/starboard", null, "On", "Off", create_damper_override_reader(0), create_damper_override_setter(0), is_grid_CoT_mode_available);
-            create_checkbox<_controller_type_>("DorsalVentralIDDisable", "Disable dorsal/ventral", null, "On", "Off", create_damper_override_reader(1), create_damper_override_setter(1), is_grid_CoT_mode_available);
+            create_checkbox<_controller_type_>(      "ForeAftIDDisable", "Disable fore/aft"      , null, "On", "Off", create_damper_override_reader(2), create_damper_override_setter(2), is_grid_control_available);
+            create_checkbox<_controller_type_>("PortStarboardIDDisable", "Disable port/starboard", null, "On", "Off", create_damper_override_reader(0), create_damper_override_setter(0), is_grid_control_available);
+            create_checkbox<_controller_type_>("DorsalVentralIDDisable", "Disable dorsal/ventral", null, "On", "Off", create_damper_override_reader(1), create_damper_override_setter(1), is_grid_control_available);
 
             var controller_line_ID_mode   = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDMODE");
             controller_line_ID_mode.Label = MyStringId.GetOrCompute("Inertia Damper Mode");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_ID_mode);
-            create_button<_controller_type_>("IDFullStop"   ,   "Full Stop", null, "Select", create_ID_mode_selector(false), is_grid_CoT_mode_available        , create_ID_mode_indicator(false));
+            create_button<_controller_type_>("IDFullStop"   ,   "Full Stop", null, "Select", create_ID_mode_selector(false), is_grid_control_available         , create_ID_mode_indicator(false));
             create_button<_controller_type_>("IDCircularise", "Circularise", null, "Select", create_ID_mode_selector( true), is_grid_circularise_mode_available, create_ID_mode_indicator( true));
 
             var controller_line_maneuvre   = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDMANEUVRE");
@@ -564,6 +571,7 @@ namespace ttdtwm
             {
                 _count15 = 15;
                 screen_info.refresh_local_player_HUD();
+                _last_grid = null;
                 if (SINGLE_THREADED_EXEC)
                     manager_thread();
                 else

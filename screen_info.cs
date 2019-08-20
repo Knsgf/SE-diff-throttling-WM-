@@ -27,6 +27,7 @@ namespace ttdtwm
         const string VERTICAL_SPEED       = "/tpdt-vs";
         const string ORBITAL_ELEMENTS     = "/tpdt-oi";
         const string ORBIT_REFERENCE      = "/tpdt-or";
+        const string PLANE_ALIGNMENT      = "/tpdt-oa";
 
         private class HUD_notification
         {
@@ -107,7 +108,7 @@ namespace ttdtwm
             if (grid != local_controller_grid)
                 return;
 
-            bool is_visible = is_single_grid_assembly && thrust_reduction > _min_displayed_reduction;
+            bool is_visible = is_single_grid_assembly && thrust_reduction > _min_displayed_reduction && _HUD_messages[THRUST_LOSS].toggled_on;
 
             _HUD_messages[THRUST_LOSS].set_to_visible = is_visible;
             if (is_visible)
@@ -122,7 +123,7 @@ namespace ttdtwm
             if (grid != local_controller_grid)
                 return;
 
-            bool is_visible = is_primary_grid && Math.Abs(vertical_speed) >= 0.05f;
+            bool is_visible = is_primary_grid && _HUD_messages[VERTICAL_SPEED].toggled_on && Math.Abs(vertical_speed) >= 0.05f;
 
             _HUD_messages[VERTICAL_SPEED].set_to_visible = is_visible;
             if (is_visible)
@@ -134,7 +135,7 @@ namespace ttdtwm
             if (grid != local_controller_grid)
                 return;
 
-            bool is_visible = gravity_and_physics.world_has_gravity;
+            bool is_visible = gravity_and_physics.world_has_gravity && _HUD_messages[ORBITAL_ELEMENTS].toggled_on;
 
             _HUD_messages[ORBITAL_ELEMENTS].set_to_visible = is_visible;
             if (is_visible)
@@ -150,27 +151,27 @@ namespace ttdtwm
                 }
                 if (_display_apside_info)
                 {
-                    char  approachin_apside_name;
+                    char  approaching_apside_name;
                     float time_to_apside;
 
                     if (elements.eccentricity > 1.0)
                     {
-                        approachin_apside_name = 'P';
-                        time_to_apside         = (float) (-elements.time_from_periapsis);
+                        approaching_apside_name = 'P';
+                        time_to_apside          = (float) (-elements.time_from_periapsis);
                     }
                     else if (elements.time_from_periapsis > elements.orbit_period / 2.0)
                     {
-                        approachin_apside_name = 'P';
-                        time_to_apside         = (float) (elements.orbit_period - elements.time_from_periapsis);
+                        approaching_apside_name = 'P';
+                        time_to_apside          = (float) (elements.orbit_period - elements.time_from_periapsis);
                     }
                     else
                     {
-                        approachin_apside_name = 'A';
-                        time_to_apside         = (float) (elements.orbit_period / 2.0 - elements.time_from_periapsis);
+                        approaching_apside_name = 'A';
+                        time_to_apside          = (float) (elements.orbit_period / 2.0 - elements.time_from_periapsis);
                     }
 
                     _orbital_elements_text.AppendFormat("\n(2) PR = {0:F1} km; AR = {1:F1} km; Tt{2} = {3:F0} s",
-                        elements.periapsis_radius / 1000.0, elements.apoapsis_radius / 1000.0, approachin_apside_name, time_to_apside);
+                        elements.periapsis_radius / 1000.0, elements.apoapsis_radius / 1000.0, approaching_apside_name, time_to_apside);
                 }
                 if (_display_orbit_energy)
                 {
@@ -186,6 +187,45 @@ namespace ttdtwm
 
                 _HUD_messages[ORBITAL_ELEMENTS].contents.Text = _orbital_elements_text.ToString();
                 _HUD_messages[ORBITAL_ELEMENTS].contents.Font = elements.foreign_reference ? MyFontEnum.DarkBlue : MyFontEnum.White;
+            }
+        }
+
+        public static void set_displayed_target_plane(IMyCubeGrid grid, Func<orbit_plane_intersection> plane_getter)
+        {
+            if (grid != local_controller_grid)
+                return;
+
+            bool is_visible = gravity_and_physics.world_has_gravity && _HUD_messages[PLANE_ALIGNMENT].toggled_on;
+
+            _HUD_messages[PLANE_ALIGNMENT].set_to_visible = is_visible;
+            if (is_visible)
+            {
+                orbit_plane_intersection target_plane = plane_getter();
+
+                if (target_plane.target_angular_momentum.LengthSquared() < 0.25)
+                {
+                    _HUD_messages[PLANE_ALIGNMENT].contents.Text = "Target plane not set";
+                    _HUD_messages[PLANE_ALIGNMENT].contents.Font = MyFontEnum.Red;
+                }
+                else
+                {
+                    char   node_letter;
+                    double time_to_closest_node;
+
+                    if (target_plane.time_to_ascending_node < target_plane.time_to_descending_node)
+                    {
+                        node_letter          = 'A';
+                        time_to_closest_node = target_plane.time_to_ascending_node;
+                    }
+                    else
+                    {
+                        node_letter          = 'D';
+                        time_to_closest_node = target_plane.time_to_descending_node;
+                    }
+                    _HUD_messages[PLANE_ALIGNMENT].contents.Text = string.Format("Rel. inc.: {0:F1} deg; time to {1}N: {2:F0}", 
+                        target_plane.relative_inclination * 180.0 / Math.PI, node_letter, time_to_closest_node);
+                    _HUD_messages[PLANE_ALIGNMENT].contents.Font = MyFontEnum.White;
+                }
             }
         }
 
@@ -245,6 +285,47 @@ namespace ttdtwm
             _HUD_messages[ORBITAL_ELEMENTS].toggled_on = true;
         }
 
+        private static void set_target_plane(string paramater)
+        {
+            string[] split_input = paramater.Split(whitespace_char, 2);
+            double   inclination;
+            if (!double.TryParse(split_input[0], out inclination))
+            {
+                MyAPIGateway.Utilities.ShowMessage("TP&DT", "Please specify inclination and LAN in degrees, separated by space");
+                return;
+            }
+            if (inclination < 0.0 || inclination > 180.0)
+            {
+                MyAPIGateway.Utilities.ShowMessage("TP&DT", "Inclination must be between 0 and 180");
+                return;
+            }
+
+            double LAN = 0.0;
+            if (inclination != 0.0 && (split_input.Length < 2 || !double.TryParse(split_input[1], out LAN)))
+            {
+                MyAPIGateway.Utilities.ShowMessage("TP&DT", "Please specify inclination and LAN in degrees, separated by space");
+                return;
+            }
+
+            if (inclination == 0.0)
+            {
+                gravity_and_physics.set_target_plane(local_controller_grid, 0.0, 0.0);
+                MyAPIGateway.Utilities.ShowMessage("TP&DT", "Target plane set with inc. = 0 deg, LAN = 0 deg");
+            }
+            else
+            {
+                if (LAN < 0.0 || LAN > 360.0)
+                {
+                    MyAPIGateway.Utilities.ShowMessage("TP&DT", "LAN must be between 0 and 360");
+                    return;
+                }
+
+                gravity_and_physics.set_target_plane(local_controller_grid, inclination * Math.PI / 180.0, LAN * Math.PI / 180.0);
+                MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("Target plane set with inc. = {0} deg, LAN = {1} deg", inclination, LAN));
+            }
+            _HUD_messages[PLANE_ALIGNMENT].toggled_on = true;
+        }
+
         private static void extract_command_and_parameter(string input, out string command, out string parameter)
         {
             string[] split_input = input.Trim().ToLower().Split(whitespace_char, 2);
@@ -272,6 +353,8 @@ namespace ttdtwm
             {
                 _HUD_messages[command].toggled_on = !_HUD_messages[command].toggled_on;
                 MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("{0} is now {1}", _HUD_messages[command].screen_description, _HUD_messages[command].toggled_on ? "visible" : "hidden"));
+                if (command == PLANE_ALIGNMENT && !_HUD_messages[PLANE_ALIGNMENT].toggled_on)
+                    gravity_and_physics.clear_target_plane(local_controller_grid);
             }
             else
                 MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("{0} cannot be toggled in zero-g worlds", _HUD_messages[command].screen_description));
@@ -305,6 +388,7 @@ namespace ttdtwm
                 register_HUD_notification(         THRUST_LOSS, "Thrust loss indication", false, true, set_min_thrust_loss_percentage);
                 register_HUD_notification(      VERTICAL_SPEED, "Vertical speed readout",  true, false);
                 register_HUD_notification(    ORBITAL_ELEMENTS,      "Orbit information", false, false, set_displayed_orbital_elements);
+                register_HUD_notification(     PLANE_ALIGNMENT,    "Plane alignment aid", false,  true, set_target_plane);
                 _UI_handlers_registered = true;
             }
 
