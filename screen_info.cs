@@ -55,26 +55,55 @@ namespace ttdtwm
 
         #region Debug display
 
-        static private void display_info(MyCubeGrid grid, string message, int display_time_ms, string font, bool controlled_only)
+        static private void display_info(IMyCubeGrid grid, string message, int display_time_ms, string font)
         {
-            bool display = true;
-
-            if (controlled_only)
-            {
-                var controller = MyAPIGateway.Session.ControlledObject as MyShipController;
-                display = controller != null && controller.CubeGrid == grid;
-            }
-            if (display)
+            if (grid == null || local_controller_grid == grid)
                 MyAPIGateway.Utilities.ShowNotification(message, display_time_ms, font);
         }
 
-        static public void screen_text(MyCubeGrid grid, string method_name, string message, int display_time_ms, bool controlled_only)
+        static public void screen_text(IMyCubeGrid grid, string method_name, string message, int display_time_ms)
         {
             string grid_name = (grid == null) ? "" : ("\"" + grid.DisplayName + "\"");
             if (method_name == "")
-                display_info(grid, string.Format("{0} {1}", controlled_only ? "" : grid_name, message), display_time_ms, MyFontEnum.White, controlled_only);
+                display_info(grid, string.Format("{0} {1}", grid_name, message), display_time_ms, MyFontEnum.White);
             else
-                display_info(grid, string.Format("{0}(): {1} {2}", method_name, controlled_only ? "" : grid_name, message), display_time_ms, MyFontEnum.White, controlled_only);
+                display_info(grid, string.Format("{0}(): {1} {2}", method_name, grid_name, message), display_time_ms, MyFontEnum.White);
+        }
+
+        static private void remote_info(IMyCubeGrid grid, string message, int display_time_ms)
+        {
+            if (MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || !sync_helper.network_handlers_registered)
+                return;
+
+            if (grid == null)
+            {
+                message = display_time_ms.ToString() + " " + message;
+                sync_helper.send_message_to_others(sync_helper.message_types.REMOTE_SCREEN_TEXT, null, Encoding.UTF8.GetBytes(message), Encoding.UTF8.GetByteCount(message));
+            }
+            else 
+            {
+                IMyPlayer recipient = MyAPIGateway.Multiplayer.Players.GetPlayerControllingEntity(grid);
+                if (recipient != null)
+                {
+                    message = display_time_ms.ToString() + " " + message;
+                    sync_helper.send_message_to(recipient.SteamUserId, sync_helper.message_types.REMOTE_SCREEN_TEXT, null, Encoding.UTF8.GetBytes(message), Encoding.UTF8.GetByteCount(message));
+                }
+            }
+        }
+
+        public static void show_remote_text(object entity, byte[] message, int length)
+        {
+            string[] message_parts = Encoding.UTF8.GetString(message, 0, length).Split(whitespace_char, 2);
+            screen_text(null, "", message_parts[1], int.Parse(message_parts[0]));
+        }
+
+        public static void remote_screen_text(IMyCubeGrid grid, string method_name, string message, int display_time_ms)
+        {
+            string grid_name = (grid == null) ? "" : ("\"" + grid.DisplayName + "\"");
+            if (method_name == "")
+                remote_info(grid, string.Format("{0} {1}", grid_name, message), display_time_ms);
+            else
+                remote_info(grid, string.Format("{0}(): {1} {2}", method_name, grid_name, message), display_time_ms);
         }
 
         #endregion

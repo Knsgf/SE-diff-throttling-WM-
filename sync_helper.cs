@@ -1,10 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Text;
 using System.IO;
 
-//using Sandbox.Engine.Utils;
 using Sandbox.ModAPI;
-//using VRage;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
 using VRage.Utils;
@@ -16,19 +15,19 @@ namespace ttdtwm
     {
         const ushort SYNC_MESSAGE_ID = 17370;
 
-        internal const int MAX_MESSAGE_LENGTH = 18;
-        internal enum message_types { LINEAR_INPUT, ROTATION_INPUT, I_TERMS, MANUAL_THROTTLE, CONTROL_LIMIT, THRUST_LOSS, GET_THRUST_LIMIT };
+        internal const int MAX_MESSAGE_LENGTH = 100;
+        internal enum message_types { I_TERMS, MANUAL_THROTTLE, CONTROL_LIMIT, THRUST_LOSS, GET_THRUST_LIMIT, REMOTE_SCREEN_TEXT };
         private static readonly int _num_messages = Enum.GetValues(typeof(message_types)).Length;
 
-        const int SIGNATURE_LENGTH = 5;
-        private static Dictionary<uint, byte[]> _out_buffers = new Dictionary<uint, byte[]>();
-        private static                  byte[]  _in_buffer   = new byte[MAX_MESSAGE_LENGTH];
-        private static readonly         byte[]  _signature   = { 6, 60, 33, 39, 66 };
+        const int SIGNATURE_LENGTH = 6;
+        private static Dictionary<int, byte[]> _out_buffers = new Dictionary<int, byte[]>();
+        private static                 byte[]  _in_buffer   = new byte[MAX_MESSAGE_LENGTH];
+        private static readonly        byte[]  _signature   = { 0, 0, 0x27, 0x5B, 0xE5, 0x8E };
 
         private static Dictionary<  long, object> _entities   = new Dictionary<  long, object>();
         private static Dictionary<object,   long> _entity_ids = new Dictionary<object,   long>();
 
-        private static readonly Action<object, byte[]>[] _message_handlers;
+        private static readonly Action<object, byte[], int>[] _message_handlers;
 
         //private static bool F8_pressed = false;
 
@@ -37,12 +36,13 @@ namespace ttdtwm
 
         static sync_helper()
         {
-            _message_handlers = new Action<object, byte[]>[_num_messages];
-            _message_handlers[(int) message_types.I_TERMS         ] = grid_logic.I_terms_handler;
-            _message_handlers[(int) message_types.CONTROL_LIMIT   ] = grid_logic.control_warning_handler;
-            _message_handlers[(int) message_types.THRUST_LOSS     ] = grid_logic.thrust_reduction_handler;
-            _message_handlers[(int) message_types.MANUAL_THROTTLE ] = engine_control_unit.on_manual_throttle_changed;
-            _message_handlers[(int) message_types.GET_THRUST_LIMIT] = engine_control_unit.extract_thrust_limit;
+            _message_handlers = new Action<object, byte[], int>[_num_messages];
+            _message_handlers[(int) message_types.I_TERMS           ] = grid_logic.I_terms_handler;
+            _message_handlers[(int) message_types.CONTROL_LIMIT     ] = grid_logic.control_warning_handler;
+            _message_handlers[(int) message_types.THRUST_LOSS       ] = grid_logic.thrust_reduction_handler;
+            _message_handlers[(int) message_types.MANUAL_THROTTLE   ] = engine_control_unit.on_manual_throttle_changed;
+            _message_handlers[(int) message_types.GET_THRUST_LIMIT  ] = engine_control_unit.extract_thrust_limit;
+            _message_handlers[(int) message_types.REMOTE_SCREEN_TEXT] = screen_info.show_remote_text;
         }
 
         private static void log_sync_action(string method_name, string message)
@@ -63,7 +63,7 @@ namespace ttdtwm
 
         #region Network handlers
 
-        private static byte[] fill_message(message_types message_id, object entity, byte[] message, uint length)
+        private static byte[] fill_message(message_types message_id, object entity, byte[] message, int length)
         {
             if (length > MAX_MESSAGE_LENGTH)
                 return null;
@@ -91,7 +91,7 @@ namespace ttdtwm
             if (length <= 0 || length > MAX_MESSAGE_LENGTH || message[SIGNATURE_LENGTH] >= _num_messages)
                 return;
             //log_sync_action("on_message_received", string.Format("type = {0}", (message_types) message[SIGNATURE_LENGTH]));
-            Action<object, byte[]> invoke_handler = _message_handlers[message[SIGNATURE_LENGTH]];
+            Action<object, byte[], int> invoke_handler = _message_handlers[message[SIGNATURE_LENGTH]];
             if (invoke_handler == null)
                 return;
             for (int index = 0; index < SIGNATURE_LENGTH; ++index)
@@ -106,10 +106,10 @@ namespace ttdtwm
             //log_sync_action("on_message_received", "entity valid");
             for (int index = 0; index < length; ++index)
                 _in_buffer[index] = message[SIGNATURE_LENGTH + 1 + 8 + index];
-            invoke_handler(entity, _in_buffer);
+            invoke_handler(entity, _in_buffer, length);
         }
 
-        public static void send_message_to_self(message_types message_id, long entity_id, byte[] message, uint length)
+        public static void send_message_to_self(message_types message_id, long entity_id, byte[] message, int length)
         {
             if (!_entities.ContainsKey(entity_id))
                 return;
@@ -119,7 +119,7 @@ namespace ttdtwm
                 on_message_received(message_buffer);
         }
 
-        public static void send_message_to_others(message_types message_id, object entity, byte[] message, uint length)
+        public static void send_message_to_others(message_types message_id, object entity, byte[] message, int length)
         {
             if (!network_handlers_registered)
                 return;
@@ -128,7 +128,7 @@ namespace ttdtwm
                 MyAPIGateway.Multiplayer.SendMessageToOthers(SYNC_MESSAGE_ID, message_buffer);
         }
 
-        public static void send_message_to(ulong recipient, message_types message_id, object entity, byte[] message, uint length)
+        public static void send_message_to(ulong recipient, message_types message_id, object entity, byte[] message, int length)
         {
             if (!network_handlers_registered || !MyAPIGateway.Multiplayer.IsServer)
                 return;
@@ -166,12 +166,17 @@ namespace ttdtwm
 
         public static void deregister_entity(long entity_id)
         {
-            _entity_ids.Remove(_entities[entity_id]);
-            _entities.Remove(entity_id);
+            if (_entities.ContainsKey(entity_id))
+            {
+                _entity_ids.Remove(_entities[entity_id]);
+                _entities.Remove(entity_id);
+            }
         }
 
         private static bool encode_entity_id(object entity, byte[] message)
         {
+            if (entity == null && !_entities.TryGetValue(0, out entity))
+                return false;
             if (!_entity_ids.ContainsKey(entity))
                 return false;
             long entity_id = _entity_ids[entity];
@@ -192,35 +197,5 @@ namespace ttdtwm
         }
 
         #endregion
-
-        public static void DISABLED_handle_60Hz()
-        {
-            /*
-            if (MyAPIGateway.Session.SessionSettings.EnableSpectator && MyAPIGateway.Input != null)
-            {
-                if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_FREE))
-                    F8_pressed = true;
-                else if (MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_NONE)
-                         || MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_DELTA)
-                         || MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.SPECTATOR_STATIC))
-                {
-                    F8_pressed = false;
-                }
-            }
-            */
-
-            /*
-            is_spectator_mode_on = false;
-            if (MyAPIGateway.Session.SessionSettings.EnableSpectator)
-            {
-                var spectator_controller = MyAPIGateway.Session.CameraController as MySpectatorCameraController;
-                if (spectator_controller != null)
-                    is_spectator_mode_on = spectator_controller.SpectatorCameraMovement == MySpectatorCameraMovementEnum.UserControlled;
-            }
-            */
-
-            //local_player     = MyAPIGateway.Session.LocalHumanPlayer;
-            //local_controller = (local_player == null) ? null : local_player.Controller.ControlledEntity;
-        }
     }
 }

@@ -561,12 +561,13 @@ namespace ttdtwm
         {
             base.UpdateAfterSimulation();
 
-            screen_info.refresh_local_player_info();
             if (_grids_handle_60Hz == null)
             {
                 try_register_handlers();
                 return;
             }
+
+            screen_info.refresh_local_player_info();
             if (--_count15 <= 0)
             {
                 _count15 = 15;
@@ -594,11 +595,13 @@ namespace ttdtwm
         public session_handler()
         {
             _session_ref = this;
+            sync_helper.register_entity(this, 0);
         }
 
         protected override void UnloadData()
         {
             base.UnloadData();
+            sync_helper.deregister_entity(0);
             sync_helper.deregister_handlers();
             screen_info.deregister_handlers();
             foreach (var leftover_grid in _grids.Keys.ToList())

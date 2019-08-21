@@ -327,7 +327,7 @@ namespace ttdtwm
                 _uncontrolled_thrusters.Count));
         }
 
-        private void screen_vector<type>(string method_name, string vector_name, type[] vector, int display_time_ms, bool controlled_only)
+        private void screen_vector<type>(string method_name, string vector_name, type[] vector, int display_time_ms)
         {
             screen_info.screen_text(_grid, method_name, string.Format("{0} = {1:F3}/{2:F3}/{3:F3}/{4:F3}/{5:F3}/{6:F3}", 
                 vector_name,
@@ -336,7 +336,7 @@ namespace ttdtwm
                 vector[(int) thrust_dir.starboard],
                 vector[(int) thrust_dir.port     ],
                 vector[(int) thrust_dir.dorsal   ],
-                vector[(int) thrust_dir.ventral  ]), display_time_ms, controlled_only);
+                vector[(int) thrust_dir.ventral  ]), display_time_ms);
         }
 
         #endregion
@@ -2180,7 +2180,7 @@ namespace ttdtwm
 
         #region Flight controls handling
 
-        internal static void extract_thrust_limit(object entity, byte[] argument)
+        internal static void extract_thrust_limit(object entity, byte[] argument, int length)
         {
             var thruster_entry = entity as thruster_info;
 
@@ -2203,11 +2203,11 @@ namespace ttdtwm
             sync_helper.send_message_to_others(sync_helper.message_types.MANUAL_THROTTLE, thruster_entry, __message, 1);
         }
 
-        internal static void on_manual_throttle_changed(object entity, byte[] argument)
+        internal static void on_manual_throttle_changed(object entity, byte[] argument, int length)
         {
             var thruster_entry = entity as thruster_info;
 
-            if (thruster_entry != null)
+            if (length == 1 && thruster_entry != null)
             {
                 uint new_throttle = argument[0] & 0x7FU;
 

@@ -413,19 +413,19 @@ namespace ttdtwm
             }
         }
 
-        internal static void control_warning_handler(object entity, byte[] argument)
+        internal static void control_warning_handler(object entity, byte[] argument, int length)
         {
             var instance = entity as grid_logic;
-            if (instance == null || instance._disposed)
+            if (length != 1 || instance == null || instance._disposed)
                 return;
 
             screen_info.set_control_loss_warning_visibility(instance._grid, argument[0] != 0 && !instance._is_secondary && instance._secondary_grids == null);
         }
 
-        internal static void thrust_reduction_handler(object entity, byte[] argument)
+        internal static void thrust_reduction_handler(object entity, byte[] argument, int length)
         {
             var instance = entity as grid_logic;
-            if (instance == null || instance._disposed)
+            if (length != 1 || instance == null || instance._disposed)
                 return;
 
             screen_info.set_displayed_thrust_reduction(instance._grid, argument[0], !instance._is_secondary && instance._secondary_grids == null);
@@ -446,9 +446,9 @@ namespace ttdtwm
             return result;
         }
 
-        internal static void I_terms_handler(object entity, byte[] argument)
+        internal static void I_terms_handler(object entity, byte[] argument, int length)
         {
-            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+            if (length != 18 || MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
                 return;
 
             var instance = entity as grid_logic;
