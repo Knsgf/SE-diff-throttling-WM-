@@ -15,8 +15,8 @@ namespace ttdtwm
     {
         const ushort SYNC_MESSAGE_ID = 17370;
 
-        internal const int MAX_MESSAGE_LENGTH = 100;
-        internal enum message_types { I_TERMS, MANUAL_THROTTLE, CONTROL_LIMIT, THRUST_LOSS, GET_THRUST_LIMIT, REMOTE_SCREEN_TEXT };
+        internal const int MAX_MESSAGE_LENGTH = 200;
+        internal enum message_types { I_TERMS, MANUAL_THROTTLE, MANEUVRE, CONTROL_LIMIT, THRUST_LOSS, GET_THRUST_LIMIT, REMOTE_SCREEN_TEXT };
         private static readonly int _num_messages = Enum.GetValues(typeof(message_types)).Length;
 
         const int SIGNATURE_LENGTH = 6;
@@ -29,10 +29,7 @@ namespace ttdtwm
 
         private static readonly Action<object, byte[], int>[] _message_handlers;
 
-        //private static bool F8_pressed = false;
-
         public static bool network_handlers_registered { get; private set; }
-        //public static bool        is_spectator_mode_on { get; private set; }
 
         static sync_helper()
         {
@@ -40,6 +37,7 @@ namespace ttdtwm
             _message_handlers[(int) message_types.I_TERMS           ] = grid_logic.I_terms_handler;
             _message_handlers[(int) message_types.CONTROL_LIMIT     ] = grid_logic.control_warning_handler;
             _message_handlers[(int) message_types.THRUST_LOSS       ] = grid_logic.thrust_reduction_handler;
+            _message_handlers[(int) message_types.MANEUVRE          ] = grid_logic.sync_maneuvre;
             _message_handlers[(int) message_types.MANUAL_THROTTLE   ] = engine_control_unit.on_manual_throttle_changed;
             _message_handlers[(int) message_types.GET_THRUST_LIMIT  ] = engine_control_unit.extract_thrust_limit;
             _message_handlers[(int) message_types.REMOTE_SCREEN_TEXT] = screen_info.show_remote_text;

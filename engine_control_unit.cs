@@ -163,7 +163,7 @@ namespace ttdtwm
         private bool       _all_engines_off = false, _under_player_control = false, _force_override_refresh = false;
         private float      _angular_speed, _trim_fadeout = 1.0f;
 
-        private  bool        _integral_cleared = false, _landing_mode_on = false, _is_thrust_override_active = false;
+        private  bool        _integral_cleared = false, _landing_mode_on = false, _is_thrust_override_active = false, _grid_is_movable = false;
         private  bool[]      _enable_linear_integral = { true, true, true, true, true, true };
         private float[]      _linear_integral        = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
         private float        _speed, _vertical_speed, _prev_air_density = float.MinValue, _counter_thrust_limit = 1.0f;
@@ -2390,7 +2390,7 @@ namespace ttdtwm
 
         public void handle_60Hz()
         {
-            if (_grid.Physics == null || !_grid.Physics.Enabled || _grid.Physics.IsStatic)
+            if (!_grid_is_movable)
             {
                 _physics_enable_delay = PHYSICS_ENABLE_DELAY;
                 _speed                = 0.0f;
@@ -2465,7 +2465,7 @@ namespace ttdtwm
 
         public void handle_4Hz_foreground()
         {
-            if (_grid.Physics == null || !_grid.Physics.Enabled || _grid.Physics.IsStatic)
+            if (!_grid_is_movable)
                 reset_ECU();
             else
             {
@@ -2481,7 +2481,7 @@ namespace ttdtwm
 
         public void handle_4Hz_background()
         {
-            if (_grid.Physics == null || !_grid.Physics.Enabled || _grid.Physics.IsStatic)
+            if (!_grid_is_movable)
                 return;
 
             if (!_calibration_in_progress)
@@ -2510,7 +2510,8 @@ namespace ttdtwm
 
         public void handle_2s_period_foreground()
         {
-            if (_grid.Physics == null || !_grid.Physics.Enabled || _grid.Physics.IsStatic)
+            _grid_is_movable = !_grid.IsStatic && _grid.Physics != null && _grid.Physics.Enabled;
+            if (!_grid_is_movable)
                 return;
 
             thruster_info cur_thrust_info;
@@ -2534,7 +2535,7 @@ namespace ttdtwm
 
         public void handle_2s_period_background()
         {
-            if (_grid.Physics != null && _grid.Physics.Enabled && !_grid.Physics.IsStatic)
+            if (_grid_is_movable)
                 check_thruster_control_changed();
         }
 

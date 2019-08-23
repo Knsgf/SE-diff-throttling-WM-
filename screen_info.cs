@@ -106,6 +106,14 @@ namespace ttdtwm
                 remote_info(grid, string.Format("{0}(): {1} {2}", method_name, grid_name, message), display_time_ms);
         }
 
+        public static void dual_screen_text(IMyCubeGrid grid, string method_name, string message, int display_time_ms)
+        {
+            if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
+                remote_screen_text(grid, method_name, "SVR " + message, display_time_ms);
+            else
+                screen_text(grid, method_name, "CLI " + message, display_time_ms);
+        }
+
         #endregion
 
         #region HUD messages

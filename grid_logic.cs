@@ -219,12 +219,6 @@ namespace ttdtwm
             }
         }
 
-        public void start_maneuvre(engine_control_unit.ID_maneuvres selection)
-        {
-            if (is_circularisation_avaiable)
-                _ECU.begin_maneuvre(selection);
-        }
-
         #endregion
 
         #region auxiliaries
@@ -249,13 +243,9 @@ namespace ttdtwm
             return screen_info.local_player;
         }
 
-        private void initialise_ECU_and_physics()
+        private void update_ECU_cockpit_controls()
         {
             bool CoT_mode_on = false, landing_mode_on = false, rotational_damping_on = true, use_individual_calibration = false, circularise_on = false;
-
-            var grid_movement = new gravity_and_physics(_grid);
-            _ECU              = new engine_control_unit(_grid, grid_movement);
-            _grid_physics     = grid_movement;
 
             foreach (var cur_controller in _ship_controllers)
             {
@@ -276,6 +266,15 @@ namespace ttdtwm
             _ECU.linear_dampers_on          = _ID_on;
             _ECU.circularise_on             = circularise_on;
             _ECU.secondary_ECU              = _is_secondary;
+        }
+
+        private void initialise_ECU_and_physics()
+        {
+            var grid_movement = new gravity_and_physics(_grid);
+            _ECU              = new engine_control_unit(_grid, grid_movement);
+            _grid_physics     = grid_movement;
+
+            update_ECU_cockpit_controls();
         }
 
         private void set_rotational_damping(bool new_state, bool set_secondary = false)
@@ -461,9 +460,33 @@ namespace ttdtwm
             current_ECU.linear_integral = structurise_vector(argument, 12);
         }
 
+        internal static void sync_maneuvre(object entity, byte[] argument, int length)
+        {
+            if (length != 1)
+                return;
+            var instance = entity as grid_logic;
+            if (instance == null || instance._disposed)
+                return;
+
+            instance.start_maneuvre((engine_control_unit.ID_maneuvres) argument[0], false);
+        }
+
         #endregion
 
         #region event triggers
+
+        public void start_maneuvre(engine_control_unit.ID_maneuvres selection, bool sync_maneuvre)
+        {
+            if (is_circularisation_avaiable)
+            {
+                _ECU.begin_maneuvre(selection);
+                if (sync_maneuvre)
+                {
+                    __message[0] = (byte) selection;
+                    sync_helper.send_message_to_others(sync_helper.message_types.MANEUVRE, this, __message, 1);
+                }
+            }
+        }
 
         private void send_control_limit_message(IMyPlayer controlling_player)
         {
@@ -563,7 +586,7 @@ namespace ttdtwm
                             IMyPlayer controlling_player = get_controlling_player();
                             if (controlling_player != null)
                             {
-                                if (controlling_player == screen_info.local_player)
+                                if (controlling_player == screen_info.local_player || MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
                                     handle_user_input(controlling_player.Controller.ControlledEntity);
                             }
                             else
@@ -619,6 +642,7 @@ namespace ttdtwm
                     _ECU.reset_ECU();
                 else
                 {
+                    update_ECU_cockpit_controls();
                     _ECU.handle_4Hz_foreground();
 
                     IMyPlayer controlling_player = get_controlling_player();

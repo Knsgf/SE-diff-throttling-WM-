@@ -54,6 +54,7 @@ namespace ttdtwm
     class gravity_and_physics: gravity_simulation, torque_and_orbit_control
     {
         const float REFERENCE_GRAVITY = 9.81f;
+        const bool  GRAVITY_ON        = true;
 
         class gravity_source
         {
@@ -652,9 +653,9 @@ namespace ttdtwm
             Vector3D gravity_correction_force = _grid.Physics.Mass * (gravity_vector - _grid.Physics.Gravity) + _accumulated_gravity;
 
             if (gravity_correction_force.LengthSquared() >= 1.0 || _current_torque.LengthSquared() >= 1.0f)
-                _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND /*Vector3.Zero*/, _grid_position, _current_torque /*Vector3.Zero*/);
+                _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, GRAVITY_ON ? (gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND) : Vector3D.Zero, _grid_position, _current_torque /*Vector3.Zero*/);
             _current_torque = Vector3.Zero;
-            if (_grid.Physics.LinearVelocity.LengthSquared() <= 0.01f && stock_gravity_force.LengthSquared() < 0.0001f)
+            if (GRAVITY_ON && _grid.Physics.LinearVelocity.LengthSquared() <= 0.01f && stock_gravity_force.LengthSquared() < 0.0001f)
                 _accumulated_gravity += gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND;
             else
                 _accumulated_gravity = Vector3D.Zero;

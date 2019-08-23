@@ -199,7 +199,7 @@ namespace ttdtwm
         {
             return delegate (IMyTerminalBlock controller)
             {
-                _grids[controller.CubeGrid].start_maneuvre(maneuvre);
+                _grids[controller.CubeGrid].start_maneuvre(maneuvre, true);
             };
         }
 
