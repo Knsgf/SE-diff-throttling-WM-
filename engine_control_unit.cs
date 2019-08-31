@@ -245,7 +245,7 @@ namespace ttdtwm
             }
             set
             {
-                _circularise_on = value;
+                _circularise_on = value && gravity_and_physics.world_has_gravity;
             }
         }
 
@@ -767,15 +767,16 @@ namespace ttdtwm
             if (reset_all_thrusters && _all_engines_off && !_force_override_refresh)
                 return;
 
-            if (MyAPIGateway.Multiplayer != null)
+            if (!is_under_control_of(screen_info.local_controller) && MyAPIGateway.Multiplayer != null)
             {
+                bool controls_active = _manual_rotation.LengthSquared() >= 0.0001f || _linear_control.LengthSquared() >= 0.0001f;
                 if (MyAPIGateway.Multiplayer.IsServer)
                 {
-                    if (_under_player_control && (screen_info.local_player == null || !MyAPIGateway.Multiplayer.IsServerPlayer(screen_info.local_player.Client)))
+                    if (controls_active)
                         dry_run = true;
 
                 }
-                else if (!is_under_control_of(screen_info.local_controller))
+                else if (!controls_active)
                     dry_run = true;
             }
 
@@ -876,7 +877,7 @@ namespace ttdtwm
             _force_override_refresh = false;
         }
 
-        private void initialise_linear_controls(Vector3 local_linear_velocity_vector, Vector3 local_gravity_vector, bool allow_dogleg_braking)
+        private void initialise_linear_controls(Vector3 local_linear_velocity_vector, Vector3 local_gravity_vector)
         {
             const float DAMPING_CONSTANT = -2.0f;
 
@@ -892,7 +893,7 @@ namespace ttdtwm
 
             _trim_fadeout = 1.0f;
 
-            if (!linear_dampers_on && _current_maneuvre == ID_maneuvres.maneuvre_off || !allow_dogleg_braking && controls_active)
+            if (!linear_dampers_on && _current_maneuvre == ID_maneuvres.maneuvre_off || controls_active && circularise_on && _match_velocity_with == null)
             {
                 _counter_thrust_limit = 1.0f;
                 if (!_integral_cleared)
@@ -972,7 +973,7 @@ namespace ttdtwm
                             _linear_integral[opposite_dir] = 0.0f;
                     }
                 }
-                normalise_control(allow_dogleg_braking);
+                normalise_control(_current_maneuvre == ID_maneuvres.maneuvre_off);
             }
         }
 
@@ -1526,8 +1527,7 @@ namespace ttdtwm
             _angular_speed = _local_angular_velocity.Length();
 
             Vector3 desired_angular_velocity;
-            initialise_linear_controls(local_linear_velocity * _dampers_axis_enable, local_gravity * _dampers_axis_enable, _match_velocity_with != null
-                || !_circularise_on && _speed >= MIN_CIRCULARISATION_SPEED && _current_maneuvre == ID_maneuvres.maneuvre_off);
+            initialise_linear_controls(local_linear_velocity * _dampers_axis_enable, local_gravity * _dampers_axis_enable);
             bool    update_inverse_world_matrix;
             update_inverse_world_matrix = adjust_trim_setting(out desired_angular_velocity);
 

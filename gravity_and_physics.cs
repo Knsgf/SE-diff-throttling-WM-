@@ -11,7 +11,7 @@ using VRageMath;
 
 namespace ttdtwm
 {
-    class orbit_elements
+    sealed class orbit_elements
     {
         // Primary
         public string   name;
@@ -28,7 +28,7 @@ namespace ttdtwm
         public double circular_speed, escape_speed, local_gravity_magnitude;
     }
 
-    class orbit_plane_intersection
+    sealed class orbit_plane_intersection
     {
         public Vector3D target_angular_momentum, ascending_node_vector;
         public double   relative_inclination, time_to_ascending_node, time_to_descending_node;
@@ -41,6 +41,7 @@ namespace ttdtwm
 
         void simulate_gravity_and_torque();
         void mark_elements_for_refresh();
+        void update_current_reference();
     }
 
     interface torque_and_orbit_control
@@ -51,7 +52,7 @@ namespace ttdtwm
         Vector3  get_maneuvre_direction(engine_control_unit.ID_maneuvres selection);
     }
 
-    class gravity_and_physics: gravity_simulation, torque_and_orbit_control
+    sealed class gravity_and_physics: gravity_simulation, torque_and_orbit_control
     {
         const float REFERENCE_GRAVITY = 9.81f;
         const bool  GRAVITY_ON        = true;
@@ -67,7 +68,7 @@ namespace ttdtwm
         private static Dictionary<IMyCubeGrid, gravity_and_physics> _grid_list       = new Dictionary<IMyCubeGrid, gravity_and_physics>();
 
         private MyCubeGrid     _grid;
-        private gravity_source _current_reference, _display_reference = null;
+        private gravity_source _current_reference, _display_reference = null, _last_reference = null;
 
         private Vector3D _grid_position, _absolute_linear_velocity, _absolute_angular_velocity, _accumulated_gravity = Vector3D.Zero;
         private Vector3D _eccentricity_vector, _current_angular_momentum;
@@ -81,6 +82,9 @@ namespace ttdtwm
         private Vector3D[]               _vector_elements  = new Vector3D[ 4];
         private   double[]               _scalar_elements  = new   double[14];
 
+        private static Dictionary<IMyCharacter, gravity_source> _PC_current_source = new Dictionary<IMyCharacter, gravity_source>();
+        private static Dictionary<IMyCharacter, gravity_source> _PC_new_source     = new Dictionary<IMyCharacter, gravity_source>();
+
         public static bool world_has_gravity
         {
             get
@@ -93,18 +97,13 @@ namespace ttdtwm
 
         public orbit_elements current_elements_reader()
         {
-            if (_refresh_elements)
-                calculate_elements(false);
+            calculate_elements(use_major_body: false);
             return _current_elements;
         }
 
         public orbit_plane_intersection plane_alignment_reader()
         {
-            if (_refresh_elements || _display_reference != null && _display_reference != _current_reference)
-            {
-                calculate_elements(true);
-                _refresh_elements |= _display_reference != null && _display_reference != _current_reference;
-            }
+            calculate_elements(use_major_body: true);
             return _alignment_info;
         }
 
@@ -142,36 +141,45 @@ namespace ttdtwm
             return dividend - divisor * Math.Floor(dividend / divisor);
         }
 
-        private static gravity_source get_reference_body(Vector3D grid_position, out Vector3D grid_vector, out double distance, out double gravity_magnitude)
+        private static gravity_source get_reference_body(Vector3D entity_position)
         {
-            double         gravity, distance2;
+            double         gravity = 0.0, cur_gravity, distance2;
             gravity_source reference_body = null;
             Vector3D       cur_body_vector;
 
-            gravity_magnitude = distance = 0.0;
-            grid_vector       = Vector3D.Zero;
             foreach (var cur_body in _gravity_sources.Values)
             {
-                cur_body_vector = grid_position - cur_body.centre_position;
+                cur_body_vector = entity_position - cur_body.centre_position;
                 distance2       = cur_body_vector.LengthSquared();
                 if (distance2 <= cur_body.mean_radius2)
-                {
-                    gravity_magnitude = cur_body.surface_gravity * Math.Sqrt(distance2 / cur_body.mean_radius2);
-                    distance          = Math.Sqrt(distance2);
-                    grid_vector       = cur_body_vector;
                     return cur_body;
-                }
 
-                gravity = cur_body.standard_gravitational_parameter / distance2;
-                if (gravity_magnitude < gravity)
+                cur_gravity = cur_body.standard_gravitational_parameter / distance2;
+                if (gravity < cur_gravity)
                 {
-                    gravity_magnitude = gravity;
-                    reference_body    = cur_body;
-                    distance          = Math.Sqrt(distance2);
-                    grid_vector       = cur_body_vector;
+                    gravity        = cur_gravity;
+                    reference_body = cur_body;
                 }
             }
             return reference_body;
+        }
+
+        private static Vector3D calculate_gravity_vector(gravity_source reference_body, Vector3D entity_position)
+        {
+            if (reference_body == null)
+                return Vector3D.Zero;
+
+            Vector3D radius_vector         = entity_position - reference_body.centre_position;
+            double   radius_vector_length2 = radius_vector.LengthSquared();
+            if (radius_vector_length2 < 1.0)
+                return Vector3D.Zero;
+
+            double gravity_magnitude;
+            if (radius_vector_length2 > reference_body.mean_radius2)
+                gravity_magnitude = reference_body.standard_gravitational_parameter / radius_vector_length2;
+            else
+                gravity_magnitude = reference_body.surface_gravity * Math.Sqrt(radius_vector_length2 / reference_body.mean_radius2);
+            return radius_vector * ((-gravity_magnitude) / Math.Sqrt(radius_vector_length2));
         }
 
         public void mark_elements_for_refresh()
@@ -254,9 +262,16 @@ namespace ttdtwm
         {
             gravity_source selected_reference = use_major_body ? _current_reference : _display_reference;
 
-            _refresh_elements = false;
             if (selected_reference == null)
                 selected_reference = _current_reference;
+            if (selected_reference != _last_reference)
+            {
+                _refresh_elements = true;
+                _last_reference   = selected_reference;
+            }
+            if (!_refresh_elements)
+                return;
+            _refresh_elements = false;
             if (selected_reference == null)
             {
                 zero_all_elements();
@@ -271,7 +286,7 @@ namespace ttdtwm
                 return;
             }
 
-            double   SGP                        = selected_reference.standard_gravitational_parameter;
+            double   SGP                        = GRAVITY_ON ? selected_reference.standard_gravitational_parameter : (_grid.Physics.Gravity.Length() * grid_vector_length * grid_vector_length);
             Vector3D specific_angular_momentum  = Vector3D.Cross(grid_vector, _absolute_linear_velocity);
             double   angular_momentum_magnitude = specific_angular_momentum.Length();
             Vector3D LAN_vector                 = new Vector3D(specific_angular_momentum.Z, 0.0, -specific_angular_momentum.X);
@@ -433,13 +448,7 @@ namespace ttdtwm
             if (!_grid_list.TryGetValue(controller.CubeGrid, out instance))
                 return;
 
-            if (instance._refresh_elements || instance._display_reference != null && instance._display_reference != instance._current_reference)
-            {
-                instance.calculate_elements(true);
-                if (instance._display_reference != null && instance._display_reference != instance._current_reference)
-                    instance._refresh_elements = true;
-            }
-
+            instance.calculate_elements(use_major_body: true);
             orbit_elements current_elements = instance._current_elements;
             if (current_elements.name == null)
                 return;
@@ -568,7 +577,9 @@ namespace ttdtwm
                 _current_angular_momentum = Vector3D.Cross(grid_vector, _absolute_linear_velocity);
             if (_current_angular_momentum.LengthSquared() < 1.0E-6)
                 return Vector3D.Zero;
-            return Vector3D.Normalize(Vector3D.Cross(_current_angular_momentum, grid_vector)) * Math.Sqrt(selected_reference.standard_gravitational_parameter / grid_vector_length);
+            if (GRAVITY_ON)
+                return Vector3D.Normalize(Vector3D.Cross(_current_angular_momentum, grid_vector)) * Math.Sqrt(selected_reference.standard_gravitational_parameter / grid_vector_length);
+            return  Vector3D.Normalize(Vector3D.Cross(_current_angular_momentum, grid_vector)) * Math.Sqrt(_grid.Physics.Gravity.Length() * grid_vector_length);
         }
 
         public Vector3 get_maneuvre_direction(engine_control_unit.ID_maneuvres selection)
@@ -643,14 +654,10 @@ namespace ttdtwm
                 return;
             }
 
-            Vector3D grid_vector;
-            double   grid_vector_length, gravity_magnitude;
-
             update_grid_position_and_velocity();
-            _current_reference                = get_reference_body(_grid_position, out grid_vector, out grid_vector_length, out gravity_magnitude);
-            Vector3D gravity_vector           = (grid_vector_length >= 1.0) ? (grid_vector / grid_vector_length * (-gravity_magnitude)) : Vector3D.Zero;
+            Vector3D gravity_vector           = calculate_gravity_vector(_current_reference, _grid_position);
             Vector3  stock_gravity_force      = _grid.Physics.Gravity;
-            Vector3D gravity_correction_force = _grid.Physics.Mass * (gravity_vector - _grid.Physics.Gravity) + _accumulated_gravity;
+            Vector3D gravity_correction_force = _grid.Physics.Mass * (gravity_vector - stock_gravity_force) + _accumulated_gravity;
 
             if (gravity_correction_force.LengthSquared() >= 1.0 || _current_torque.LengthSquared() >= 1.0f)
                 _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, GRAVITY_ON ? (gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND) : Vector3D.Zero, _grid_position, _current_torque /*Vector3.Zero*/);
@@ -659,6 +666,62 @@ namespace ttdtwm
                 _accumulated_gravity += gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND;
             else
                 _accumulated_gravity = Vector3D.Zero;
+        }
+
+        public void update_current_reference()
+        {
+            _current_reference = get_reference_body(_grid_position);
+        }
+
+        #endregion
+
+        #region Player character movement
+
+        public static void register_player(IMyCharacter player)
+        {
+            _PC_current_source.Add(player, null);
+        }
+
+        public static void deregister_player(IMyCharacter player)
+        {
+            if (_PC_current_source.ContainsKey(player))
+                _PC_current_source.Remove(player);
+        }
+
+        public static void apply_gravity_to_players()
+        {
+            IMyCharacter   player;
+            gravity_source current_source;
+            Vector3D       player_positon, gravity_vector;
+
+            foreach (var player_entry in _PC_current_source)
+            {
+                player         = player_entry.Key;
+                current_source = player_entry.Value;
+                if (current_source == null || !player.EnabledThrusts || player.EnabledDamping || player.Physics == null || !player.Physics.Enabled)
+                    continue;
+
+                player_positon = player.PositionComp.GetPosition();
+                gravity_vector = calculate_gravity_vector(current_source, player_positon);
+                player.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, (gravity_vector - player.Physics.Gravity) * player.Physics.Mass / MyEngineConstants.UPDATE_STEPS_PER_SECOND, player_positon, Vector3.Zero);
+            }
+        }
+
+        public static void update_player_reference_bodies()
+        {
+            IMyCharacter   player;
+            gravity_source new_source;
+
+            _PC_new_source.Clear();
+            foreach (var player_entry in _PC_current_source)
+            {
+                player     = player_entry.Key;
+                new_source = get_reference_body(player.PositionComp.GetPosition());
+                if (player_entry.Value != new_source)
+                    _PC_new_source.Add(player, new_source);
+            }
+            foreach (var changed_player_entry in _PC_new_source)
+                _PC_current_source[changed_player_entry.Key] = changed_player_entry.Value;
         }
 
         #endregion

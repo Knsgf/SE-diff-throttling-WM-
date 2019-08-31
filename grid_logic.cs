@@ -692,6 +692,7 @@ namespace ttdtwm
 
         public void handle_2s_period_background()
         {
+            _grid_physics.update_current_reference();
             if (!_grid.IsStatic && (_num_thrusters > 0 || _secondary_grids != null))
             {
                 lock (_ECU)

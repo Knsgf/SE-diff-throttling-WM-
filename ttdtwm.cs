@@ -67,11 +67,19 @@ namespace ttdtwm
                 _grids_handle_2s_period_background += new_grid_logic.handle_2s_period_background;
                 _grids_perform_calibration         += new_grid_logic.perform_individual_calibration;
                 _grids.Add(grid, new_grid_logic);
+                return;
             }
 
             var planetoid = entity as MyPlanet;
             if (planetoid != null)
+            {
                 gravity_and_physics.register_gravity_source(planetoid);
+                return;
+            }
+
+            var character = entity as IMyCharacter;
+            if (character != null && character.IsPlayer)
+                gravity_and_physics.register_player(character);
         }
 
         private void on_entity_removed(IMyEntity entity)
@@ -88,11 +96,19 @@ namespace ttdtwm
                 _grids_perform_calibration         -= grid_logic_to_remove.perform_individual_calibration;
                 grid_logic_to_remove.Dispose();
                 _grids.Remove(grid);
+                return;
             }
 
             var planetoid = entity as MyPlanet;
             if (planetoid != null)
+            {
                 gravity_and_physics.deregister_gravity_source(planetoid);
+                return;
+            }
+
+            var character = entity as IMyCharacter;
+            if (character != null && character.IsPlayer)
+                gravity_and_physics.deregister_player(character);
         }
 
         private bool is_grid_CoT_mode_on(IMyTerminalBlock controller)
@@ -547,6 +563,7 @@ namespace ttdtwm
                     else if (!_calibration_task.valid || _calibration_task.IsComplete)
                         _calibration_task = MyAPIGateway.Parallel.Start(calibration_thread);
                     _grids_handle_2s_period_background();
+                    gravity_and_physics.update_player_reference_bodies();
                 }
                 _grids_handle_4Hz_background();
             }
@@ -590,6 +607,7 @@ namespace ttdtwm
                 _grids_handle_4Hz_foreground();
             }
             _grids_handle_60Hz();
+            gravity_and_physics.apply_gravity_to_players();
         }
 
         public session_handler()
