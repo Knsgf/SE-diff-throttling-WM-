@@ -412,15 +412,6 @@ namespace ttdtwm
             }
         }
 
-        internal static void control_warning_handler(object entity, byte[] argument, int length)
-        {
-            var instance = entity as grid_logic;
-            if (length != 1 || instance == null || instance._disposed)
-                return;
-
-            screen_info.set_control_loss_warning_visibility(instance._grid, argument[0] != 0 && !instance._is_secondary && instance._secondary_grids == null);
-        }
-
         internal static void thrust_reduction_handler(object entity, byte[] argument, int length)
         {
             var instance = entity as grid_logic;
@@ -485,16 +476,6 @@ namespace ttdtwm
                     __message[0] = (byte) selection;
                     sync_helper.send_message_to_others(sync_helper.message_types.MANEUVRE, this, __message, 1);
                 }
-            }
-        }
-
-        private void send_control_limit_message(IMyPlayer controlling_player)
-        {
-            if (controlling_player != null && (controlling_player != _prev_player || _control_limit_reached != _ECU.control_limit_reached))
-            {
-                __message[0] = (byte) (_ECU.control_limit_reached ? (~0) : 0);
-                sync_helper.send_message_to(controlling_player.SteamUserId, sync_helper.message_types.CONTROL_LIMIT, this, __message, 1);
-                _control_limit_reached = _ECU.control_limit_reached;
             }
         }
 
@@ -653,10 +634,7 @@ namespace ttdtwm
                     screen_info.set_displayed_vertical_speed(_grid, _ECU.vertical_speed, !_is_secondary);
 
                     if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
-                    {
-                        send_control_limit_message   (controlling_player);
                         send_thrust_reduction_message(controlling_player);
-                    }
                     _was_in_landing_mode = _ECU.landing_mode_on;
                     _prev_player         = controlling_player;
                 }

@@ -644,6 +644,7 @@ namespace ttdtwm
         public void apply_torque(Vector3 absolute_torque)
         {
             _current_torque = absolute_torque;
+            //screen_info.screen_text(_grid, "", _current_torque.ToString(), 16);
         }
 
         public void simulate_gravity_and_torque()

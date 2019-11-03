@@ -22,7 +22,6 @@ namespace ttdtwm
         const string settings_file = "TTDTWM.CFG";
         private static readonly char[] whitespace_char = { ' ', '\t' };
 
-        const string CONTROL_LOSS_WARNING = "/tpdt-cw";
         const string THRUST_LOSS          = "/tpdt-tl";
         const string VERTICAL_SPEED       = "/tpdt-vs";
         const string ORBITAL_ELEMENTS     = "/tpdt-oi";
@@ -131,13 +130,6 @@ namespace ttdtwm
                 _parameter_handlers[message_cmd] = parameter_handler;
             if (requires_natural_gravity)
                 _requires_natural_gravity.Add(message_cmd);
-        }
-
-        public static void set_control_loss_warning_visibility(IMyCubeGrid grid, bool is_visible)
-        {
-            if (grid != local_controller_grid)
-                return;
-            _HUD_messages[CONTROL_LOSS_WARNING].set_to_visible = is_visible;
         }
 
         public static void set_displayed_thrust_reduction(IMyCubeGrid grid, uint thrust_reduction, bool is_single_grid_assembly)
@@ -421,11 +413,10 @@ namespace ttdtwm
             if (!_UI_handlers_registered && MyAPIGateway.Utilities != null)
             {
                 MyAPIGateway.Utilities.MessageEntered += command_handler;
-                register_HUD_notification(CONTROL_LOSS_WARNING,   "Control loss warning", false, true, null, "WARNING: Control loss imminent", MyFontEnum.Red);
-                register_HUD_notification(         THRUST_LOSS, "Thrust loss indication", false, true, set_min_thrust_loss_percentage);
-                register_HUD_notification(      VERTICAL_SPEED, "Vertical speed readout",  true, false);
-                register_HUD_notification(    ORBITAL_ELEMENTS,      "Orbit information", false, false, set_displayed_orbital_elements);
-                register_HUD_notification(     PLANE_ALIGNMENT,    "Plane alignment aid", false,  true, set_target_plane);
+                register_HUD_notification(     THRUST_LOSS, "Thrust loss indication", false, true, set_min_thrust_loss_percentage);
+                register_HUD_notification(  VERTICAL_SPEED, "Vertical speed readout",  true, false);
+                register_HUD_notification(ORBITAL_ELEMENTS,      "Orbit information", false, false, set_displayed_orbital_elements);
+                register_HUD_notification( PLANE_ALIGNMENT,    "Plane alignment aid", false,  true, set_target_plane);
                 _UI_handlers_registered = true;
             }
 

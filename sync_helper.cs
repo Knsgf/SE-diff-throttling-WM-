@@ -35,7 +35,6 @@ namespace ttdtwm
         {
             _message_handlers = new Action<object, byte[], int>[_num_messages];
             _message_handlers[(int) message_types.I_TERMS           ] = grid_logic.I_terms_handler;
-            _message_handlers[(int) message_types.CONTROL_LIMIT     ] = grid_logic.control_warning_handler;
             _message_handlers[(int) message_types.THRUST_LOSS       ] = grid_logic.thrust_reduction_handler;
             _message_handlers[(int) message_types.MANEUVRE          ] = grid_logic.sync_maneuvre;
             _message_handlers[(int) message_types.MANUAL_THROTTLE   ] = engine_control_unit.on_manual_throttle_changed;
