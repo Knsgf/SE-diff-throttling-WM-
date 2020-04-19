@@ -613,7 +613,6 @@ namespace ttdtwm
 
             screen_info.set_displayed_orbital_elements(_grid, _grid_physics.current_elements_reader);
             screen_info.set_displayed_target_plane    (_grid, _grid_physics.plane_alignment_reader );
-            _grid_physics.mark_elements_for_refresh();
             if (!_is_secondary)
                 session_handler.get_secondary_grids(_grid, ref _secondary_grids);
 

@@ -172,11 +172,11 @@ namespace ttdtwm
                 orbit_elements elements = element_getter();
 
                 _orbital_elements_text.Clear();
-                _orbital_elements_text.AppendFormat("Ref: {0}; R = {1:F1} km", elements.name, elements.radius_vector.Length() / 1000.0);
+                _orbital_elements_text.AppendFormat("Ref: {0}; R = {1:F1} km", elements.name, elements.predicted_distance / 1000.0);
                 if (_display_local_gravity)
                 {
                     _orbital_elements_text.AppendFormat("\n(1) g = {0:F2} m/s^2; v1 = {1:F0} m/s; v2 = {2:F0} m/s",
-                        elements.local_gravity_magnitude, elements.circular_speed, elements.escape_speed);
+                        elements.predicted_gravity_magnitude, elements.circular_speed, elements.escape_speed);
                 }
                 if (_display_apside_info)
                 {
