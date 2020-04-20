@@ -17,7 +17,7 @@ namespace ttdtwm
         
         private double _current_SGP;
 
-        private Vector3D _specific_angular_momentum, _AN_vector, _eccentricity_vector;
+        private Vector3D _specific_angular_momentum, _AN_vector = Vector3D.Zero, _eccentricity_vector, _anomaly90;
 
         private static double acosh(double x)
         {
@@ -33,8 +33,15 @@ namespace ttdtwm
 
         public string name { get; private set; }
         public bool foreign_reference { get; private set; }
-        
+
         // Vector elements
+        public Vector3D specific_angular_momentum 
+        { 
+            get
+            {
+                return _specific_angular_momentum;
+            }
+        }
 
         // Shape elements
         public double semi_major_axis { get; private set; }
@@ -74,15 +81,17 @@ namespace ttdtwm
             name              = body_name;
             foreign_reference = minor_body;
 
-            double radius_vector_length = radius_vector.Length();
-            _specific_angular_momentum  = Vector3D.Cross(radius_vector, linear_velocity);
-            double areal_velocity       = _specific_angular_momentum.Length();
-            _AN_vector                  = new Vector3D(_specific_angular_momentum.Z, 0.0, -_specific_angular_momentum.X);
-            double AN_vector_length     = _AN_vector.Length();
-            double speed                = linear_velocity.Length();
-            double gravity_energy       = SGP / radius_vector_length;
-            double circular_speed       = Math.Sqrt(gravity_energy);
-            double escape_speed         = circular_speed * sqrt2;
+            _specific_angular_momentum = Vector3D.Cross(radius_vector, linear_velocity);
+            double areal_velocity      = _specific_angular_momentum.Length();
+
+            _AN_vector.X =  _specific_angular_momentum.Z;
+            _AN_vector.Z = -_specific_angular_momentum.X;
+            if (!Vector3D.IsZero(_AN_vector))
+                _AN_vector /= _AN_vector.Length();
+
+            double speed          = linear_velocity.Length();
+            double circular_speed = Math.Sqrt(SGP / radius_vector.Length());
+            double escape_speed   = circular_speed * sqrt2;
             Vector3D new_eccentricity_vector = (((speed - circular_speed) * (speed + circular_speed)) * radius_vector - Vector3D.Dot(radius_vector, linear_velocity) * linear_velocity) / SGP;
             if ((new_eccentricity_vector - _eccentricity_vector).LengthSquared() >= 0.001 * 0.001)
                 _eccentricity_vector = new_eccentricity_vector;
@@ -107,8 +116,8 @@ namespace ttdtwm
             inclination = (areal_velocity > 0.0) ? Math.Acos(_specific_angular_momentum.Y / areal_velocity) : 0.0;
             if (inclination != 0.0)
             {
-                longitude_of_ascending_node = Math.Acos(_AN_vector.X / AN_vector_length);
-                argument_of_periapsis       = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(_AN_vector, _eccentricity_vector) / (AN_vector_length * eccentricity), -1.0, 1.0));
+                longitude_of_ascending_node = Math.Acos(_AN_vector.X);
+                argument_of_periapsis       = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(_AN_vector, _eccentricity_vector) / eccentricity, -1.0, 1.0));
             }
             else
             {
@@ -122,25 +131,10 @@ namespace ttdtwm
 
             if (eccentricity > 0.0)
             {
-                Vector3D anomaly90   = Vector3D.Cross(_specific_angular_momentum, _eccentricity_vector);
-                _eccentricity_vector = eccentricity * Vector3D.Normalize(Vector3D.Cross(anomaly90, _specific_angular_momentum));
-
-                true_anomaly = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(_eccentricity_vector, radius_vector) / (eccentricity * radius_vector_length), -1.0, 1.0));
-                if (Vector3D.Dot(radius_vector, anomaly90) < 0.0)
-                    true_anomaly = 2.0 * Math.PI - true_anomaly;
+                _anomaly90           = Vector3D.Cross(_specific_angular_momentum, _eccentricity_vector);
+                _eccentricity_vector = eccentricity * Vector3D.Normalize(Vector3D.Cross(_anomaly90, _specific_angular_momentum));
             }
-            else if (AN_vector_length > 0.0)
-            {
-                true_anomaly = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(_AN_vector, radius_vector) / (AN_vector_length * radius_vector_length), -1.0, 1.0));
-                if (Vector3D.Dot(_AN_vector, linear_velocity) > 0.0)
-                    true_anomaly = 2.0 * Math.PI - true_anomaly;
-            }
-            else
-            {
-                true_anomaly = Math.Acos(radius_vector.X / radius_vector_length);
-                if (linear_velocity.X > 0.0)
-                    true_anomaly = 2.0 * Math.PI - true_anomaly;
-            }
+            true_anomaly = get_true_anomaly(radius_vector, linear_velocity);
         }
 
         public void calculate_derived_elements()
@@ -172,7 +166,7 @@ namespace ttdtwm
             predicted_gravity_magnitude = gravity_energy / predicted_distance;
         }
 
-        static double convert_true_anomaly_to_mean(double eccentricity, double true_anomaly)
+        public static double convert_true_anomaly_to_mean(double eccentricity, double true_anomaly)
         {
             double eccentric_anomaly, true_anomaly_cos = Math.Cos(true_anomaly);
             if (eccentricity < 1.0)
@@ -191,12 +185,61 @@ namespace ttdtwm
             return eccentricity * Math.Sinh(eccentric_anomaly) - eccentric_anomaly;
         }
 
+        public double get_true_anomaly(Vector3D direction, Vector3D linear_velocity)
+        {
+            double true_anomaly;
+
+            if (eccentricity > 0.0)
+            {
+                true_anomaly = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(_eccentricity_vector, direction) / (eccentricity * direction.Length()), -1.0, 1.0));
+                if (Vector3D.Dot(direction, _anomaly90) < 0.0)
+                    true_anomaly = 2.0 * Math.PI - true_anomaly;
+            }
+            else if (!Vector3D.IsZero(_AN_vector))
+            {
+                true_anomaly = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(_AN_vector, direction) / direction.Length(), -1.0, 1.0));
+                if (Vector3D.Dot(_AN_vector, linear_velocity) > 0.0)
+                    true_anomaly = 2.0 * Math.PI - true_anomaly;
+            }
+            else
+            {
+                true_anomaly = Math.Acos(direction.X / direction.Length());
+                if (linear_velocity.X > 0.0)
+                    true_anomaly = 2.0 * Math.PI - true_anomaly;
+            }
+
+            return true_anomaly;
+        }
+
+        public void copy_primary_elements_to(orbit_elements copy)
+        {
+            copy._current_SGP               = _current_SGP;
+            copy._specific_angular_momentum = _specific_angular_momentum;
+            copy._AN_vector                 = _AN_vector;
+            copy._eccentricity_vector       = _eccentricity_vector;
+            copy._anomaly90                 = _anomaly90;
+
+            copy.semi_major_axis             = semi_major_axis;
+            copy.eccentricity                = eccentricity;
+            copy.inclination                 = inclination;
+            copy.longitude_of_ascending_node = longitude_of_ascending_node;
+            copy.argument_of_periapsis       = argument_of_periapsis;
+
+            /*
+            copy.semi_latus_rectum = semi_latus_rectum;
+            copy.apoapsis_radius   = apoapsis_radius;
+            copy.periapsis_radius  = periapsis_radius;
+            copy.mean_motion       = mean_motion;
+            copy.orbit_period      = orbit_period;
+            */
+        }
+
         #endregion
     }
 
     sealed class orbit_plane_intersection
     {
-        public Vector3D target_angular_momentum, ascending_node_vector;
+        public Vector3D target_normal, ascending_node_vector;
         public double   relative_inclination, time_to_ascending_node, time_to_descending_node;
     }
 
@@ -261,6 +304,8 @@ namespace ttdtwm
 
         public orbit_elements current_elements_reader()
         {
+            if (_displayed_elements == null)
+                _displayed_elements = new orbit_elements();
             calculate_elements(_display_reference, ref _displayed_elements);
             return _displayed_elements;
         }
@@ -268,6 +313,7 @@ namespace ttdtwm
         public orbit_plane_intersection plane_alignment_reader()
         {
             calculate_elements(_current_reference, ref _current_elements);
+            calculate_plane_intersection();
             return _alignment_info;
         }
 
@@ -531,21 +577,20 @@ namespace ttdtwm
             //    calculate_plane_intersection(specific_angular_momentum, AN_vector, eccentricity, mean_motion2, period, time_from_periapsis);
         }
 
-        /*
-        private void calculate_plane_intersection(Vector3D specific_angular_momentum, Vector3D AN_vector, double eccentricity, double mean_motion2, double period, double current_time)
+        private void calculate_plane_intersection()
         {
-            _alignment_info.relative_inclination = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(specific_angular_momentum, _alignment_info.target_angular_momentum) / specific_angular_momentum.Length(), -1.0, 1.0));
-
-            Vector3D intersection_ascending_node  = Vector3D.Cross(_alignment_info.target_angular_momentum, specific_angular_momentum);
+            Vector3D specific_angular_momentum    = _current_elements.specific_angular_momentum;
+            _alignment_info.relative_inclination  = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(specific_angular_momentum, _alignment_info.target_normal) / specific_angular_momentum.Length(), -1.0, 1.0));
+            Vector3D intersection_ascending_node  = Vector3D.Cross(_alignment_info.target_normal, specific_angular_momentum);
             _alignment_info.ascending_node_vector = intersection_ascending_node;
 
-            double true_anomaly, mean_anomaly, node_time_offset;
-            calculate_anomalies(intersection_ascending_node, specific_angular_momentum, AN_vector, eccentricity, mean_motion2, out true_anomaly, out mean_anomaly, out node_time_offset);
-            _alignment_info.time_to_ascending_node = floor_mod(node_time_offset - current_time, period);
-            calculate_anomalies(-intersection_ascending_node, specific_angular_momentum, AN_vector, eccentricity, mean_motion2, out true_anomaly, out mean_anomaly, out node_time_offset);
-            _alignment_info.time_to_descending_node = floor_mod(node_time_offset - current_time, period);
+            double eccentricity = _current_elements.eccentricity, mean_motion = _current_elements.mean_motion, orbit_period = _current_elements.orbit_period;
+            double mean_anomaly = _current_elements.mean_anomaly;
+            double intersection_true_anomaly = _current_elements.get_true_anomaly(intersection_ascending_node, _absolute_linear_velocity);
+            _alignment_info.time_to_ascending_node = floor_mod((orbit_elements.convert_true_anomaly_to_mean(eccentricity, intersection_true_anomaly) - mean_anomaly) * mean_motion, orbit_period);
+            intersection_true_anomaly = (intersection_true_anomaly + Math.PI) % (2.0 * Math.PI);
+            _alignment_info.time_to_descending_node = floor_mod((orbit_elements.convert_true_anomaly_to_mean(eccentricity, intersection_true_anomaly) - mean_anomaly) * mean_motion, orbit_period);
         }
-        */
 
         #endregion
 
@@ -690,7 +735,7 @@ namespace ttdtwm
 
             var AN_direction    = new Vector3(Math.Cos(LAN), 0.0, Math.Sin(LAN));
             var normal_rotation = Quaternion.CreateFromAxisAngle(AN_direction, (float) inclination);
-            instance._alignment_info.target_angular_momentum = Vector3D.Transform(Vector3D.Up, normal_rotation);
+            instance._alignment_info.target_normal = Vector3D.Transform(Vector3D.Up, normal_rotation);
             /*
             Vector3D reference_angular_momentum;
             double   inclination_cos  = Math.Cos(inclination);

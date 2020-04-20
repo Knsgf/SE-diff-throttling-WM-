@@ -231,7 +231,7 @@ namespace ttdtwm
             {
                 orbit_plane_intersection target_plane = plane_getter();
 
-                if (target_plane.target_angular_momentum.LengthSquared() < 0.25)
+                if (target_plane.target_normal.LengthSquared() < 0.25)
                 {
                     _HUD_messages[PLANE_ALIGNMENT].contents.Text = "Target plane not set";
                     _HUD_messages[PLANE_ALIGNMENT].contents.Font = MyFontEnum.Red;
