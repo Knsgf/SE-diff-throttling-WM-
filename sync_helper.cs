@@ -20,12 +20,12 @@ namespace ttdtwm
         private static readonly int _num_messages = Enum.GetValues(typeof(message_types)).Length;
 
         const int SIGNATURE_LENGTH = 6;
-        private static Dictionary<int, byte[]> _out_buffers = new Dictionary<int, byte[]>();
-        private static                 byte[]  _in_buffer   = new byte[MAX_MESSAGE_LENGTH];
-        private static readonly        byte[]  _signature   = { 0, 0, 0x27, 0x5B, 0xE5, 0x8E };
+        private static readonly Dictionary<int, byte[]> _out_buffers = new Dictionary<int, byte[]>();
+        private static readonly                 byte[]  _in_buffer   = new byte[MAX_MESSAGE_LENGTH];
+        private static readonly                 byte[]  _signature   = { 0, 0, 0x27, 0x5B, 0xE5, 0x8E };
 
-        private static Dictionary<  long, object> _entities   = new Dictionary<  long, object>();
-        private static Dictionary<object,   long> _entity_ids = new Dictionary<object,   long>();
+        private static readonly Dictionary<  long, object> _entities   = new Dictionary<  long, object>();
+        private static readonly Dictionary<object,   long> _entity_ids = new Dictionary<object,   long>();
 
         private static readonly Action<object, byte[], int>[] _message_handlers;
 

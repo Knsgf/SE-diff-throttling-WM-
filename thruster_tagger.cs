@@ -8,9 +8,10 @@ namespace ttdtwm
     {
         private static string           _thruster_data, _throttle_setting;
         private static IMyTerminalBlock _current_thruster = null;
-        private static bool             _current_active_control_available, _current_active_control_on, _current_anti_slip_on, _current_disable_linear, _current_thrust_limiter_on;
+        private static bool             _current_active_control_on, _current_anti_slip_on, _current_disable_linear, _current_thrust_limiter_on;
         private static uint             _manual_throttle;
-        private static byte[]           _message = new byte[1];
+
+        private static readonly byte[] _message = new byte[1];
 
         public static int displayed_thrust_limit { get; set; }
 
@@ -20,7 +21,7 @@ namespace ttdtwm
             {
                 _current_thruster = null;
                 _throttle_setting = null;
-                _current_active_control_available = _current_active_control_on = _current_anti_slip_on = _current_disable_linear = _current_thrust_limiter_on = false;
+                _current_active_control_on = _current_anti_slip_on = _current_disable_linear = _current_thrust_limiter_on = false;
                 _manual_throttle = 0;
                 return;
             }
@@ -30,11 +31,10 @@ namespace ttdtwm
             _current_thruster  = thruster;
             _thruster_data     = thruster.CustomData;
             bool contains_RCS = _thruster_data.ContainsRCSTag();
-            _current_active_control_available = ((IMyFunctionalBlock) thruster).Enabled;
-            _current_active_control_on        = _thruster_data.ContainsTHRTag()  ||  contains_RCS;
-            _current_anti_slip_on             = _thruster_data.ContainsSLPTag();
-            _current_disable_linear           = _thruster_data.ContainsNLTag();
-            _current_thrust_limiter_on        = _thruster_data.ContainsSTATTag() && !contains_RCS;
+            _current_active_control_on = _thruster_data.ContainsTHRTag()  ||  contains_RCS;
+            _current_anti_slip_on      = _thruster_data.ContainsSLPTag();
+            _current_disable_linear    = _thruster_data.ContainsNLTag();
+            _current_thrust_limiter_on = _thruster_data.ContainsSTATTag() && !contains_RCS;
 
             _throttle_setting  = "TTDTWM_MT_" + thruster.EntityId.ToString();
             bool setting_saved = MyAPIGateway.Utilities.GetVariable(_throttle_setting, out _manual_throttle);

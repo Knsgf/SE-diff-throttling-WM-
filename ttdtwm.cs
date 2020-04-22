@@ -12,7 +12,6 @@ using VRage.Game.Components;
 using VRage.Game.ModAPI;
 using VRage.ModAPI;
 using VRage.Utils;
-using VRageMath;
 using PB = Sandbox.ModAPI.Ingame;
 
 namespace ttdtwm
@@ -24,7 +23,7 @@ namespace ttdtwm
         
         #region fields
 
-        private Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
+        private readonly Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
         private Action _grids_handle_60Hz = null, _grids_handle_4Hz_foreground = null, _grids_handle_2s_period_foreground = null;
         private Action _grids_handle_4Hz_background = null, _grids_handle_2s_period_background = null, _grids_perform_calibration = null;
         private Task _manager_task, _calibration_task;
@@ -229,24 +228,19 @@ namespace ttdtwm
             };
         }
 
-        private static string get_reference_body_name(IMyTerminalBlock block)
+        private Func<IMyTerminalBlock, Func<double, double, double>> create_anomaly_converter(bool true_to_mean)
         {
-            return gravity_and_physics.get_current_reference(block.CubeGrid);
-        }
-
-        private static void set_reference_body_name(IMyTerminalBlock block, string new_reference)
-        {
-            gravity_and_physics.set_current_reference(block.CubeGrid, new_reference);
-        }
-
-        private static Vector3D[] get_vector_orbit_elements(IMyTerminalBlock block)
-        {
-            return gravity_and_physics.fill_vector_elements(block.CubeGrid);
-        }
-
-        private static double[] get_scalar_orbit_elements(IMyTerminalBlock block)
-        {
-            return gravity_and_physics.fill_scalar_elements(block.CubeGrid);
+            if (true_to_mean)
+            {
+                return delegate (IMyTerminalBlock dummy)
+                {
+                    return orbit_elements.convert_true_anomaly_to_mean;
+                };
+            }
+            return delegate (IMyTerminalBlock dummy)
+            {
+                return orbit_elements.convert_mean_anomaly_to_true;
+            };
         }
 
         #endregion
@@ -256,7 +250,7 @@ namespace ttdtwm
         private void create_toggle<_block_>(string id, string title, string enabled_text, string disabled_text, Action<IMyTerminalBlock> action, 
             Func<IMyTerminalBlock, bool> getter, Func<IMyTerminalBlock, bool> state, string icon)
         {
-            var toggle_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id);
+            IMyTerminalAction toggle_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id);
 
             toggle_action.Action = action;
             if (state != null)
@@ -276,7 +270,7 @@ namespace ttdtwm
         private void create_checkbox<_block_>(string id, string title, string tooltip, string toolbar_enabled_text, string toolbar_disabled_text,
             Func<IMyTerminalBlock, bool> getter, Action<IMyTerminalBlock, bool> setter, Func<IMyTerminalBlock, bool> state)
         {
-            var panel_checkbox = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, _block_>(id);
+            IMyTerminalControlCheckbox panel_checkbox = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, _block_>(id);
 
             panel_checkbox.Getter = getter;
             panel_checkbox.Setter = setter;
@@ -300,7 +294,7 @@ namespace ttdtwm
         private void create_switch<_block_>(string id, string title, string tooltip, string enabled_text, string disabled_text, string toolbar_enabled_text, string toolbar_disabled_text,
             Func<IMyTerminalBlock, bool> getter, Action<IMyTerminalBlock, bool> setter, Func<IMyTerminalBlock, bool> state)
         {
-            var panel_switch = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlOnOffSwitch, _block_>(id);
+            IMyTerminalControlOnOffSwitch panel_switch = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlOnOffSwitch, _block_>(id);
 
             panel_switch.Getter = getter;
             panel_switch.Setter = setter;
@@ -337,8 +331,8 @@ namespace ttdtwm
         private void create_button<_block_>(string id, string title, string tooltip, string action_prefix, Action<IMyTerminalBlock> button_function, 
             Func<IMyTerminalBlock, bool> state, Action<IMyTerminalBlock, StringBuilder> status)
         {
-            var new_button    = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlButton, _block_>(id);
-            var button_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id + "Activate");
+            IMyTerminalControlButton new_button    = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlButton, _block_>(id);
+            IMyTerminalAction        button_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id + "Activate");
 
             new_button.Title   = MyStringId.GetOrCompute(title);
             button_action.Name = new StringBuilder(action_prefix + " " + title);
@@ -356,7 +350,7 @@ namespace ttdtwm
 
         private void create_slider_action<_block_>(string id, string title, Action<IMyTerminalBlock> action, Action<IMyTerminalBlock, StringBuilder> status, string icon)
         {
-            var toggle_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id);
+            IMyTerminalAction toggle_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id);
 
             toggle_action.Action = action;
             if (icon != null && icon != "")
@@ -369,7 +363,7 @@ namespace ttdtwm
 
         private void create_PB_property<_type_, _block_>(string id, Func<IMyTerminalBlock, _type_> getter, Action<IMyTerminalBlock, _type_> setter = null)
         {
-            var new_property = MyAPIGateway.TerminalControls.CreateProperty<_type_, _block_>(id);
+            IMyTerminalControlProperty<_type_> new_property = MyAPIGateway.TerminalControls.CreateProperty<_type_, _block_>(id);
             new_property.Getter = getter;
             if (setter != null)
                 new_property.Setter = setter;
@@ -380,7 +374,7 @@ namespace ttdtwm
 
         private static void clear_grid_secondary_flag(List<grid_logic> secondary_grids)
         {
-            foreach (var cur_grid_object in secondary_grids)
+            foreach (grid_logic cur_grid_object in secondary_grids)
                 cur_grid_object.is_secondary = false;
         }
 
@@ -406,7 +400,7 @@ namespace ttdtwm
             }
 
             int primary_count = 0;
-            foreach (var cur_grid in connected_grid_list)
+            foreach (IMyCubeGrid cur_grid in connected_grid_list)
             {
                 if (((MyCubeGrid) cur_grid).HasMainCockpit())
                     ++primary_count;
@@ -438,29 +432,29 @@ namespace ttdtwm
 
         private void create_controller_widgets<_controller_type_>()
         {
-            var controller_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE1");
+            IMyTerminalControlSeparator controller_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE1");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line);
             create_checkbox<_controller_type_>(    "RotationalDamping",        "Rotational Damping", null,                   "On",    "Off", is_grid_rotational_damping_on, set_grid_rotational_damping,      is_grid_control_available);
             create_switch  <_controller_type_>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM",           is_grid_CoT_mode_on,           set_grid_CoT_mode,      is_grid_control_available);
             create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad",    use_individual_calibration,   choose_calibration_method,      is_grid_control_available);
             create_switch  <_controller_type_>(          "LandingMode",            "Touchdown Mode", null,   "On",  "Off", "Land", "Flight",       is_grid_landing_mode_on,       set_grid_landing_mode, is_grid_landing_mode_available);
 
-            var controller_line2 = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE2");
+            IMyTerminalControlSeparator controller_line2 = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE2");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line2);
-            var controller_line_ID_override_label = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_ID_OVR");
+            IMyTerminalControlLabel controller_line_ID_override_label = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_ID_OVR");
             controller_line_ID_override_label.Label = MyStringId.GetOrCompute("Inertia Damper Overrides");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_ID_override_label);
             create_checkbox<_controller_type_>(      "ForeAftIDDisable", "Disable fore/aft"      , null, "On", "Off", create_damper_override_reader(2), create_damper_override_setter(2), is_grid_control_available);
             create_checkbox<_controller_type_>("PortStarboardIDDisable", "Disable port/starboard", null, "On", "Off", create_damper_override_reader(0), create_damper_override_setter(0), is_grid_control_available);
             create_checkbox<_controller_type_>("DorsalVentralIDDisable", "Disable dorsal/ventral", null, "On", "Off", create_damper_override_reader(1), create_damper_override_setter(1), is_grid_control_available);
 
-            var controller_line_ID_mode   = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDMODE");
+            IMyTerminalControlLabel controller_line_ID_mode = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDMODE");
             controller_line_ID_mode.Label = MyStringId.GetOrCompute("Inertia Damper Mode");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_ID_mode);
             create_button<_controller_type_>("IDFullStop"   ,   "Full Stop", null, "Select", create_ID_mode_selector(false), is_grid_control_available         , create_ID_mode_indicator(false));
             create_button<_controller_type_>("IDCircularise", "Circularise", null, "Select", create_ID_mode_selector( true), is_grid_circularise_mode_available, create_ID_mode_indicator( true));
 
-            var controller_line_maneuvre   = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDMANEUVRE");
+            IMyTerminalControlLabel controller_line_maneuvre = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDMANEUVRE");
             controller_line_maneuvre.Label = MyStringId.GetOrCompute("Maneuvres");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_maneuvre);
             create_button<_controller_type_>("IDPrograde"  ,    "Prograde", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_prograde  ), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_prograde  ));
@@ -479,7 +473,7 @@ namespace ttdtwm
             {
                 var existing_entities = new HashSet<IMyEntity>();
                 MyAPIGateway.Entities.GetEntities(existing_entities);
-                foreach (var cur_entity in existing_entities)
+                foreach (IMyEntity cur_entity in existing_entities)
                     on_entity_added(cur_entity);
                 MyAPIGateway.Entities.OnEntityAdd    += on_entity_added;
                 MyAPIGateway.Entities.OnEntityRemove += on_entity_removed;
@@ -499,18 +493,18 @@ namespace ttdtwm
 
                 create_controller_widgets<IMyCockpit>();
                 create_controller_widgets<IMyRemoteControl>();
-                create_PB_property<    string, IMyRemoteControl>("OrbitReferenceBody" , get_reference_body_name, set_reference_body_name);
-                create_PB_property<Vector3D[], IMyRemoteControl>("OrbitVectorElements", get_vector_orbit_elements);
-                create_PB_property<  double[], IMyRemoteControl>("OrbitScalarElements", get_scalar_orbit_elements);
 
-                var thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
+                create_PB_property<Func<double, double, double>, IMyProgrammableBlock>("ConvertTrueAnomalyToMean", create_anomaly_converter(true_to_mean:  true));
+                create_PB_property<Func<double, double, double>, IMyProgrammableBlock>("ConvertMeanAnomalyToTrue", create_anomaly_converter(true_to_mean: false));
+
+                IMyTerminalControlSeparator thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(thruster_line);
                 create_switch  <IMyThrust>(     "ActiveControl",             "Steering", null, "On", "Off", "On", "Off", thruster_tagger.is_under_active_control, thruster_tagger.set_active_control , thruster_tagger.is_active_control_available);
                 create_switch  <IMyThrust>(          "AntiSlip",      "Thrust Trimming", null, "On", "Off", "On", "Off", thruster_tagger.is_anti_slip           , thruster_tagger.set_anti_slip      , thruster_tagger.is_anti_slip_available     );
                 create_checkbox<IMyThrust>("DisableLinearInput", "Disable linear input", null, "On", "Off",              thruster_tagger.is_rotational_only     , thruster_tagger.toggle_linear_input, thruster_tagger.is_active_control_available);
                 create_switch  <IMyThrust>(       "StaticLimit",       "Thrust Limiter", null, "On", "Off", "On", "Off", thruster_tagger.is_thrust_limiter_on   , thruster_tagger.set_thrust_limiter , thruster_tagger.is_thrust_limiter_available);
 
-                var manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
+                IMyTerminalControlSlider manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
                 manual_throttle.Getter  = thruster_tagger.get_manual_throttle;
                 manual_throttle.Setter  = thruster_tagger.set_manual_throttle;
                 manual_throttle.SupportsMultipleBlocks = true;
@@ -622,7 +616,7 @@ namespace ttdtwm
             sync_helper.deregister_entity(0);
             sync_helper.deregister_handlers();
             screen_info.deregister_handlers();
-            foreach (var leftover_grid in _grids.Keys.ToList())
+            foreach (IMyCubeGrid leftover_grid in _grids.Keys.ToList())
                 on_entity_removed(leftover_grid);
             MyAPIGateway.Entities.OnEntityAdd    -= on_entity_added;
             MyAPIGateway.Entities.OnEntityRemove -= on_entity_removed;

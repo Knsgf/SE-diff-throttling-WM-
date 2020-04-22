@@ -23,10 +23,7 @@ namespace ttdtwm
         {
             if (double.IsPositiveInfinity(x))
                 return double.PositiveInfinity;
-            if (x < 1.0 || double.IsNaN(x))
-                return double.NaN;
-
-            return Math.Log(x + Math.Sqrt(x * x - 1.0));
+            return (x < 1.0 || double.IsNaN(x)) ? double.NaN : Math.Log(x + Math.Sqrt(x * x - 1.0));
         }
 
         #region Primary elements
@@ -35,15 +32,11 @@ namespace ttdtwm
         public bool foreign_reference { get; private set; }
 
         // Vector elements
-        public Vector3D specific_angular_momentum 
-        { 
-            get
-            {
-                return _specific_angular_momentum;
-            }
-        }
+        public Vector3D specific_angular_momentum => _specific_angular_momentum;
+        public Vector3D ascending_node_vector     => _AN_vector;
+        public Vector3D eccentricity_vector       => _eccentricity_vector;
 
-        // Shape elements
+        // Size and shape elements
         public double semi_major_axis { get; private set; }
         public double eccentricity    { get; private set; }
 
@@ -52,6 +45,7 @@ namespace ttdtwm
         public double longitude_of_ascending_node { get; private set; }
         public double argument_of_periapsis       { get; private set; }
 
+        // Current position
         public double true_anomaly { get; private set; }
 
         #endregion
@@ -59,17 +53,23 @@ namespace ttdtwm
         #region Derived elements
 
         public double semi_latus_rectum { get; private set; }
-        public double periapsis_radius, apoapsis_radius;
-        public double mean_motion { get; private set; }
-        public double orbit_period;
+        public double periapsis_radius  { get; private set; }
+        public double apoapsis_radius   { get; private set; }
+        public double mean_motion       { get; private set; }
+        public double orbit_period      { get; private set; }
 
         #endregion
 
         #region Positional elements
 
-        public double mean_anomaly, time_from_periapsis;
-        public double circular_speed, escape_speed, predicted_speed, angle_of_velocity;
-        public double predicted_distance, predicted_gravity_magnitude;
+        public double mean_anomaly                { get; private set; }
+        public double time_from_periapsis         { get; private set; }
+        public double circular_speed              { get; private set; }
+        public double escape_speed                { get; private set; }
+        public double predicted_speed             { get; private set; }
+        public double angle_of_velocity           { get; private set; }
+        public double predicted_distance          { get; private set; }
+        public double predicted_gravity_magnitude { get; private set; }
 
         #endregion
 
@@ -81,59 +81,59 @@ namespace ttdtwm
             name              = body_name;
             foreign_reference = minor_body;
 
-            _specific_angular_momentum = Vector3D.Cross(radius_vector, linear_velocity);
-            double areal_velocity      = _specific_angular_momentum.Length();
+            Vector3D specific_angular_momentum;
+            specific_angular_momentum = _specific_angular_momentum = Vector3D.Cross(radius_vector, linear_velocity);
+            double areal_velocity     = specific_angular_momentum.Length();
 
-            _AN_vector.X =  _specific_angular_momentum.Z;
-            _AN_vector.Z = -_specific_angular_momentum.X;
-            if (!Vector3D.IsZero(_AN_vector))
-                _AN_vector /= _AN_vector.Length();
+            var AN_vector = new Vector3D(specific_angular_momentum.Z, 0.0, -specific_angular_momentum.X);
+            if (!Vector3D.IsZero(AN_vector))
+                AN_vector /= AN_vector.Length();
+            _AN_vector = AN_vector;
 
             double speed          = linear_velocity.Length();
             double circular_speed = Math.Sqrt(SGP / radius_vector.Length());
             double escape_speed   = circular_speed * sqrt2;
+            Vector3D eccentricity_vector     = _eccentricity_vector;
             Vector3D new_eccentricity_vector = (((speed - circular_speed) * (speed + circular_speed)) * radius_vector - Vector3D.Dot(radius_vector, linear_velocity) * linear_velocity) / SGP;
-            if ((new_eccentricity_vector - _eccentricity_vector).LengthSquared() >= 0.001 * 0.001)
-                _eccentricity_vector = new_eccentricity_vector;
+            if ((new_eccentricity_vector - eccentricity_vector).LengthSquared() >= 0.001 * 0.001)
+                eccentricity_vector = new_eccentricity_vector;
             else
-                _eccentricity_vector = 0.99 * _eccentricity_vector + 0.01 * new_eccentricity_vector;
+                eccentricity_vector = 0.99 * eccentricity_vector + 0.01 * new_eccentricity_vector;
 
-            semi_major_axis = SGP / ((escape_speed - speed) * (escape_speed + speed));
-            eccentricity    = _eccentricity_vector.Length();
-            if (semi_major_axis > 0.0)
+            semi_major_axis     = SGP / ((escape_speed - speed) * (escape_speed + speed));
+            double eccentricity = eccentricity_vector.Length();
+            if (semi_major_axis >= 0.0)
             {
-                if (eccentricity >= 1.0)
+                if (eccentricity >= 0.9999)
                     eccentricity = 0.9999;
             }
-            else if (semi_major_axis < 0.0)
-            {
-                if (eccentricity <= 1.0)
-                    eccentricity = 1.0001;
-            }
-            else
-                eccentricity = 1.0;
+            else if (eccentricity <= 1.0001)
+                eccentricity = 1.0001;
+            this.eccentricity = eccentricity;
 
-            inclination = (areal_velocity > 0.0) ? Math.Acos(_specific_angular_momentum.Y / areal_velocity) : 0.0;
+            inclination = (areal_velocity > 0.0) ? Math.Acos(specific_angular_momentum.Y / areal_velocity) : 0.0;
             if (inclination != 0.0)
             {
-                longitude_of_ascending_node = Math.Acos(_AN_vector.X);
-                argument_of_periapsis       = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(_AN_vector, _eccentricity_vector) / eccentricity, -1.0, 1.0));
+                longitude_of_ascending_node = Math.Acos(AN_vector.X);
+                argument_of_periapsis       = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(AN_vector, eccentricity_vector) / eccentricity, -1.0, 1.0));
             }
             else
             {
                 longitude_of_ascending_node = 0.0;
-                argument_of_periapsis       = (eccentricity > 0.0) ? (Math.Acos(_eccentricity_vector.X / eccentricity)) : 0.0;
+                argument_of_periapsis       = (eccentricity > 0.0) ? Math.Acos(eccentricity_vector.X / eccentricity) : 0.0;
             }
-            if (_AN_vector.Z > 0.0)
+            if (AN_vector.Z > 0.0)
                 longitude_of_ascending_node = 2.0 * Math.PI - longitude_of_ascending_node;
-            if (_eccentricity_vector.Y < 0.0)
+            if (eccentricity_vector.Y < 0.0)
                 argument_of_periapsis = 2.0 * Math.PI - argument_of_periapsis;
 
             if (eccentricity > 0.0)
             {
-                _anomaly90           = Vector3D.Cross(_specific_angular_momentum, _eccentricity_vector);
-                _eccentricity_vector = eccentricity * Vector3D.Normalize(Vector3D.Cross(_anomaly90, _specific_angular_momentum));
+                _anomaly90           = Vector3D.Cross(specific_angular_momentum, eccentricity_vector);
+                eccentricity_vector = eccentricity * Vector3D.Normalize(Vector3D.Cross(_anomaly90, specific_angular_momentum));
             }
+            _eccentricity_vector = eccentricity_vector;
+
             true_anomaly = get_true_anomaly(radius_vector, linear_velocity);
         }
 
@@ -145,24 +145,26 @@ namespace ttdtwm
             apoapsis_radius   = semi_major_axis  * (1.0 + eccentricity);
             semi_latus_rectum = periapsis_radius * (1.0 + eccentricity);
             mean_motion       = Math.Sqrt(Math.Abs(semi_major_axis * semi_major_axis * semi_major_axis / _current_SGP));
-            orbit_period      = (semi_major_axis > 0.0) ? (2.0 * Math.PI * mean_motion) : 0.0;
+            orbit_period      = (semi_major_axis > 0.0) ? (2.0 * Math.PI * mean_motion) : -1.0;
         }
 
         public void calculate_positional_elements(double? specified_true_anomaly = null)
         {
             double true_anomaly = specified_true_anomaly ?? this.true_anomaly;
+            double eccentricity = this.eccentricity;
             double divider      = 1.0 + eccentricity * Math.Cos(true_anomaly);
 
-            predicted_distance = semi_latus_rectum / divider;
+            double predicted_distance;
+            predicted_distance = this.predicted_distance = semi_latus_rectum / divider;
             predicted_speed    = Math.Sqrt(_current_SGP * (2.0 / predicted_distance - 1.0 / semi_major_axis));
             angle_of_velocity  = Math.Atan(eccentricity * Math.Sin(true_anomaly) / divider);
 
             mean_anomaly        = convert_true_anomaly_to_mean(eccentricity, true_anomaly);
             time_from_periapsis = mean_anomaly * mean_motion;
 
-            double gravity_energy   = _current_SGP / predicted_distance;
-            circular_speed          = Math.Sqrt(gravity_energy);
-            escape_speed            = circular_speed * sqrt2;
+            double gravity_energy       = _current_SGP / predicted_distance;
+            circular_speed              = Math.Sqrt(gravity_energy);
+            escape_speed                = circular_speed * sqrt2;
             predicted_gravity_magnitude = gravity_energy / predicted_distance;
         }
 
@@ -183,6 +185,74 @@ namespace ttdtwm
             if (true_anomaly > Math.PI)
                 eccentric_anomaly = -eccentric_anomaly;
             return eccentricity * Math.Sinh(eccentric_anomaly) - eccentric_anomaly;
+        }
+
+        public static double convert_mean_anomaly_to_true(double eccentricity, double mean_anomaly)
+        {
+            const int MAX_ITERATIONS = 20;
+            
+            int    remaining_iterations = MAX_ITERATIONS;
+            double eccentric_anomaly, new_eccentric_anomaly, diff, prev_diff = double.MaxValue, true_anomaly;
+
+            if (eccentricity < 1.0)
+            {
+                eccentric_anomaly = (mean_anomaly + Math.PI) / 2.0;
+                while (true)
+                {
+                    new_eccentric_anomaly = eccentric_anomaly - (eccentric_anomaly - eccentricity * Math.Sin(eccentric_anomaly) - mean_anomaly)
+                                                              / (1.0               - eccentricity * Math.Cos(eccentric_anomaly));
+                    diff                  = Math.Abs(eccentric_anomaly - new_eccentric_anomaly);
+                    eccentric_anomaly     = new_eccentric_anomaly;
+                    if (diff >= prev_diff || remaining_iterations-- <= 0)
+                        break;
+                    prev_diff = diff;
+                }
+                true_anomaly = 2.0 * Math.Atan(Math.Sqrt((1.0 + eccentricity) / (1.0 - eccentricity)) * Math.Tan(eccentric_anomaly / 2.0));
+            }
+            else
+            {
+                double high, low, true_anomaly_cos;
+
+                if (mean_anomaly >= 0.0)
+                {
+                    low  = 0.0;
+                    high = 2.0 * Math.Atan(Math.Sqrt((eccentricity + 1.0) / (eccentricity - 1.0)));
+                }
+                else
+                {
+                    low  = -2.0 * Math.Atan(Math.Sqrt((eccentricity + 1.0) / (eccentricity - 1.0)));
+                    high = 0.0;
+                }
+                do
+                {
+                    true_anomaly      = (low + high) / 2.0;
+                    true_anomaly_cos  = Math.Cos(true_anomaly);
+                    eccentric_anomaly = acosh((eccentricity + true_anomaly_cos) / (1.0 + eccentricity * true_anomaly_cos));
+                    if (mean_anomaly < 0.0)
+                        eccentric_anomaly = -eccentric_anomaly;
+                    double mean_anomaly_test = eccentricity * Math.Sinh(eccentric_anomaly) - eccentric_anomaly;
+                    if (mean_anomaly_test > mean_anomaly)
+                        high = true_anomaly;
+                    else
+                        low  = true_anomaly;
+                }
+                while (high - low > 0.01);
+
+                while (true)
+                {
+                    new_eccentric_anomaly = eccentric_anomaly - (eccentricity * Math.Sinh(eccentric_anomaly) - eccentric_anomaly - mean_anomaly)
+                                                              / (eccentricity * Math.Cosh(eccentric_anomaly) - 1.0);
+                    diff                  = Math.Abs(eccentric_anomaly - new_eccentric_anomaly);
+                    eccentric_anomaly     = new_eccentric_anomaly;
+                    if (diff >= prev_diff || remaining_iterations-- <= 0)
+                        break;
+                    prev_diff = diff;
+                }
+                true_anomaly = 2.0 * Math.Atan(Math.Sqrt((eccentricity + 1.0) / (eccentricity - 1.0)) * Math.Tanh(eccentric_anomaly / 2.0));
+            }
+            if (true_anomaly < 0.0)
+                true_anomaly += 2.0 * Math.PI;
+            return true_anomaly;
         }
 
         public double get_true_anomaly(Vector3D direction, Vector3D linear_velocity)
@@ -268,37 +338,29 @@ namespace ttdtwm
         class gravity_source
         {
             public string   name;
-            public double   surface_gravity, mean_radius2, standard_gravitational_parameter;
+            public double   surface_gravity, radius2, standard_gravitational_parameter;
             public Vector3D centre_position;
         }
 
-        private static Dictionary< MyPlanet  , gravity_source     > _gravity_sources = new Dictionary< MyPlanet  , gravity_source     >();
-        private static Dictionary<IMyCubeGrid, gravity_and_physics> _grid_list       = new Dictionary<IMyCubeGrid, gravity_and_physics>();
+        private static readonly Dictionary< MyPlanet  , gravity_source     > _gravity_sources = new Dictionary< MyPlanet  , gravity_source     >();
+        private static readonly Dictionary<IMyCubeGrid, gravity_and_physics> _grid_list       = new Dictionary<IMyCubeGrid, gravity_and_physics>();
 
-        private MyCubeGrid     _grid;
+        private readonly MyCubeGrid _grid;
         private gravity_source _current_reference, _display_reference = null;
 
         private Vector3D _grid_position, _absolute_linear_velocity, _absolute_angular_velocity, _accumulated_gravity = Vector3D.Zero;
-        private Vector3D _eccentricity_vector, _current_angular_momentum;
+        private Vector3D _current_angular_momentum;
         private Vector3D _grid_forward, _grid_right, _grid_up;
 
         private Vector3 _current_torque = Vector3.Zero;
 
-        private orbit_elements           _current_elements = new orbit_elements(), _displayed_elements = new orbit_elements();
+        private orbit_elements           _current_elements = new orbit_elements(), _displayed_elements;
         private orbit_plane_intersection _alignment_info   = new orbit_plane_intersection();
-        private Vector3D[]               _vector_elements  = new Vector3D[ 4];
-        private   double[]               _scalar_elements  = new   double[14];
 
-        private static Dictionary<IMyCharacter, gravity_source> _PC_current_source = new Dictionary<IMyCharacter, gravity_source>();
-        private static Dictionary<IMyCharacter, gravity_source> _PC_new_source     = new Dictionary<IMyCharacter, gravity_source>();
+        private static readonly Dictionary<IMyCharacter, gravity_source> _PC_current_source = new Dictionary<IMyCharacter, gravity_source>();
+        private static readonly Dictionary<IMyCharacter, gravity_source> _PC_new_source     = new Dictionary<IMyCharacter, gravity_source>();
 
-        public static bool world_has_gravity
-        {
-            get
-            {
-                return _gravity_sources.Count > 0;
-            }
-        }
+        public static bool world_has_gravity => _gravity_sources.Count > 0;
 
         #region Auxiliaries
 
@@ -320,12 +382,13 @@ namespace ttdtwm
 
         public static void register_gravity_source(MyPlanet new_planetoid)
         {
-            gravity_source new_gravity_source = new gravity_source();
-
-            new_gravity_source.name                             = new_planetoid.Name;
-            new_gravity_source.mean_radius2                     = new_planetoid.AverageRadius * new_planetoid.AverageRadius;
-            new_gravity_source.surface_gravity                  = REFERENCE_GRAVITY * new_planetoid.GetInitArguments.SurfaceGravity;
-            new_gravity_source.standard_gravitational_parameter = new_gravity_source.surface_gravity * new_gravity_source.mean_radius2;
+            var new_gravity_source = new gravity_source
+            {
+                name            = new_planetoid.Name,
+                radius2         = new_planetoid.MaximumRadius * new_planetoid.MaximumRadius,
+                surface_gravity = REFERENCE_GRAVITY * new_planetoid.GetInitArguments.SurfaceGravity
+            };
+            new_gravity_source.standard_gravitational_parameter = new_gravity_source.surface_gravity * new_gravity_source.radius2;
             new_gravity_source.centre_position                  = new_planetoid.PositionComp.WorldAABB.Center;
             _gravity_sources[new_planetoid] = new_gravity_source;
         }
@@ -336,16 +399,6 @@ namespace ttdtwm
                 _gravity_sources.Remove(removed_planetoid);
         }
         
-        private static double acosh(double x)
-        {
-            if (double.IsPositiveInfinity(x))
-                return double.PositiveInfinity;
-            if (x < 1.0 || double.IsNaN(x))
-                return double.NaN;
-
-            return Math.Log(x + Math.Sqrt(x * x - 1.0));
-        }
-
         private static double floor_mod(double dividend, double divisor)
         {
             return dividend - divisor * Math.Floor(dividend / divisor);
@@ -357,11 +410,11 @@ namespace ttdtwm
             gravity_source reference_body = null;
             Vector3D       cur_body_vector;
 
-            foreach (var cur_body in _gravity_sources.Values)
+            foreach (gravity_source cur_body in _gravity_sources.Values)
             {
                 cur_body_vector = entity_position - cur_body.centre_position;
                 distance2       = cur_body_vector.LengthSquared();
-                if (distance2 <= cur_body.mean_radius2)
+                if (distance2 <= cur_body.radius2)
                     return cur_body;
 
                 cur_gravity = cur_body.standard_gravitational_parameter / distance2;
@@ -385,10 +438,10 @@ namespace ttdtwm
                 return Vector3D.Zero;
 
             double gravity_magnitude;
-            if (radius_vector_length2 > reference_body.mean_radius2)
+            if (radius_vector_length2 > reference_body.radius2)
                 gravity_magnitude = reference_body.standard_gravitational_parameter / radius_vector_length2;
             else
-                gravity_magnitude = reference_body.surface_gravity * Math.Sqrt(radius_vector_length2 / reference_body.mean_radius2);
+                gravity_magnitude = reference_body.surface_gravity * Math.Sqrt(radius_vector_length2 / reference_body.radius2);
             return radius_vector * ((-gravity_magnitude) / Math.Sqrt(radius_vector_length2));
         }
 
@@ -408,63 +461,6 @@ namespace ttdtwm
                 elements_to_clear = new orbit_elements();
         }
 
-        /*
-        private void calculate_anomalies(Vector3D grid_vector, Vector3D specific_angular_momentum, Vector3D AN_vector, double eccentricity, double mean_motion2,
-            out double true_anomaly, out double mean_anomaly, out double time_from_periapsis)
-        {
-            double grid_vector_length = grid_vector.Length();
-
-            if (eccentricity > 0.0)
-            {
-                Vector3D minor_axis_vector = Vector3D.Cross(specific_angular_momentum, _eccentricity_vector);
-
-                true_anomaly = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(_eccentricity_vector, grid_vector) / (eccentricity * grid_vector_length), -1.0, 1.0));
-                if (Vector3D.Dot(grid_vector, minor_axis_vector) < 0.0)
-                    true_anomaly = 2.0 * Math.PI - true_anomaly;
-            }
-            else
-            {
-                double AN_vector_length = AN_vector.Length();
-
-                if (AN_vector.Length() > 0.0)
-                {
-                    true_anomaly = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(AN_vector, grid_vector) / (AN_vector_length * grid_vector_length), -1.0, 1.0));
-                    if (Vector3D.Dot(AN_vector, _absolute_linear_velocity) > 0.0)
-                        true_anomaly = 2.0 * Math.PI - true_anomaly;
-                }
-                else
-                {
-                    true_anomaly = Math.Acos(grid_vector.X / grid_vector_length);
-                    if (_absolute_linear_velocity.X > 0.0)
-                        true_anomaly = 2.0 * Math.PI - true_anomaly;
-                }
-            }
-
-            double eccentric_anomaly, true_anomaly_cos = Math.Cos(true_anomaly);
-            if (eccentricity < 1.0)
-            {
-                eccentric_anomaly = Math.Acos(MathHelperD.Clamp((eccentricity + true_anomaly_cos) / (1.0 + eccentricity * true_anomaly_cos), -1.0, 1.0));
-                if (true_anomaly > Math.PI)
-                    eccentric_anomaly = 2.0 * Math.PI - eccentric_anomaly;
-                mean_anomaly        = eccentric_anomaly - eccentricity * Math.Sin(eccentric_anomaly);
-                time_from_periapsis = mean_anomaly * Math.Sqrt(mean_motion2);
-            }
-            else
-            {
-                eccentric_anomaly = acosh((eccentricity + true_anomaly_cos) / (1.0 + eccentricity * true_anomaly_cos));
-                if (double.IsInfinity(eccentric_anomaly) || double.IsNaN(eccentric_anomaly))
-                    mean_anomaly = time_from_periapsis = 0.0;
-                else
-                {
-                    if (true_anomaly > Math.PI)
-                        eccentric_anomaly = -eccentric_anomaly;
-                    mean_anomaly        = eccentricity * Math.Sinh(eccentric_anomaly) - eccentric_anomaly;
-                    time_from_periapsis = mean_anomaly * Math.Sqrt(-mean_motion2);
-                }
-            }
-        }
-        */
-
         private void calculate_elements(gravity_source selected_reference, ref orbit_elements new_elements)
         {
             if (selected_reference == null)
@@ -482,99 +478,6 @@ namespace ttdtwm
 
             new_elements.calculate_derived_elements();
             new_elements.calculate_positional_elements();
-
-            /*
-            Vector3D specific_angular_momentum = Vector3D.Cross(grid_vector, _absolute_linear_velocity);
-            double   areal_velocity            = specific_angular_momentum.Length();
-            Vector3D AN_vector                 = new Vector3D(specific_angular_momentum.Z, 0.0, -specific_angular_momentum.X);
-            double   AN_vector_length          = AN_vector.Length();
-            double   speed                     = _absolute_linear_velocity.Length();
-            double   gravity_energy            = SGP            / grid_vector_length;
-            double   gravity_magnitude         = gravity_energy / grid_vector_length;
-            double   circular_speed            = Math.Sqrt(      gravity_energy);
-            double   escape_speed              = Math.Sqrt(2.0 * gravity_energy);
-            Vector3D new_eccentricity_vector   = (((speed - circular_speed) * (speed + circular_speed)) * grid_vector - Vector3D.Dot(grid_vector, _absolute_linear_velocity) * _absolute_linear_velocity) / SGP;
-            if ((new_eccentricity_vector - _eccentricity_vector).LengthSquared() >= 0.001 * 0.001)
-                _eccentricity_vector = new_eccentricity_vector;
-            else
-                _eccentricity_vector = 0.99 * _eccentricity_vector + 0.01 * new_eccentricity_vector;
-
-            double semi_major_axis = SGP / ((escape_speed - speed) * (escape_speed + speed));
-            double eccentricity    = _eccentricity_vector.Length();
-            if (semi_major_axis > 0.0)
-            {
-                if (eccentricity >= 1.0)
-                    eccentricity = 0.9999;
-            }
-            else if (semi_major_axis < 0.0)
-            {
-                if (eccentricity <= 1.0)
-                    eccentricity = 1.0001;
-            }
-            else
-                eccentricity = 1.0;
-            double periapsis_radius = semi_major_axis * (1.0 - eccentricity);
-            double apoapsis_radius  = semi_major_axis * (1.0 + eccentricity);
-            double mean_motion2     = semi_major_axis * semi_major_axis * semi_major_axis / SGP;
-            double period           = (semi_major_axis > 0.0 && !double.IsInfinity(semi_major_axis)) ? (2.0 * Math.PI * Math.Sqrt(mean_motion2)) : 0.0;
-
-            double inclination = (areal_velocity > 0.0) ? Math.Acos(specific_angular_momentum.Y / areal_velocity) : 0.0;
-            double LAN, argument_of_perapsis;
-            if (inclination != 0.0)
-            {
-                LAN                  = Math.Acos(AN_vector.X / AN_vector_length);
-                argument_of_perapsis = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(AN_vector, _eccentricity_vector) / (AN_vector_length * eccentricity), -1.0, 1.0));
-            }
-            else
-            {
-                LAN                  = 0.0;
-                argument_of_perapsis = (eccentricity > 0.0) ? (Math.Acos(_eccentricity_vector.X / eccentricity)) : 0.0;
-            }
-            if (AN_vector.Z > 0.0)
-                LAN = 2.0 * Math.PI - LAN;
-            if (_eccentricity_vector.Y < 0.0)
-                argument_of_perapsis = 2.0 * Math.PI - argument_of_perapsis;
-
-            double true_anomaly, mean_anomaly, time_from_periapsis;
-            calculate_anomalies(grid_vector, specific_angular_momentum, AN_vector, eccentricity, mean_motion2, out true_anomaly, out mean_anomaly, out time_from_periapsis);
-
-            new_elements.name                      = selected_reference.name;
-            new_elements.foreign_reference         = _display_reference != null && _display_reference != _current_reference;
-            new_elements.radius_vector             = grid_vector;
-            new_elements._specific_angular_momentum = specific_angular_momentum;
-            new_elements._AN_vector                 = AN_vector;
-            new_elements._eccentricity_vector       = _eccentricity_vector;
-
-            new_elements.semi_major_axis             = semi_major_axis;
-            new_elements.eccentricity                = eccentricity;
-            new_elements.inclination                 = inclination;
-            new_elements.longitude_of_ascending_node = LAN;
-            new_elements.argument_of_periapsis       = argument_of_perapsis;
-            new_elements.true_anomaly                = true_anomaly;
-
-            new_elements.orbit_period            = period;
-            new_elements.periapsis_radius        = periapsis_radius;
-            new_elements.apoapsis_radius         = apoapsis_radius;
-            new_elements.mean_anomaly            = mean_anomaly;
-            new_elements.time_from_periapsis     = time_from_periapsis;
-            new_elements.circular_speed          = circular_speed;
-            new_elements.escape_speed            = escape_speed;
-            new_elements.predicted_gravity_magnitude = gravity_magnitude;
-
-            //float v1 = (float) Math.Sqrt(gravity_energy);
-            //float v1 = (float) Math.Sqrt(grid.Physics.Gravity.Length() * grid_vector_length);
-            */
-
-            /*
-            screen_info.screen_text(_grid, "", string.Format("R = {0:F1} km, g = {3:F2} m/s^2, v1 = {1:F1} m/s, v2 = {2:F1} m/s", grid_vector_length / 1000.0, v1, v1 * Math.Sqrt(2.0), gravity_magnitude), 16, controlled_only: true);
-            screen_info.screen_text(_grid, "", string.Format("SMA = {0:F1} km, e = {3:F3}, PR = {1:F1} km, AR = {2:F1} km", semi_major_axis / 1000.0, periapsis_radius / 1000.0, apoapsis_radius / 1000.0, eccentricity), 16, controlled_only: true);
-            screen_info.screen_text(_grid, "", string.Format("T = {0:F0} s, TA = {1:F0}, MA = {2:F0}, TtCA = {3:F0} s", period, true_anomaly * 180.0 / Math.PI, mean_anomaly * 180.0 / Math.PI, (true_anomaly > Math.PI) ?  (period - time_from_periapsis) : (period / 2.0 - time_from_periapsis)), 16, controlled_only: true);
-            */
-            //set_target_plane(_grid, _current_elements.inclination, _current_elements.longitude_of_ascending_node);
-            //screen_info.screen_text(_grid, "", (Vector3.Cross(specific_angular_momentum, _alignment_info.target_angular_momentum).Length()).ToString() + " " + specific_angular_momentum.Length().ToString() + " " + _alignment_info.target_angular_momentum.Length().ToString(), 16, controlled_only: true);
-
-            //if ((_display_reference == null || _display_reference == _current_reference) && _alignment_info.target_angular_momentum.LengthSquared() > 0.25)
-            //    calculate_plane_intersection(specific_angular_momentum, AN_vector, eccentricity, mean_motion2, period, time_from_periapsis);
         }
 
         private void calculate_plane_intersection()
@@ -595,53 +498,6 @@ namespace ttdtwm
         #endregion
 
         #region Orbit information
-
-        public static Vector3D[] fill_vector_elements(IMyCubeGrid instance_grid)
-        {
-            gravity_and_physics instance;
-            if (!_grid_list.TryGetValue(instance_grid, out instance))
-                return null;
-
-            orbit_elements elements        = instance.current_elements_reader();
-            Vector3D[]     vector_elements = instance._vector_elements;
-
-            /*
-            vector_elements[0] = elements.radius_vector;
-            vector_elements[1] = elements._specific_angular_momentum;
-            vector_elements[2] = elements._AN_vector;
-            vector_elements[3] = elements._eccentricity_vector;
-            */
-
-            return vector_elements;
-        }
-
-        public static double[] fill_scalar_elements(IMyCubeGrid instance_grid)
-        {
-            gravity_and_physics instance;
-            if (!_grid_list.TryGetValue(instance_grid, out instance))
-                return null;
-
-            orbit_elements elements        = instance.current_elements_reader();
-            double[]       scalar_elements = instance._scalar_elements;
-
-            scalar_elements[0] = elements.semi_major_axis;
-            scalar_elements[1] = elements.eccentricity;
-            scalar_elements[2] = elements.inclination;
-            scalar_elements[3] = elements.longitude_of_ascending_node;
-            scalar_elements[4] = elements.argument_of_periapsis;
-            scalar_elements[5] = elements.true_anomaly;
-
-            scalar_elements[ 6] = elements.orbit_period;
-            scalar_elements[ 7] = elements.periapsis_radius;
-            scalar_elements[ 8] = elements.apoapsis_radius;
-            scalar_elements[ 9] = elements.mean_anomaly;
-            scalar_elements[10] = elements.time_from_periapsis;
-            scalar_elements[11] = elements.circular_speed;
-            scalar_elements[12] = elements.escape_speed;
-            scalar_elements[13] = elements.predicted_gravity_magnitude;
-
-            return scalar_elements;
-        }
 
         public static void list_current_elements(IMyTerminalBlock controller, StringBuilder info_text)
         {
@@ -692,9 +548,9 @@ namespace ttdtwm
 
             if (instance._display_reference != null)
             {
-                if (instance._display_reference == instance._current_reference)
-                    return "<major> " + instance._display_reference.name;
-                return "<minor> " + instance._display_reference.name;
+                return (instance._display_reference == instance._current_reference)
+                    ? "<major> " + instance._display_reference.name
+                    : "<minor> " + instance._display_reference.name;
             }
             return instance._current_reference?.name;
         }
@@ -706,7 +562,7 @@ namespace ttdtwm
                 return null;
 
             body_name = body_name.ToLower();
-            foreach (var cur_body in _gravity_sources.Values)
+            foreach (gravity_source cur_body in _gravity_sources.Values)
             {
                 if (cur_body.name.ToLower() == body_name)
                 {
@@ -715,9 +571,7 @@ namespace ttdtwm
                 }
             }
             instance._display_reference = null;
-            if (instance._current_reference == null)
-                return null;
-            return instance._current_reference.name + " (auto)";
+            return (instance._current_reference == null) ? null : instance._current_reference.name + " (auto)";
         }
 
         public static void clear_target_plane(IMyCubeGrid grid)
@@ -733,32 +587,9 @@ namespace ttdtwm
             if (!_grid_list.TryGetValue(grid, out instance))
                 return;
 
-            var AN_direction    = new Vector3(Math.Cos(LAN), 0.0, Math.Sin(LAN));
+            var AN_direction    = new Vector3(Math.Cos(LAN), 0.0, -Math.Sin(LAN));
             var normal_rotation = Quaternion.CreateFromAxisAngle(AN_direction, (float) inclination);
             instance._alignment_info.target_normal = Vector3D.Transform(Vector3D.Up, normal_rotation);
-            /*
-            Vector3D reference_angular_momentum;
-            double   inclination_cos  = Math.Cos(inclination);
-            double   inclination_cos2 = inclination_cos * inclination_cos;
-
-            if (inclination_cos2 > 0.9999)
-            {
-                reference_angular_momentum.X = reference_angular_momentum.Z = 0.0;
-                reference_angular_momentum.Y = 1.0;
-            }
-            else
-            {
-                double momentum_x = Math.Sin(LAN);
-                double momentum_z = Math.Cos(LAN);
-                reference_angular_momentum.X = momentum_x;
-                reference_angular_momentum.Y = Math.Sqrt(((momentum_x * momentum_x + momentum_z * momentum_z) * inclination_cos2) / (1.0 - inclination_cos2));
-                reference_angular_momentum.Z = momentum_z;
-                if (inclination_cos < 0.0)
-                    reference_angular_momentum.Y = -reference_angular_momentum.Y;
-                reference_angular_momentum /= reference_angular_momentum.Length();
-            }
-            instance._alignment_info.target_angular_momentum = reference_angular_momentum;
-            */
         }
 
         #endregion
@@ -846,7 +677,6 @@ namespace ttdtwm
         public void apply_torque(Vector3 absolute_torque)
         {
             _current_torque = absolute_torque;
-            //screen_info.screen_text(_grid, "", _current_torque.ToString(), 16);
         }
 
         public void simulate_gravity_and_torque()
@@ -897,7 +727,7 @@ namespace ttdtwm
             gravity_source current_source;
             Vector3D       player_positon, gravity_vector;
 
-            foreach (var player_entry in _PC_current_source)
+            foreach (KeyValuePair<IMyCharacter, gravity_source> player_entry in _PC_current_source)
             {
                 player         = player_entry.Key;
                 current_source = player_entry.Value;
@@ -916,14 +746,14 @@ namespace ttdtwm
             gravity_source new_source;
 
             _PC_new_source.Clear();
-            foreach (var player_entry in _PC_current_source)
+            foreach (KeyValuePair<IMyCharacter, gravity_source> player_entry in _PC_current_source)
             {
                 player     = player_entry.Key;
                 new_source = get_reference_body(player.PositionComp.GetPosition());
                 if (player_entry.Value != new_source)
                     _PC_new_source.Add(player, new_source);
             }
-            foreach (var changed_player_entry in _PC_new_source)
+            foreach (KeyValuePair<IMyCharacter, gravity_source> changed_player_entry in _PC_new_source)
                 _PC_current_source[changed_player_entry.Key] = changed_player_entry.Value;
         }
 
