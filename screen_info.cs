@@ -176,7 +176,7 @@ namespace ttdtwm
                 if (_display_local_gravity)
                 {
                     _orbital_elements_text.AppendFormat("\n(1) g = {0:F2} m/s^2; v1 = {1:F0} m/s; v2 = {2:F0} m/s",
-                        elements.predicted_gravity_magnitude, elements.circular_speed, elements.escape_speed);
+                        elements.local_gravity.Length(), elements.circular_speed, elements.escape_speed);
                 }
                 if (_display_apside_info)
                 {

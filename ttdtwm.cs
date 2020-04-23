@@ -12,6 +12,7 @@ using VRage.Game.Components;
 using VRage.Game.ModAPI;
 using VRage.ModAPI;
 using VRage.Utils;
+using VRageMath;
 using PB = Sandbox.ModAPI.Ingame;
 
 namespace ttdtwm
@@ -210,36 +211,71 @@ namespace ttdtwm
             };
         }
 
-        private Action<IMyTerminalBlock> create_maneuvre_starter(engine_control_unit.ID_maneuvres maneuvre)
+        private Action<IMyTerminalBlock> create_manoeuvre_starter(engine_control_unit.ID_manoeuvres manoeuvre)
         {
             return delegate (IMyTerminalBlock controller)
             {
-                _grids[controller.CubeGrid].start_maneuvre(maneuvre, true);
+                _grids[controller.CubeGrid].start_manoeuvre(manoeuvre, true);
             };
         }
 
-        private Action<IMyTerminalBlock, StringBuilder> create_maneuvre_indicator(engine_control_unit.ID_maneuvres maneuvre)
+        private Action<IMyTerminalBlock, StringBuilder> create_manoeuvre_indicator(engine_control_unit.ID_manoeuvres manoeuvre)
         {
             return delegate (IMyTerminalBlock controller, StringBuilder status)
             {
                 status.Clear();
-                if (_grids[controller.CubeGrid].current_maneuvre == maneuvre)
+                if (_grids[controller.CubeGrid].current_manoeuvre == manoeuvre)
                     status.Append("Active");
             };
         }
 
-        private Func<IMyTerminalBlock, Func<double, double, double>> create_anomaly_converter(bool true_to_mean)
+        private Func<double, double, double> get_true_to_mean_converter(IMyTerminalBlock dummy)
         {
-            if (true_to_mean)
+            return orbit_elements.convert_true_anomaly_to_mean;
+        }
+
+        private Func<double, double, double> get_mean_to_true_converter(IMyTerminalBlock dummy)
+        {
+            return orbit_elements.convert_mean_anomaly_to_true;
+        }
+
+        private Func<string, string, bool> get_elements_calculator(IMyTerminalBlock PB)
+        {
+            return delegate (string reference_name, string grid_name)
             {
-                return delegate (IMyTerminalBlock dummy)
-                {
-                    return orbit_elements.convert_true_anomaly_to_mean;
-                };
-            }
-            return delegate (IMyTerminalBlock dummy)
+                return gravity_and_physics.calculate_elements_for_PB(PB, reference_name, grid_name);
+            };
+        }
+
+        private Action<Dictionary<string, Vector3D>> get_vector_fetcher(IMyTerminalBlock PB)
+        {
+            return delegate (Dictionary<string, Vector3D> vector_elements)
             {
-                return orbit_elements.convert_mean_anomaly_to_true;
+                gravity_and_physics.retrieve_primary_vectors(PB, vector_elements);
+            };
+        }
+
+        private Action<Dictionary<string, double>> get_scalar_fetcher(IMyTerminalBlock PB)
+        {
+            return delegate (Dictionary<string, double> scalar_elements)
+            {
+                gravity_and_physics.retrieve_primary_scalars(PB, scalar_elements);
+            };
+        }
+
+        private Action<Dictionary<string, double>> get_derived_fetcher(IMyTerminalBlock PB)
+        {
+            return delegate (Dictionary<string, double> derived_elements)
+            {
+                gravity_and_physics.retrieve_derived_elements(PB, derived_elements);
+            };
+        }
+
+        private Action<double?, Dictionary<string, double>> get_positional_fetcher(IMyTerminalBlock PB)
+        {
+            return delegate (double? true_anomaly, Dictionary<string, double> positional_elements)
+            {
+                gravity_and_physics.retrieve_positional_elements(PB, true_anomaly, positional_elements);
             };
         }
 
@@ -454,15 +490,15 @@ namespace ttdtwm
             create_button<_controller_type_>("IDFullStop"   ,   "Full Stop", null, "Select", create_ID_mode_selector(false), is_grid_control_available         , create_ID_mode_indicator(false));
             create_button<_controller_type_>("IDCircularise", "Circularise", null, "Select", create_ID_mode_selector( true), is_grid_circularise_mode_available, create_ID_mode_indicator( true));
 
-            IMyTerminalControlLabel controller_line_maneuvre = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDMANEUVRE");
-            controller_line_maneuvre.Label = MyStringId.GetOrCompute("Maneuvres");
-            MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_maneuvre);
-            create_button<_controller_type_>("IDPrograde"  ,    "Prograde", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_prograde  ), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_prograde  ));
-            create_button<_controller_type_>("IDRetrograde",  "Retrograde", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_retrograde), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_retrograde));
-            create_button<_controller_type_>("IDNormal"    ,      "Normal", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_normal    ), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_normal    ));
-            create_button<_controller_type_>("IDAntiNormal", "Anti-normal", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_antinormal), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_antinormal));
-            create_button<_controller_type_>("IDOutward"   ,     "Outward", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_outward   ), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_outward   ));
-            create_button<_controller_type_>("IDInward"    ,      "Inward", null, "Start", create_maneuvre_starter(engine_control_unit.ID_maneuvres.burn_inward    ), is_grid_circularise_mode_available, create_maneuvre_indicator(engine_control_unit.ID_maneuvres.burn_inward    ));
+            IMyTerminalControlLabel controller_line_manoeuvre = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDmanoeuvre");
+            controller_line_manoeuvre.Label = MyStringId.GetOrCompute("Manoeuvres");
+            MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_manoeuvre);
+            create_button<_controller_type_>("IDPrograde"  ,    "Prograde", null, "Start", create_manoeuvre_starter(engine_control_unit.ID_manoeuvres.burn_prograde  ), is_grid_circularise_mode_available, create_manoeuvre_indicator(engine_control_unit.ID_manoeuvres.burn_prograde  ));
+            create_button<_controller_type_>("IDRetrograde",  "Retrograde", null, "Start", create_manoeuvre_starter(engine_control_unit.ID_manoeuvres.burn_retrograde), is_grid_circularise_mode_available, create_manoeuvre_indicator(engine_control_unit.ID_manoeuvres.burn_retrograde));
+            create_button<_controller_type_>("IDNormal"    ,      "Normal", null, "Start", create_manoeuvre_starter(engine_control_unit.ID_manoeuvres.burn_normal    ), is_grid_circularise_mode_available, create_manoeuvre_indicator(engine_control_unit.ID_manoeuvres.burn_normal    ));
+            create_button<_controller_type_>("IDAntiNormal", "Anti-normal", null, "Start", create_manoeuvre_starter(engine_control_unit.ID_manoeuvres.burn_antinormal), is_grid_circularise_mode_available, create_manoeuvre_indicator(engine_control_unit.ID_manoeuvres.burn_antinormal));
+            create_button<_controller_type_>("IDOutward"   ,     "Outward", null, "Start", create_manoeuvre_starter(engine_control_unit.ID_manoeuvres.burn_outward   ), is_grid_circularise_mode_available, create_manoeuvre_indicator(engine_control_unit.ID_manoeuvres.burn_outward   ));
+            create_button<_controller_type_>("IDInward"    ,      "Inward", null, "Start", create_manoeuvre_starter(engine_control_unit.ID_manoeuvres.burn_inward    ), is_grid_circularise_mode_available, create_manoeuvre_indicator(engine_control_unit.ID_manoeuvres.burn_inward    ));
         }
 
         private void try_register_handlers()
@@ -494,8 +530,14 @@ namespace ttdtwm
                 create_controller_widgets<IMyCockpit>();
                 create_controller_widgets<IMyRemoteControl>();
 
-                create_PB_property<Func<double, double, double>, IMyProgrammableBlock>("ConvertTrueAnomalyToMean", create_anomaly_converter(true_to_mean:  true));
-                create_PB_property<Func<double, double, double>, IMyProgrammableBlock>("ConvertMeanAnomalyToTrue", create_anomaly_converter(true_to_mean: false));
+                create_PB_property<Func<string, string, bool>, IMyProgrammableBlock>("ComputeOrbitElements", get_elements_calculator);
+                create_PB_property<Action<Dictionary<string, Vector3D>>, IMyProgrammableBlock>("GetPrimaryVectors", get_vector_fetcher);
+                create_PB_property<Action<Dictionary<string,   double>>, IMyProgrammableBlock>("GetPrimaryScalars", get_scalar_fetcher);
+                create_PB_property<Action<Dictionary<string,   double>>, IMyProgrammableBlock>("GetDerivedElements", get_derived_fetcher);
+                create_PB_property<Action<double?, Dictionary<string, double>>, IMyProgrammableBlock>("GetPositionalElements", get_positional_fetcher);
+
+                create_PB_property<Func<double, double, double>, IMyProgrammableBlock>("ConvertTrueAnomalyToMean", get_true_to_mean_converter);
+                create_PB_property<Func<double, double, double>, IMyProgrammableBlock>("ConvertMeanAnomalyToTrue", get_mean_to_true_converter);
 
                 IMyTerminalControlSeparator thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(thruster_line);

@@ -14,9 +14,9 @@ namespace ttdtwm
 {
     sealed class engine_control_unit
     {
-        public enum ID_maneuvres
+        public enum ID_manoeuvres
         {
-            maneuvre_off  = 0,
+            manoeuvre_off  = 0,
             burn_prograde = 1, burn_retrograde = 2,
             burn_normal   = 3, burn_antinormal = 4,
             burn_outward  = 5, burn_inward     = 6
@@ -163,7 +163,7 @@ namespace ttdtwm
         private bool    _is_gyro_override_active = false, _individual_calibration_on = false, _calibration_ready = false, _calibration_complete = false;
         private bool    _all_engines_off = false, _force_override_refresh = false;
         private float   _trim_fadeout = 1.0f;
-        private bool    _integral_cleared = false, _landing_mode_on = false, _is_thrust_override_active = false, _grid_is_movable = false;
+        private bool    _integral_cleared = false, _is_thrust_override_active = false, _grid_is_movable = false;
 
         private readonly  bool[] _enable_linear_integral = { true, true, true, true, true, true };
         private readonly float[] _linear_integral        = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
@@ -205,21 +205,9 @@ namespace ttdtwm
         }
 
         public float vertical_speed { get; private set; }
-
-        public bool landing_mode_on
-        {
-            get
-            {
-                return _landing_mode_on;
-            }
-            set
-            {
-                _landing_mode_on      = value;
-                _counter_thrust_limit = 1.0f;
-            }
-        }
-
-        public bool CoT_mode_on { get; set; } = false;
+        
+        public bool landing_mode_on { get; set; } = false;
+        public bool     CoT_mode_on { get; set; } = false;
 
         public bool circularise_on
         {
@@ -274,7 +262,7 @@ namespace ttdtwm
 
         public float current_speed { get; private set; }
 
-        public ID_maneuvres current_maneuvre { get; private set; } = ID_maneuvres.maneuvre_off;
+        public ID_manoeuvres current_manoeuvre { get; private set; } = ID_manoeuvres.manoeuvre_off;
 
         #endregion
 
@@ -806,12 +794,13 @@ namespace ttdtwm
                 }
             }
 
+            bool manoeuvre_active = linear_dampers_on && circularise_on || current_manoeuvre != ID_manoeuvres.manoeuvre_off;
             foreach (KeyValuePair<IMyThrust, thruster_info> cur_thruster in _uncontrolled_thrusters)
             {
                 cur_thruster_info = cur_thruster.Value;
                 if (_force_override_refresh)
                     cur_thruster_info.prev_setting = cur_thruster.Key.CurrentThrust;
-                if (!__is_controlled_side[(int) cur_thruster_info.nozzle_direction] && cur_thruster_info.manual_throttle < 0.01f && cur_thruster_info.prev_setting < MIN_OVERRIDE)
+                if (!manoeuvre_active && !__is_controlled_side[(int) cur_thruster_info.nozzle_direction] && cur_thruster_info.manual_throttle < 0.01f && cur_thruster_info.prev_setting < MIN_OVERRIDE)
                     continue;
 
                 if (reset_all_thrusters || cur_thruster_info.actual_max_force < 1.0f || !cur_thruster.Key.IsWorking)
@@ -827,7 +816,7 @@ namespace ttdtwm
 
                 if (cur_thruster_info.manual_throttle >= 0.01f)
                     cur_thruster_info.current_setting = cur_thruster_info.manual_throttle;
-                else if (__is_controlled_side[(int) cur_thruster_info.nozzle_direction])
+                else if (__is_controlled_side[(int) cur_thruster_info.nozzle_direction] || manoeuvre_active)
                     cur_thruster_info.current_setting = __control_vector[(int) cur_thruster_info.nozzle_direction];
                 else
                     cur_thruster_info.current_setting = 0.0f;
@@ -865,7 +854,9 @@ namespace ttdtwm
 
             _trim_fadeout = 1.0f;
 
-            if (!linear_dampers_on && current_maneuvre == ID_maneuvres.maneuvre_off || controls_active && circularise_on && _match_velocity_with == null)
+            if (gravity_magnitude < 0.01f)
+                _counter_thrust_limit = 1.0f;
+            if (!linear_dampers_on && current_manoeuvre == ID_manoeuvres.manoeuvre_off || controls_active && circularise_on && _match_velocity_with == null)
             {
                 _counter_thrust_limit = 1.0f;
                 if (!_integral_cleared)
@@ -883,7 +874,7 @@ namespace ttdtwm
             else
             {
                 _integral_cleared = false;
-                if (!_landing_mode_on)
+                if (!landing_mode_on)
                 {
                     if (vertical_speed >= 0.1f)
                         _counter_thrust_limit *= 0.95f;     // Quickly reduce upwards rebound after descending
@@ -935,7 +926,7 @@ namespace ttdtwm
                     else if (linear_integral_change < 0.0f)
                         set_linear_integral(opposite_dir,    dir_index, -linear_integral_change, gravity_ratio, axis_speed);
 
-                    if (_landing_mode_on)
+                    if (landing_mode_on)
                     {
                         _linear_integral[dir_index] -= LINEAR_INTEGRAL_CONSTANT * DESCENDING_SPEED * gravity_ratio;
                         if (_linear_integral[dir_index] < 0.0f)
@@ -945,7 +936,7 @@ namespace ttdtwm
                             _linear_integral[opposite_dir] = 0.0f;
                     }
                 }
-                normalise_control(current_maneuvre == ID_maneuvres.maneuvre_off);
+                normalise_control(current_manoeuvre == ID_manoeuvres.manoeuvre_off);
             }
         }
 
@@ -1002,10 +993,7 @@ namespace ttdtwm
                 if (__control_vector[dir_index] < 0.0f)
                     __control_vector[dir_index] = 0.0f;
                 else if (__control_vector[dir_index] >= 1.0f)
-                {
-                    //__control_vector[dir_index]        = 1.0f;
                     _enable_linear_integral[dir_index] = _enable_linear_integral[opposite_dir] = false;
-                }
             }
         }
 
@@ -1332,6 +1320,23 @@ namespace ttdtwm
             }
         }
 
+        private void change_trim(float[] trim, int dir_index, int opposite_dir, float trim_change)
+        {
+            const float MAX_TRIM = 5.0f;
+            
+            if (trim[opposite_dir] > 0.0f)
+            {
+                trim[opposite_dir] -= trim_change;
+                if (trim[opposite_dir] < 0.0f)
+                {
+                    trim[   dir_index] = -trim[opposite_dir];
+                    trim[opposite_dir] = 0.0f;
+                }
+            }
+            else if (trim[dir_index] < MAX_TRIM)
+                trim[dir_index] += trim_change;
+        }
+
         private void adjust_trim_setting(out Vector3 desired_angular_velocity)
         {
             const float ANGULAR_INTEGRAL_COEFF = 0.4f, ANGULAR_DERIVATIVE_COEFF = 0.05f, MAX_TRIM = 5.0f, THRUST_CUTOFF_TRIM = 4.0f, CHECKPOINT_FADE = 0.75f, 
@@ -1393,23 +1398,18 @@ namespace ttdtwm
                 trim_change = ANGULAR_INTEGRAL_COEFF * __angular_velocity_diff[dir_index];
                 if (__angular_velocity_diff[dir_index] < 0.0001f && __angular_velocity_diff[opposite_dir] < 0.0001f)
                     trim_change += ANGULAR_DERIVATIVE_COEFF * __residual_torque[opposite_dir];
-                if (_aux_trim[opposite_dir] > 0.0f)
-                {
-                    _aux_trim[opposite_dir] -= trim_change;
-                    if (_aux_trim[opposite_dir] >= 0.0f)
-                        _current_trim[opposite_dir] = _aux_trim[opposite_dir];
-                    else
-                    {
-                        _current_trim[   dir_index] = _aux_trim[   dir_index] = -_aux_trim[opposite_dir];
-                        _current_trim[opposite_dir] = _aux_trim[opposite_dir] = 0.0f;
-                    }
-                }
-                else if (_aux_trim[dir_index] < MAX_TRIM)
-                    _aux_trim[dir_index] += trim_change;
+                change_trim(    _aux_trim, dir_index, opposite_dir, trim_change);
+                change_trim(_current_trim, dir_index, opposite_dir, trim_change);
+                if (_aux_trim[dir_index] > 0.0 && _current_trim[opposite_dir] > 0.0f)
+                    _aux_trim[dir_index] = 0.0f;
+                else if (_aux_trim[opposite_dir] > 0.0 && _current_trim[dir_index] > 0.0f)
+                    _aux_trim[opposite_dir] = 0.0f;
             }
 
             for (int dir_index = 0; dir_index < 6; ++dir_index)
             {
+                _current_trim[dir_index] *= _trim_fadeout;
+                _aux_trim    [dir_index] *= _trim_fadeout;
                 if (_current_trim[dir_index] < _aux_trim[dir_index])
                     _current_trim[dir_index] = _aux_trim[dir_index];
                 if (__angular_velocity_diff[dir_index] < _angular_velocity_checkpoint[dir_index])
@@ -2199,7 +2199,7 @@ namespace ttdtwm
 
         public void get_primary_control_parameters(out Vector3D world_linear_velocity, out Vector3 target_linear_velocity, out Vector3D world_angular_velocity, 
             out Vector3 linear_output, out Vector3 rotational_output, out bool main_gyro_override_active, out Vector3 main_gyro_override, 
-            out bool circularisation_on, out ID_maneuvres current_maneuvre)
+            out bool circularisation_on, out ID_manoeuvres current_manoeuvre)
         {
             if (secondary_ECU)
                 throw new Exception("Attempt to obtain control parameters from secondary grid");
@@ -2213,12 +2213,12 @@ namespace ttdtwm
             main_gyro_override        = Vector3.Transform(_gyro_override  , grid_orientation);
             main_gyro_override_active = _is_gyro_override_active;
             circularisation_on        = _circularise_on;
-            current_maneuvre          = this.current_maneuvre;
+            current_manoeuvre         = this.current_manoeuvre;
         }
 
         public void set_secondary_control_parameters(Vector3D world_linear_velocity, Vector3 target_linear_velocity, Vector3D world_angular_velocity, 
             Vector3 linear_input, Vector3 rotational_input, bool main_gyro_override_active, Vector3 main_gyro_override,
-            bool circularisation_on, ID_maneuvres current_maneuvre)
+            bool circularisation_on, ID_manoeuvres current_manoeuvre)
         {
             if (!secondary_ECU)
                 throw new Exception("Attempt to set external control parameters to primary grid");
@@ -2232,7 +2232,7 @@ namespace ttdtwm
             _gyro_override               = Vector3.Transform(main_gyro_override, grid_orientation_inv);
             _is_gyro_override_active     = main_gyro_override_active;
             _circularise_on              = circularisation_on;
-            this.current_maneuvre            = current_maneuvre;
+            this.current_manoeuvre       = current_manoeuvre;
         }
 
         public void translate_damper_override(Vector3 input_override, IMyTerminalBlock controller)
@@ -2259,9 +2259,9 @@ namespace ttdtwm
             return result;
         }
 
-        public void begin_maneuvre(ID_maneuvres selection)
+        public void begin_manoeuvre(ID_manoeuvres selection)
         {
-            current_maneuvre = (current_maneuvre == selection) ? ID_maneuvres.maneuvre_off : selection;
+            current_manoeuvre = (current_manoeuvre == selection) ? ID_manoeuvres.manoeuvre_off : selection;
         }
 
         #endregion
@@ -2312,14 +2312,14 @@ namespace ttdtwm
                 _manual_rotation = _sample_sum / NUM_ROTATION_SAMPLES;
 
                 if (current_speed < MIN_CIRCULARISATION_SPEED || _linear_control.LengthSquared() >= 0.0001f)
-                    current_maneuvre = ID_maneuvres.maneuvre_off;
+                    current_manoeuvre = ID_manoeuvres.manoeuvre_off;
                 _grid_movement.get_linear_and_angular_velocities(out _world_linear_velocity, out _world_angular_velocity);
                 current_speed    = (float) _world_linear_velocity.Length();
                 _circularise_on &= current_speed >= MIN_CIRCULARISATION_SPEED;
                 if (_match_velocity_with?.Physics != null)
                     _target_velocity = _match_velocity_with.Physics.LinearVelocity;
-                else if (current_maneuvre != ID_maneuvres.maneuvre_off)
-                    _target_velocity = _world_linear_velocity + _grid_movement.get_maneuvre_direction(current_maneuvre) * current_speed;
+                else if (current_manoeuvre != ID_manoeuvres.manoeuvre_off)
+                    _target_velocity = _world_linear_velocity + _grid_movement.get_manoeuvre_direction(current_manoeuvre) * current_speed;
                 else if (_circularise_on)
                     _target_velocity = _grid_movement.get_circular_orbit_velocity(!linear_dampers_on || _linear_control.LengthSquared() > 0.0001f);
                 else
@@ -2345,7 +2345,7 @@ namespace ttdtwm
             }
 
             if (  autopilot_on || !_is_thrust_override_active && !_is_gyro_override_active 
-                && _manual_rotation.LengthSquared() < 0.0001f && _manual_thrust.LengthSquared() < 0.0001f && current_maneuvre == ID_maneuvres.maneuvre_off
+                && _manual_rotation.LengthSquared() < 0.0001f && _manual_thrust.LengthSquared() < 0.0001f && current_manoeuvre == ID_manoeuvres.manoeuvre_off
                 && (!rotational_damping_on || _world_angular_velocity.LengthSquared() < 0.0001f)
                 && (!linear_dampers_on && !secondary_ECU || _grid.Physics.Gravity.LengthSquared() < 0.01f && current_speed < 0.1f))
             {

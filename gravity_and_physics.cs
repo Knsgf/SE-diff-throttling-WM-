@@ -36,6 +36,8 @@ namespace ttdtwm
         public Vector3D ascending_node_vector     => _AN_vector;
         public Vector3D eccentricity_vector       => _eccentricity_vector;
 
+        public Vector3D local_gravity { get; private set; }
+
         // Size and shape elements
         public double semi_major_axis { get; private set; }
         public double eccentricity    { get; private set; }
@@ -62,24 +64,24 @@ namespace ttdtwm
 
         #region Positional elements
 
-        public double mean_anomaly                { get; private set; }
-        public double time_from_periapsis         { get; private set; }
-        public double circular_speed              { get; private set; }
-        public double escape_speed                { get; private set; }
-        public double predicted_speed             { get; private set; }
-        public double angle_of_velocity           { get; private set; }
-        public double predicted_distance          { get; private set; }
-        public double predicted_gravity_magnitude { get; private set; }
+        public double mean_anomaly        { get; private set; }
+        public double time_from_periapsis { get; private set; }
+        public double circular_speed      { get; private set; }
+        public double escape_speed        { get; private set; }
+        public double predicted_speed     { get; private set; }
+        public double angle_of_velocity   { get; private set; }
+        public double predicted_distance  { get; private set; }
 
         #endregion
 
         #region Element calculation
 
-        public void calculate_primary_elements(double SGP, Vector3D radius_vector, Vector3D linear_velocity, string body_name, bool minor_body)
+        public void calculate_primary_elements(double SGP, Vector3D radius_vector, Vector3D linear_velocity, Vector3D local_gravity, string body_name, bool minor_body)
         {
-            _current_SGP      = SGP;
-            name              = body_name;
-            foreign_reference = minor_body;
+            _current_SGP       = SGP;
+            name               = body_name;
+            foreign_reference  = minor_body;
+            this.local_gravity = local_gravity;
 
             Vector3D specific_angular_momentum;
             specific_angular_momentum = _specific_angular_momentum = Vector3D.Cross(radius_vector, linear_velocity);
@@ -162,10 +164,8 @@ namespace ttdtwm
             mean_anomaly        = convert_true_anomaly_to_mean(eccentricity, true_anomaly);
             time_from_periapsis = mean_anomaly * mean_motion;
 
-            double gravity_energy       = _current_SGP / predicted_distance;
-            circular_speed              = Math.Sqrt(gravity_energy);
-            escape_speed                = circular_speed * sqrt2;
-            predicted_gravity_magnitude = gravity_energy / predicted_distance;
+            circular_speed = Math.Sqrt(_current_SGP / predicted_distance);
+            escape_speed   = circular_speed * sqrt2;
         }
 
         public static double convert_true_anomaly_to_mean(double eccentricity, double true_anomaly)
@@ -327,7 +327,7 @@ namespace ttdtwm
         void     apply_torque(Vector3 absolute_torque);
         void     get_linear_and_angular_velocities(out Vector3D world_linear_velocity, out Vector3D world_angular_velocity);
         Vector3D get_circular_orbit_velocity(bool refresh_plane);
-        Vector3  get_maneuvre_direction(engine_control_unit.ID_maneuvres selection);
+        Vector3  get_manoeuvre_direction(engine_control_unit.ID_manoeuvres selection);
     }
 
     sealed class gravity_and_physics: gravity_simulation, torque_and_orbit_control
@@ -342,13 +342,17 @@ namespace ttdtwm
             public Vector3D centre_position;
         }
 
-        private static readonly Dictionary< MyPlanet  , gravity_source     > _gravity_sources = new Dictionary< MyPlanet  , gravity_source     >();
-        private static readonly Dictionary<IMyCubeGrid, gravity_and_physics> _grid_list       = new Dictionary<IMyCubeGrid, gravity_and_physics>();
+        private static readonly Dictionary<     string, gravity_source     > _gravity_source_names = new Dictionary<     string, gravity_source     >();
+        private static readonly Dictionary<   MyPlanet, gravity_source     > _gravity_sources      = new Dictionary<   MyPlanet, gravity_source     >();
+        private static readonly Dictionary<     string, gravity_and_physics> _grid_names           = new Dictionary<     string, gravity_and_physics>();
+        private static readonly Dictionary<IMyCubeGrid, gravity_and_physics> _grid_list            = new Dictionary<IMyCubeGrid, gravity_and_physics>();
+
+        private static readonly Dictionary<IMyTerminalBlock, orbit_elements> _PB_elements = new Dictionary<IMyTerminalBlock, orbit_elements>();
 
         private readonly MyCubeGrid _grid;
         private gravity_source _current_reference, _display_reference = null;
 
-        private Vector3D _grid_position, _absolute_linear_velocity, _absolute_angular_velocity, _accumulated_gravity = Vector3D.Zero;
+        private Vector3D _grid_position, _absolute_linear_velocity, _absolute_angular_velocity, _current_gravity_vector, _accumulated_gravity = Vector3D.Zero;
         private Vector3D _current_angular_momentum;
         private Vector3D _grid_forward, _grid_right, _grid_up;
 
@@ -368,13 +372,13 @@ namespace ttdtwm
         {
             if (_displayed_elements == null)
                 _displayed_elements = new orbit_elements();
-            calculate_elements(_display_reference, ref _displayed_elements);
+            calculate_elements(_display_reference, ref _displayed_elements, primary_only: false);
             return _displayed_elements;
         }
 
         public orbit_plane_intersection plane_alignment_reader()
         {
-            calculate_elements(_current_reference, ref _current_elements);
+            calculate_elements(_current_reference, ref _current_elements, primary_only: false);
             calculate_plane_intersection();
             return _alignment_info;
         }
@@ -390,13 +394,16 @@ namespace ttdtwm
             };
             new_gravity_source.standard_gravitational_parameter = new_gravity_source.surface_gravity * new_gravity_source.radius2;
             new_gravity_source.centre_position                  = new_planetoid.PositionComp.WorldAABB.Center;
-            _gravity_sources[new_planetoid] = new_gravity_source;
+            _gravity_sources[new_planetoid] = _gravity_source_names[new_planetoid.Name] = new_gravity_source;
         }
 
         public static void deregister_gravity_source(MyPlanet removed_planetoid)
         {
             if (_gravity_sources.ContainsKey(removed_planetoid))
+            {
                 _gravity_sources.Remove(removed_planetoid);
+                _gravity_source_names.Remove(removed_planetoid.Name);
+            }
         }
         
         private static double floor_mod(double dividend, double divisor)
@@ -448,7 +455,10 @@ namespace ttdtwm
         public void Dispose()
         {
             if (_grid_list.ContainsKey(_grid))
+            {
                 _grid_list.Remove(_grid);
+                _grid_names.Remove(_grid.DisplayName);
+            }
         }
 
         #endregion
@@ -461,7 +471,7 @@ namespace ttdtwm
                 elements_to_clear = new orbit_elements();
         }
 
-        private void calculate_elements(gravity_source selected_reference, ref orbit_elements new_elements)
+        private void calculate_elements(gravity_source selected_reference, ref orbit_elements new_elements, bool primary_only)
         {
             if (selected_reference == null)
             {
@@ -472,12 +482,16 @@ namespace ttdtwm
                 }
                 selected_reference = _current_reference;
             }
-            Vector3D grid_vector = _grid_position - selected_reference.centre_position;
-            double   SGP         = GRAVITY_ON ? selected_reference.standard_gravitational_parameter : (_grid.Physics.Gravity.Length() * grid_vector.LengthSquared());
-            new_elements.calculate_primary_elements(SGP, grid_vector, _absolute_linear_velocity, selected_reference.name, selected_reference != _current_reference);
+            Vector3D grid_vector   = _grid_position - selected_reference.centre_position;
+            double   SGP           = GRAVITY_ON ? selected_reference.standard_gravitational_parameter : (_grid.Physics.Gravity.Length() * grid_vector.LengthSquared());
+            Vector3D local_gravity = calculate_gravity_vector(selected_reference, _grid_position);
+            new_elements.calculate_primary_elements(SGP, grid_vector, _absolute_linear_velocity, local_gravity, selected_reference.name, selected_reference != _current_reference);
 
-            new_elements.calculate_derived_elements();
-            new_elements.calculate_positional_elements();
+            if (!primary_only)
+            {
+                new_elements.calculate_derived_elements();
+                new_elements.calculate_positional_elements();
+            }
         }
 
         private void calculate_plane_intersection()
@@ -499,13 +513,101 @@ namespace ttdtwm
 
         #region Orbit information
 
+        public static void dispose_PB(IMyTerminalBlock PB)
+        {
+            if (_PB_elements.ContainsKey(PB))
+                _PB_elements.Remove(PB);
+        }
+        
+        public static bool calculate_elements_for_PB(IMyTerminalBlock PB, string reference_name, string grid_name)
+        {
+            gravity_and_physics instance;
+            if (grid_name == null)
+                instance = _grid_list[PB.CubeGrid];
+            else if (!_grid_names.TryGetValue(grid_name, out instance))
+                return false;
+            
+            gravity_source selected_reference;
+            if (reference_name == null)
+            {
+                if (instance._current_reference == null)
+                    return false;
+                selected_reference = instance._current_reference;
+            }
+            else if (!_gravity_source_names.TryGetValue(reference_name, out selected_reference))
+                return false;
+            
+            orbit_elements PB_elements;
+            if (!_PB_elements.TryGetValue(PB, out PB_elements))
+                PB_elements = new orbit_elements();
+
+            instance.calculate_elements(selected_reference, ref PB_elements, primary_only: true);
+            _PB_elements[PB] = PB_elements;
+            return true;
+        }
+
+        public static void retrieve_primary_vectors(IMyTerminalBlock PB, Dictionary<string, Vector3D> output)
+        {
+            orbit_elements PB_elements;
+            if (output == null || !_PB_elements.TryGetValue(PB, out PB_elements))
+                return;
+
+            output["SAM"] = PB_elements.specific_angular_momentum;
+            output["ANV"] = PB_elements.ascending_node_vector;
+            output["EcV"] = PB_elements.eccentricity_vector;
+        }
+
+        public static void retrieve_primary_scalars(IMyTerminalBlock PB, Dictionary<string, double> output)
+        {
+            orbit_elements PB_elements;
+            if (output == null || !_PB_elements.TryGetValue(PB, out PB_elements))
+                return;
+
+            output["SMA"] = PB_elements.semi_major_axis;
+            output["Ecc"] = PB_elements.eccentricity;
+            output["Inc"] = PB_elements.inclination;
+            output["LAN"] = PB_elements.longitude_of_ascending_node;
+            output["AoP"] = PB_elements.argument_of_periapsis;
+            output["TrA"] = PB_elements.true_anomaly;
+        }
+
+        public static void retrieve_derived_elements(IMyTerminalBlock PB, Dictionary<string, double> output)
+        {
+            orbit_elements PB_elements;
+            if (output == null || !_PB_elements.TryGetValue(PB, out PB_elements))
+                return;
+
+            PB_elements.calculate_derived_elements();
+            output["SLR"] = PB_elements.semi_latus_rectum;
+            output["PeR"] = PB_elements.periapsis_radius;
+            output["ApR"] = PB_elements.apoapsis_radius;
+            output["MnM"] = PB_elements.mean_motion;
+            output["OrP"] = PB_elements.orbit_period;
+        }
+
+        public static void retrieve_positional_elements(IMyTerminalBlock PB, double? true_anomaly, Dictionary<string, double> output)
+        {
+            orbit_elements PB_elements;
+            if (output == null || !_PB_elements.TryGetValue(PB, out PB_elements))
+                return;
+
+            PB_elements.calculate_positional_elements(true_anomaly);
+            output["MnA"] = PB_elements.mean_anomaly;
+            output["TfP"] = PB_elements.time_from_periapsis;
+            output["CiV"] = PB_elements.circular_speed;
+            output["EsV"] = PB_elements.escape_speed;
+            output["Vel"] = PB_elements.predicted_speed;
+            output["AoV"] = PB_elements.angle_of_velocity;
+            output["Rad"] = PB_elements.predicted_distance;
+        }
+
         public static void list_current_elements(IMyTerminalBlock controller, StringBuilder info_text)
         {
             gravity_and_physics instance;
             if (!_grid_list.TryGetValue(controller.CubeGrid, out instance))
                 return;
 
-            instance.calculate_elements(instance._current_reference, ref instance._current_elements);
+            instance.calculate_elements(instance._current_reference, ref instance._current_elements, primary_only: false);
             orbit_elements current_elements = instance._current_elements;
             if (current_elements.name == null)
                 return;
@@ -515,7 +617,7 @@ namespace ttdtwm
             {
                 info_text.AppendFormat("Orbiting {0}\nRadius: {1:F1} km\nLocal gravity: {5:F2} m/s^2\nSemi-major axis: {2:F1} km\nPeriapsis: {3:F1} km\nApoapsis: {4:F1} km",
                     current_elements.name, current_elements.predicted_distance / 1000.0, current_elements.semi_major_axis / 1000.0, 
-                    current_elements.periapsis_radius / 1000.0, current_elements.apoapsis_radius / 1000.0, current_elements.predicted_gravity_magnitude);
+                    current_elements.periapsis_radius / 1000.0, current_elements.apoapsis_radius / 1000.0, instance._current_gravity_vector.Length());
                 info_text.AppendFormat("\nEccentricity: {0:F3}\nInclination: {1:F0} deg\nLAN: {2:F0} deg", current_elements.eccentricity, 
                     current_elements.inclination * 180.0 / Math.PI, current_elements.longitude_of_ascending_node * 180.0 / Math.PI);
                 info_text.AppendFormat("\nPeriod: {0:F0} s\nTime to periapsis: {1:F0} s\nTime to apoapsis: {2:F0} s", current_elements.orbit_period,
@@ -529,7 +631,7 @@ namespace ttdtwm
             {
                 info_text.AppendFormat("Escaping {0}\nRadius: {1:F1} km\nLocal gravity: {4:F2} m/s^2\nSemi-major axis: {2:F1} km\nPeriapsis: {3:F1} km\nApoapsis: N/A",
                     current_elements.name, current_elements.predicted_distance / 1000.0, current_elements.semi_major_axis / 1000.0, 
-                    current_elements.periapsis_radius / 1000.0, current_elements.predicted_gravity_magnitude);
+                    current_elements.periapsis_radius / 1000.0, instance._current_gravity_vector.Length());
                 info_text.AppendFormat("\nEccentricity: {0:F3}\nInclination: {1:F0} deg\nLAN: {2:F0} deg", current_elements.eccentricity, 
                     current_elements.inclination * 180.0 / Math.PI, current_elements.longitude_of_ascending_node * 180.0 / Math.PI);
                 info_text.AppendFormat("\nPeriod: N/A\nTime {0} periapsis: {1:F0} s\nTime to apoapsis: N/A", 
@@ -615,14 +717,14 @@ namespace ttdtwm
             return  Vector3D.Normalize(Vector3D.Cross(_current_angular_momentum, grid_vector)) * Math.Sqrt(_grid.Physics.Gravity.Length() * grid_vector_length);
         }
 
-        public Vector3 get_maneuvre_direction(engine_control_unit.ID_maneuvres selection)
+        public Vector3 get_manoeuvre_direction(engine_control_unit.ID_manoeuvres selection)
         {
-            if (selection == engine_control_unit.ID_maneuvres.maneuvre_off || _display_reference == null && _current_reference == null)
+            if (selection == engine_control_unit.ID_manoeuvres.manoeuvre_off || _display_reference == null && _current_reference == null)
                 return Vector3.Zero;
 
-            if (selection == engine_control_unit.ID_maneuvres.burn_prograde)
+            if (selection == engine_control_unit.ID_manoeuvres.burn_prograde)
                 return Vector3.Normalize(_absolute_linear_velocity);
-            if (selection == engine_control_unit.ID_maneuvres.burn_retrograde)
+            if (selection == engine_control_unit.ID_manoeuvres.burn_retrograde)
                 return -Vector3.Normalize(_absolute_linear_velocity);
 
             gravity_source selected_reference = _display_reference;
@@ -631,17 +733,17 @@ namespace ttdtwm
             Vector3D grid_vector      = _grid_position - selected_reference.centre_position;
             _current_angular_momentum = Vector3D.Cross(grid_vector, _absolute_linear_velocity);
             Vector3  normal           = (_current_angular_momentum.LengthSquared() > 0.0) ? Vector3.Normalize(_current_angular_momentum) : Vector3.Zero;
-            if (selection == engine_control_unit.ID_maneuvres.burn_normal)
+            if (selection == engine_control_unit.ID_manoeuvres.burn_normal)
                 return normal;
-            if (selection == engine_control_unit.ID_maneuvres.burn_antinormal)
+            if (selection == engine_control_unit.ID_manoeuvres.burn_antinormal)
                 return -normal;
 
             Vector3 outward = Vector3.Cross(_absolute_linear_velocity, normal);
             if (outward.LengthSquared() > 0.0f)
                 outward.Normalize();
-            if (selection == engine_control_unit.ID_maneuvres.burn_outward)
+            if (selection == engine_control_unit.ID_manoeuvres.burn_outward)
                 return outward;
-            if (selection == engine_control_unit.ID_maneuvres.burn_inward)
+            if (selection == engine_control_unit.ID_manoeuvres.burn_inward)
                 return -outward;
             return Vector3.Zero;
 
@@ -699,6 +801,7 @@ namespace ttdtwm
                 _accumulated_gravity += gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND;
             else
                 _accumulated_gravity = Vector3D.Zero;
+            _current_gravity_vector = gravity_vector;
         }
 
         public void update_current_reference()
@@ -770,7 +873,7 @@ namespace ttdtwm
                 _grid_right         = grid_matrix.Right;
                 _grid_up            = grid_matrix.Up;
             }
-            _grid_list[grid_ref] = this;
+            _grid_list[grid_ref] = _grid_names[grid_ref.DisplayName] = this;
         }
     }
 }

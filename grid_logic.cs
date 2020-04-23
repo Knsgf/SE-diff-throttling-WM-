@@ -136,11 +136,11 @@ namespace ttdtwm
 
         public Func<orbit_elements> orbit_elements_reader => _grid_physics.current_elements_reader;
 
-        public engine_control_unit.ID_maneuvres current_maneuvre => is_circularisation_avaiable ? _ECU.current_maneuvre : engine_control_unit.ID_maneuvres.maneuvre_off;
+        public engine_control_unit.ID_manoeuvres current_manoeuvre => is_circularisation_avaiable ? _ECU.current_manoeuvre : engine_control_unit.ID_manoeuvres.manoeuvre_off;
 
         #endregion
 
-        #region ID overrides and maneuvres
+        #region ID overrides and manoeuvres
 
         public bool is_ID_axis_overriden(IMyTerminalBlock controller, int axis)
         {
@@ -375,7 +375,14 @@ namespace ttdtwm
 
                 var gyro = entity as IMyGyro;
                 if (gyro != null)
+                {
                     _ECU.dispose_gyroscope(gyro);
+                    return;
+                }
+
+                var PB = entity as IMyProgrammableBlock;
+                if (PB != null)
+                    gravity_and_physics.dispose_PB(PB);
             }
         }
 
@@ -418,7 +425,7 @@ namespace ttdtwm
             current_ECU.linear_integral = structurise_vector(argument, 12);
         }
 
-        internal static void sync_maneuvre(object entity, byte[] argument, int length)
+        internal static void sync_manoeuvre(object entity, byte[] argument, int length)
         {
             if (length != 1)
                 return;
@@ -426,22 +433,22 @@ namespace ttdtwm
             if (instance == null || instance._disposed)
                 return;
 
-            instance.start_maneuvre((engine_control_unit.ID_maneuvres) argument[0], false);
+            instance.start_manoeuvre((engine_control_unit.ID_manoeuvres) argument[0], false);
         }
 
         #endregion
 
         #region event triggers
 
-        public void start_maneuvre(engine_control_unit.ID_maneuvres selection, bool sync_maneuvre)
+        public void start_manoeuvre(engine_control_unit.ID_manoeuvres selection, bool sync_manoeuvre)
         {
             if (is_circularisation_avaiable)
             {
-                _ECU.begin_maneuvre(selection);
-                if (sync_maneuvre)
+                _ECU.begin_manoeuvre(selection);
+                if (sync_manoeuvre)
                 {
                     __message[0] = (byte) selection;
-                    sync_helper.send_message_to_others(sync_helper.message_types.MANEUVRE, this, __message, 1);
+                    sync_helper.send_message_to_others(sync_helper.message_types.manoeuvre, this, __message, 1);
                 }
             }
         }
@@ -552,16 +559,16 @@ namespace ttdtwm
                                 Vector3D world_linear_velocity, world_angular_velocity;
                                 Vector3  target_linear_velocity, linear_control, rotation_control, gyro_override;
                                 bool     gyro_override_active, circularisation_on;
-                                engine_control_unit.ID_maneuvres current_maneuvre;
+                                engine_control_unit.ID_manoeuvres current_manoeuvre;
 
                                 _ECU.get_primary_control_parameters(out world_linear_velocity, out target_linear_velocity, out world_angular_velocity, 
                                     out linear_control, out rotation_control, out gyro_override_active, out gyro_override, out circularisation_on,
-                                    out current_maneuvre);
+                                    out current_manoeuvre);
                                 foreach (grid_logic cur_secondary in _secondary_grids)
                                 {
                                     cur_secondary._ID_on = _ID_on;
                                     cur_secondary._ECU.set_secondary_control_parameters(world_linear_velocity, target_linear_velocity, world_angular_velocity, 
-                                        linear_control, rotation_control, gyro_override_active, gyro_override, circularisation_on, current_maneuvre);
+                                        linear_control, rotation_control, gyro_override_active, gyro_override, circularisation_on, current_manoeuvre);
                                 }
                             }
                         }
