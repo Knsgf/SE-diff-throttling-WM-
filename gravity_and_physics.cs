@@ -281,27 +281,11 @@ namespace ttdtwm
             return true_anomaly;
         }
 
-        public void copy_primary_elements_to(orbit_elements copy)
+        public static Vector3D calculate_orbit_normal(double inclination, double LAN)
         {
-            copy._current_SGP               = _current_SGP;
-            copy._specific_angular_momentum = _specific_angular_momentum;
-            copy._AN_vector                 = _AN_vector;
-            copy._eccentricity_vector       = _eccentricity_vector;
-            copy._anomaly90                 = _anomaly90;
-
-            copy.semi_major_axis             = semi_major_axis;
-            copy.eccentricity                = eccentricity;
-            copy.inclination                 = inclination;
-            copy.longitude_of_ascending_node = longitude_of_ascending_node;
-            copy.argument_of_periapsis       = argument_of_periapsis;
-
-            /*
-            copy.semi_latus_rectum = semi_latus_rectum;
-            copy.apoapsis_radius   = apoapsis_radius;
-            copy.periapsis_radius  = periapsis_radius;
-            copy.mean_motion       = mean_motion;
-            copy.orbit_period      = orbit_period;
-            */
+            var AN_direction    = new Vector3(Math.Cos(LAN), 0.0, -Math.Sin(LAN));
+            var normal_rotation = Quaternion.CreateFromAxisAngle(AN_direction, (float) inclination);
+            return Vector3D.Transform(Vector3D.Up, normal_rotation);
         }
 
         #endregion
@@ -524,7 +508,7 @@ namespace ttdtwm
             gravity_and_physics instance;
             if (grid_name == null)
                 instance = _grid_list[PB.CubeGrid];
-            else if (!_grid_names.TryGetValue(grid_name, out instance))
+            else if (!screen_info.scripts_can_inspect_orbit_of_any_ship || !_grid_names.TryGetValue(grid_name, out instance))
                 return false;
             
             gravity_source selected_reference;
@@ -555,6 +539,7 @@ namespace ttdtwm
             output["SAM"] = PB_elements.specific_angular_momentum;
             output["ANV"] = PB_elements.ascending_node_vector;
             output["EcV"] = PB_elements.eccentricity_vector;
+            output["LGV"] = PB_elements.local_gravity;
         }
 
         public static void retrieve_primary_scalars(IMyTerminalBlock PB, Dictionary<string, double> output)
@@ -689,9 +674,7 @@ namespace ttdtwm
             if (!_grid_list.TryGetValue(grid, out instance))
                 return;
 
-            var AN_direction    = new Vector3(Math.Cos(LAN), 0.0, -Math.Sin(LAN));
-            var normal_rotation = Quaternion.CreateFromAxisAngle(AN_direction, (float) inclination);
-            instance._alignment_info.target_normal = Vector3D.Transform(Vector3D.Up, normal_rotation);
+            instance._alignment_info.target_normal = orbit_elements.calculate_orbit_normal(inclination, LAN);
         }
 
         #endregion

@@ -11,22 +11,22 @@ using VRage.Utils;
 
 namespace ttdtwm
 {
-    public struct display_settings
+    public struct OSESettings
     {
-        public bool show_thrust_reduction, show_vertical_speed;
-        public uint min_displayed_reduction;
+        public bool AllowScriptsToInspectOrbitOfAnyShip, ShowThrustReduction, ShowVerticalSpeed;
+        public  int MinDisplayedReduction;
     };
 
     static class screen_info
     {
-        const string settings_file = "TTDTWM.CFG";
+        const string settings_file = "OSE.CFG";
         private static readonly char[] whitespace_char = { ' ', '\t' };
 
         const string THRUST_LOSS          = "/tpdt-tl";
         const string VERTICAL_SPEED       = "/tpdt-vs";
-        const string ORBITAL_ELEMENTS     = "/tpdt-oi";
-        const string ORBIT_REFERENCE      = "/tpdt-or";
-        const string PLANE_ALIGNMENT      = "/tpdt-oa";
+        const string ORBITAL_ELEMENTS     = "/ose-oi";
+        const string ORBIT_REFERENCE      = "/ose-or";
+        const string PLANE_ALIGNMENT      = "/ose-oa";
 
         private class HUD_notification
         {
@@ -40,7 +40,7 @@ namespace ttdtwm
         private static HashSet   <string>                   _requires_natural_gravity = new HashSet   <string>();
         private static bool _UI_handlers_registered = false, _settings_loaded = false;
 
-        private static uint          _min_displayed_reduction = 10;
+        private static int           _min_displayed_reduction = 10;
         private static bool          _display_local_gravity = false, _display_orbit_energy = false, _display_apside_info = false, _display_inclination = false;
         private static StringBuilder _orbital_elements_text = new StringBuilder();
 
@@ -49,6 +49,8 @@ namespace ttdtwm
         public static IMyPlayer                                          local_player          { get; private set; }
         public static VRage.Game.ModAPI.Interfaces.IMyControllableEntity local_controller      { get; private set; }
         public static IMyCubeGrid                                        local_controller_grid { get; private set; }
+
+        public static bool scripts_can_inspect_orbit_of_any_ship { get; private set; } = true;
 
         #endregion
 
@@ -264,10 +266,10 @@ namespace ttdtwm
 
         private static void set_min_thrust_loss_percentage(string parameter)
         {
-            uint min_thrust_loss; 
-            bool min_loss_entered = uint.TryParse(parameter, out min_thrust_loss);
+            int min_thrust_loss; 
+            bool min_loss_entered = int.TryParse(parameter, out min_thrust_loss);
 
-            if (!min_loss_entered || min_thrust_loss > 100)
+            if (!min_loss_entered || min_thrust_loss < 0 || min_thrust_loss > 100)
             {
                 MyAPIGateway.Utilities.ShowMessage("TP&DT", "Please specify a number between 0 and 100");
                 return;
@@ -366,37 +368,41 @@ namespace ttdtwm
         {
             string command, parameter;
 
-            extract_command_and_parameter(message, out command, out parameter);
-            if (command == ORBIT_REFERENCE)
-            {
-                string new_reference = gravity_and_physics.set_current_reference(local_controller_grid, parameter);
-                if (new_reference != null)
-                    MyAPIGateway.Utilities.ShowMessage("TP&DT", "Changed reference body to " + new_reference);
-                return;
+            if (message != null)
+            { 
+                extract_command_and_parameter(message, out command, out parameter);
+                if (command == ORBIT_REFERENCE)
+                {
+                    string new_reference = gravity_and_physics.set_current_reference(local_controller_grid, parameter);
+                    if (new_reference != null)
+                        MyAPIGateway.Utilities.ShowMessage("TP&DT", "Changed reference body to " + new_reference);
+                    return;
+                }
+                if (!_HUD_messages.ContainsKey(command))
+                    return;
+                if (_parameter_handlers.ContainsKey(command) && parameter.Length > 0)
+                    _parameter_handlers[command](parameter);
+                else if (!_requires_natural_gravity.Contains(command) || gravity_and_physics.world_has_gravity)
+                {
+                    _HUD_messages[command].toggled_on = !_HUD_messages[command].toggled_on;
+                    MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("{0} is now {1}", _HUD_messages[command].screen_description, _HUD_messages[command].toggled_on ? "visible" : "hidden"));
+                    if (command == PLANE_ALIGNMENT && !_HUD_messages[PLANE_ALIGNMENT].toggled_on)
+                        gravity_and_physics.clear_target_plane(local_controller_grid);
+                }
+                else
+                    MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("{0} cannot be toggled in zero-g worlds", _HUD_messages[command].screen_description));
             }
-            if (!_HUD_messages.ContainsKey(command))
-                return;
-            if (_parameter_handlers.ContainsKey(command) && parameter.Length > 0)
-                _parameter_handlers[command](parameter);
-            else if (!_requires_natural_gravity.Contains(command) || gravity_and_physics.world_has_gravity)
-            {
-                _HUD_messages[command].toggled_on = !_HUD_messages[command].toggled_on;
-                MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("{0} is now {1}", _HUD_messages[command].screen_description, _HUD_messages[command].toggled_on ? "visible" : "hidden"));
-                if (command == PLANE_ALIGNMENT && !_HUD_messages[PLANE_ALIGNMENT].toggled_on)
-                    gravity_and_physics.clear_target_plane(local_controller_grid);
-            }
-            else
-                MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("{0} cannot be toggled in zero-g worlds", _HUD_messages[command].screen_description));
 
             try
             {
-                display_settings stored_settings = new display_settings
+                OSESettings stored_settings = new OSESettings
                 {
-                    show_thrust_reduction   = _HUD_messages[   THRUST_LOSS].toggled_on,
-                    show_vertical_speed     = _HUD_messages[VERTICAL_SPEED].toggled_on,
-                    min_displayed_reduction = _min_displayed_reduction
+                    AllowScriptsToInspectOrbitOfAnyShip = scripts_can_inspect_orbit_of_any_ship,
+                    ShowThrustReduction                 = _HUD_messages[   THRUST_LOSS].toggled_on,
+                    ShowVerticalSpeed                   = _HUD_messages[VERTICAL_SPEED].toggled_on,
+                    MinDisplayedReduction               = _min_displayed_reduction
                 };
-                TextWriter output = MyAPIGateway.Utilities.WriteFileInLocalStorage(settings_file, typeof(display_settings));
+                TextWriter output = MyAPIGateway.Utilities.WriteFileInLocalStorage(settings_file, typeof(OSESettings));
                 output.Write(MyAPIGateway.Utilities.SerializeToXML(stored_settings));
                 output.Close();
             }
@@ -422,19 +428,20 @@ namespace ttdtwm
 
             if (!_settings_loaded && _UI_handlers_registered)
             {
-                if (MyAPIGateway.Utilities.FileExistsInLocalStorage(settings_file, typeof(display_settings)))
+                if (MyAPIGateway.Utilities.FileExistsInLocalStorage(settings_file, typeof(OSESettings)))
                 {
-                    display_settings stored_settings = new display_settings
+                    OSESettings stored_settings = new OSESettings
                     {
-                        show_thrust_reduction   = true,
-                        show_vertical_speed     = false,
-                        min_displayed_reduction = 10
+                        AllowScriptsToInspectOrbitOfAnyShip = true,
+                        ShowThrustReduction                 = true,
+                        ShowVerticalSpeed                   = false,
+                        MinDisplayedReduction               = 10
                     };
 
                     try
                     {
-                        TextReader input = MyAPIGateway.Utilities.ReadFileInLocalStorage(settings_file, typeof(display_settings));
-                        stored_settings = MyAPIGateway.Utilities.SerializeFromXML<display_settings>(input.ReadToEnd());
+                        TextReader input = MyAPIGateway.Utilities.ReadFileInLocalStorage(settings_file, typeof(OSESettings));
+                        stored_settings = MyAPIGateway.Utilities.SerializeFromXML<OSESettings>(input.ReadToEnd());
                         input.Close();
                     }
                     catch (Exception error)
@@ -442,10 +449,13 @@ namespace ttdtwm
                         MyLog.Default.WriteLine(error);
                     }
 
-                    _HUD_messages[   THRUST_LOSS].toggled_on = stored_settings.show_thrust_reduction;
-                    _HUD_messages[VERTICAL_SPEED].toggled_on = stored_settings.show_vertical_speed;
-                    _min_displayed_reduction                 = stored_settings.min_displayed_reduction;
+                    _HUD_messages[   THRUST_LOSS].toggled_on = stored_settings.ShowThrustReduction;
+                    _HUD_messages[VERTICAL_SPEED].toggled_on = stored_settings.ShowVerticalSpeed;
+                    _min_displayed_reduction                 = stored_settings.MinDisplayedReduction;
+                    scripts_can_inspect_orbit_of_any_ship    = stored_settings.AllowScriptsToInspectOrbitOfAnyShip;
+
                 }
+                command_handler(null, ref _settings_loaded);
                 _settings_loaded = true;
             }
         }

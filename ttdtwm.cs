@@ -239,6 +239,11 @@ namespace ttdtwm
             return orbit_elements.convert_mean_anomaly_to_true;
         }
 
+        private Func<double, double, Vector3D> get_orbit_normal_calculator(IMyTerminalBlock dummy)
+        {
+            return orbit_elements.calculate_orbit_normal;
+        }
+
         private Func<string, string, bool> get_elements_calculator(IMyTerminalBlock PB)
         {
             return delegate (string reference_name, string grid_name)
@@ -536,8 +541,9 @@ namespace ttdtwm
                 create_PB_property<Action<Dictionary<string,   double>>, IMyProgrammableBlock>("GetDerivedElements", get_derived_fetcher);
                 create_PB_property<Action<double?, Dictionary<string, double>>, IMyProgrammableBlock>("GetPositionalElements", get_positional_fetcher);
 
-                create_PB_property<Func<double, double, double>, IMyProgrammableBlock>("ConvertTrueAnomalyToMean", get_true_to_mean_converter);
-                create_PB_property<Func<double, double, double>, IMyProgrammableBlock>("ConvertMeanAnomalyToTrue", get_mean_to_true_converter);
+                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>("ConvertTrueAnomalyToMean", get_true_to_mean_converter );
+                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>("ConvertMeanAnomalyToTrue", get_mean_to_true_converter );
+                create_PB_property<Func<double, double, Vector3D>, IMyProgrammableBlock>(      "ComputeOrbitNormal", get_orbit_normal_calculator);
 
                 IMyTerminalControlSeparator thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(thruster_line);
