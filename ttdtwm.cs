@@ -231,17 +231,25 @@ namespace ttdtwm
 
         private Func<double, double, double> get_true_to_mean_converter(IMyTerminalBlock dummy)
         {
-            return orbit_elements.convert_true_anomaly_to_mean;
+            return gravity_and_physics.convert_true_anomaly_to_mean;
         }
 
         private Func<double, double, double> get_mean_to_true_converter(IMyTerminalBlock dummy)
         {
-            return orbit_elements.convert_mean_anomaly_to_true;
+            return gravity_and_physics.convert_mean_anomaly_to_true;
         }
 
         private Func<double, double, Vector3D> get_orbit_normal_calculator(IMyTerminalBlock dummy)
         {
             return orbit_elements.calculate_orbit_normal;
+        }
+
+        private Func<Vector3D, double> get_radius_to_anomaly_converter(IMyTerminalBlock PB)
+        {
+            return delegate (Vector3D offset)
+            {
+                return gravity_and_physics.get_true_anomaly(PB, offset);
+            };
         }
 
         private Func<string, string, bool> get_elements_calculator(IMyTerminalBlock PB)
@@ -541,9 +549,10 @@ namespace ttdtwm
                 create_PB_property<Action<Dictionary<string,   double>>, IMyProgrammableBlock>("GetDerivedElements", get_derived_fetcher);
                 create_PB_property<Action<double?, Dictionary<string, double>>, IMyProgrammableBlock>("GetPositionalElements", get_positional_fetcher);
 
-                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>("ConvertTrueAnomalyToMean", get_true_to_mean_converter );
-                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>("ConvertMeanAnomalyToTrue", get_mean_to_true_converter );
-                create_PB_property<Func<double, double, Vector3D>, IMyProgrammableBlock>(      "ComputeOrbitNormal", get_orbit_normal_calculator);
+                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>(   "ConvertTrueAnomalyToMean", get_true_to_mean_converter     );
+                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>(   "ConvertMeanAnomalyToTrue", get_mean_to_true_converter     );
+                create_PB_property<Func<double, double, Vector3D>, IMyProgrammableBlock>(         "ComputeOrbitNormal", get_orbit_normal_calculator    );
+                create_PB_property<Func<Vector3D, double>        , IMyProgrammableBlock>("ConvertRadialToTtrueAnomaly", get_radius_to_anomaly_converter);
 
                 IMyTerminalControlSeparator thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(thruster_line);

@@ -129,14 +129,10 @@ namespace ttdtwm
             if (eccentricity_vector.Y < 0.0)
                 argument_of_periapsis = 2.0 * Math.PI - argument_of_periapsis;
 
-            if (eccentricity > 0.0)
-            {
-                _anomaly90           = Vector3D.Cross(specific_angular_momentum, eccentricity_vector);
-                eccentricity_vector = eccentricity * Vector3D.Normalize(Vector3D.Cross(_anomaly90, specific_angular_momentum));
-            }
-            _eccentricity_vector = eccentricity_vector;
+            _anomaly90           = Vector3D.Cross(specific_angular_momentum, (eccentricity > 0.0) ? eccentricity_vector : AN_vector);
+            _eccentricity_vector = eccentricity * Vector3D.Normalize(Vector3D.Cross(_anomaly90, specific_angular_momentum));
 
-            true_anomaly = get_true_anomaly(radius_vector, linear_velocity);
+            true_anomaly = get_true_anomaly(radius_vector);
         }
 
         public void calculate_derived_elements()
@@ -255,7 +251,7 @@ namespace ttdtwm
             return true_anomaly;
         }
 
-        public double get_true_anomaly(Vector3D direction, Vector3D linear_velocity)
+        public double get_true_anomaly(Vector3D direction)
         {
             double true_anomaly;
 
@@ -265,16 +261,16 @@ namespace ttdtwm
                 if (Vector3D.Dot(direction, _anomaly90) < 0.0)
                     true_anomaly = 2.0 * Math.PI - true_anomaly;
             }
-            else if (!Vector3D.IsZero(_AN_vector))
+            else if (inclination != 0.0)
             {
                 true_anomaly = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(_AN_vector, direction) / direction.Length(), -1.0, 1.0));
-                if (Vector3D.Dot(_AN_vector, linear_velocity) > 0.0)
+                if (Vector3D.Dot(direction, _anomaly90) < 0.0)
                     true_anomaly = 2.0 * Math.PI - true_anomaly;
             }
             else
             {
                 true_anomaly = Math.Acos(direction.X / direction.Length());
-                if (linear_velocity.X > 0.0)
+                if (direction.Z > 0.0)
                     true_anomaly = 2.0 * Math.PI - true_anomaly;
             }
 
@@ -487,7 +483,7 @@ namespace ttdtwm
 
             double eccentricity = _current_elements.eccentricity, mean_motion = _current_elements.mean_motion, orbit_period = _current_elements.orbit_period;
             double mean_anomaly = _current_elements.mean_anomaly;
-            double intersection_true_anomaly = _current_elements.get_true_anomaly(intersection_ascending_node, _absolute_linear_velocity);
+            double intersection_true_anomaly = _current_elements.get_true_anomaly(intersection_ascending_node);
             _alignment_info.time_to_ascending_node = floor_mod((orbit_elements.convert_true_anomaly_to_mean(eccentricity, intersection_true_anomaly) - mean_anomaly) * mean_motion, orbit_period);
             intersection_true_anomaly = (intersection_true_anomaly + Math.PI) % (2.0 * Math.PI);
             _alignment_info.time_to_descending_node = floor_mod((orbit_elements.convert_true_anomaly_to_mean(eccentricity, intersection_true_anomaly) - mean_anomaly) * mean_motion, orbit_period);
@@ -505,6 +501,9 @@ namespace ttdtwm
         
         public static bool calculate_elements_for_PB(IMyTerminalBlock PB, string reference_name, string grid_name)
         {
+            if (!world_has_gravity)
+                return false;
+            
             gravity_and_physics instance;
             if (grid_name == null)
                 instance = _grid_list[PB.CubeGrid];
@@ -584,6 +583,40 @@ namespace ttdtwm
             output["Vel"] = PB_elements.predicted_speed;
             output["AoV"] = PB_elements.angle_of_velocity;
             output["Rad"] = PB_elements.predicted_distance;
+        }
+
+        public static double convert_true_anomaly_to_mean(double eccentricity, double true_anomaly)
+        {
+            if (eccentricity < 0.0)
+                eccentricity = 0.0;
+            else if (eccentricity > 0.9999 && eccentricity < 1.0001)
+                eccentricity = 1.0001;
+            return orbit_elements.convert_true_anomaly_to_mean(eccentricity, floor_mod(true_anomaly, 2.0 * Math.PI));
+        }
+
+        public static double convert_mean_anomaly_to_true(double eccentricity, double mean_anomaly)
+        {
+            if (eccentricity < 0.0)
+                eccentricity = 0.0;
+            else if (eccentricity > 0.9999)
+            {
+                if (eccentricity < 1.0001)
+                    eccentricity = 1.0001;
+                return orbit_elements.convert_mean_anomaly_to_true(eccentricity, mean_anomaly);
+            }
+            return orbit_elements.convert_true_anomaly_to_mean(eccentricity, floor_mod(mean_anomaly, 2.0 * Math.PI));
+        }
+
+        public static double get_true_anomaly(IMyTerminalBlock PB, Vector3D direction)
+        {
+            orbit_elements PB_elements;
+            if (!_PB_elements.TryGetValue(PB, out PB_elements))
+                return -1.0;
+            Vector3D aux_vector = Vector3D.Cross(PB_elements.specific_angular_momentum, direction);
+            if (Vector3D.IsZero(aux_vector))
+                return -1.0;
+            direction = Vector3D.Cross(Vector3D.Normalize(aux_vector), PB_elements.specific_angular_momentum);
+            return PB_elements.get_true_anomaly(direction);
         }
 
         public static void list_current_elements(IMyTerminalBlock controller, StringBuilder info_text)
