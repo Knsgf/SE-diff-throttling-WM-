@@ -599,7 +599,7 @@ namespace ttdtwm
             {
                 double min_prohibited_angle = 2.0 * Math.Atan(Math.Sqrt((eccentricity + 1.0) / (eccentricity - 1.0)));
                 if (true_anomaly > min_prohibited_angle && true_anomaly < 2.0 * Math.PI - min_prohibited_angle)
-                    return -1.0;
+                    return 0.0;
             }
             return orbit_elements.convert_true_anomaly_to_mean(eccentricity, true_anomaly);
         }
