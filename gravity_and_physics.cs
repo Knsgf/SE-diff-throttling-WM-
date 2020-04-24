@@ -7,6 +7,7 @@ using Sandbox.ModAPI;
 using VRage.Game;
 using VRage.Game.ModAPI;
 using VRage.Game.Components;
+using VRage.Utils;
 using VRageMath;
 
 namespace ttdtwm
@@ -589,9 +590,18 @@ namespace ttdtwm
         {
             if (eccentricity < 0.0)
                 eccentricity = 0.0;
-            else if (eccentricity > 0.9999 && eccentricity < 1.0001)
+            else if (eccentricity > 0.9999 && eccentricity < 1.0)
+                eccentricity = 0.9999;
+            else if (eccentricity >= 1.0 && eccentricity < 1.0001)
                 eccentricity = 1.0001;
-            return orbit_elements.convert_true_anomaly_to_mean(eccentricity, floor_mod(true_anomaly, 2.0 * Math.PI));
+            true_anomaly = floor_mod(true_anomaly, 2.0 * Math.PI);
+            if (eccentricity > 1.0)
+            {
+                double min_prohibited_angle = 2.0 * Math.Atan(Math.Sqrt((eccentricity + 1.0) / (eccentricity - 1.0)));
+                if (true_anomaly > min_prohibited_angle && true_anomaly < 2.0 * Math.PI - min_prohibited_angle)
+                    return -1.0;
+            }
+            return orbit_elements.convert_true_anomaly_to_mean(eccentricity, true_anomaly);
         }
 
         public static double convert_mean_anomaly_to_true(double eccentricity, double mean_anomaly)
