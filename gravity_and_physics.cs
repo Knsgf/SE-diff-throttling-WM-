@@ -213,11 +213,11 @@ namespace ttdtwm
                 if (mean_anomaly >= 0.0)
                 {
                     low  = 0.0;
-                    high = 2.0 * Math.Atan(Math.Sqrt((eccentricity + 1.0) / (eccentricity - 1.0)));
+                    high = Math.Acos(-1.0 / eccentricity);
                 }
                 else
                 {
-                    low  = -2.0 * Math.Atan(Math.Sqrt((eccentricity + 1.0) / (eccentricity - 1.0)));
+                    low  = -Math.Acos(-1.0 / eccentricity);
                     high = 0.0;
                 }
                 do
@@ -597,7 +597,7 @@ namespace ttdtwm
             true_anomaly = floor_mod(true_anomaly, 2.0 * Math.PI);
             if (eccentricity > 1.0)
             {
-                double min_prohibited_angle = 2.0 * Math.Atan(Math.Sqrt((eccentricity + 1.0) / (eccentricity - 1.0)));
+                double min_prohibited_angle = Math.Acos(-1.0 / eccentricity);
                 if (true_anomaly > min_prohibited_angle && true_anomaly < 2.0 * Math.PI - min_prohibited_angle)
                     return 0.0;
             }
