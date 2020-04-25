@@ -13,7 +13,7 @@ namespace ttdtwm
 {
     public struct OSESettings
     {
-        public bool AllowScriptsToInspectOrbitOfAnyShip, ShowThrustReduction, ShowVerticalSpeed;
+        public bool AllowScriptsToInspectOrbitOfAnyShip, DisableTorque, ShowThrustReduction, ShowVerticalSpeed;
         public  int MinDisplayedReduction;
     };
 
@@ -51,6 +51,8 @@ namespace ttdtwm
         public static IMyCubeGrid                                        local_controller_grid { get; private set; }
 
         public static bool scripts_can_inspect_orbit_of_any_ship { get; private set; } = true;
+        public static bool torque_disabled { get; private set; } = true;
+        public static bool settings_loaded => _settings_loaded;
 
         #endregion
 
@@ -398,6 +400,7 @@ namespace ttdtwm
                 OSESettings stored_settings = new OSESettings
                 {
                     AllowScriptsToInspectOrbitOfAnyShip = scripts_can_inspect_orbit_of_any_ship,
+                    DisableTorque                       = torque_disabled,
                     ShowThrustReduction                 = _HUD_messages[   THRUST_LOSS].toggled_on,
                     ShowVerticalSpeed                   = _HUD_messages[VERTICAL_SPEED].toggled_on,
                     MinDisplayedReduction               = _min_displayed_reduction
@@ -433,6 +436,7 @@ namespace ttdtwm
                     OSESettings stored_settings = new OSESettings
                     {
                         AllowScriptsToInspectOrbitOfAnyShip = true,
+                        DisableTorque                       = false,
                         ShowThrustReduction                 = true,
                         ShowVerticalSpeed                   = false,
                         MinDisplayedReduction               = 10
@@ -453,7 +457,7 @@ namespace ttdtwm
                     _HUD_messages[VERTICAL_SPEED].toggled_on = stored_settings.ShowVerticalSpeed;
                     _min_displayed_reduction                 = stored_settings.MinDisplayedReduction;
                     scripts_can_inspect_orbit_of_any_ship    = stored_settings.AllowScriptsToInspectOrbitOfAnyShip;
-
+                    torque_disabled                          = stored_settings.DisableTorque;
                 }
                 command_handler(null, ref _settings_loaded);
                 _settings_loaded = true;

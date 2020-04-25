@@ -37,7 +37,7 @@ namespace ttdtwm
             public Vector3             torque_factor, grid_centre_pos, static_moment, actual_static_moment, CoM_offset, reference_vector;
             public thrust_dir          nozzle_direction;
             public float               current_setting, thrust_limit, prev_setting, manual_throttle;
-            public bool                enable_limit, enable_rotation, active_control_on, is_RCS, disable_linear_input, skip, throttle_up, apply_limit;
+            public bool                enable_limit, enable_rotation, active_control_on, is_RCS, disable_linear_input, skip, throttle_up, apply_limit, collective_control_on;
             public thruster_info       next_tandem_thruster, prev_tandem_thruster, opposing_thruster;
             public string              throttle_setting;
             public int                 control_sector;
@@ -370,6 +370,8 @@ namespace ttdtwm
         {
             //if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
             //    return;
+            if (screen_info.torque_disabled)
+                return;
 
             IMyThrust     thruster;
             thruster_info cur_thruster_info;
@@ -823,6 +825,8 @@ namespace ttdtwm
                 if (cur_thruster_info.current_setting * cur_thruster_info.actual_max_force < MIN_OVERRIDE)
                     cur_thruster_info.current_setting = 0.0f;
                 setting = cur_thruster_info.current_setting * cur_thruster_info.max_force;
+                if (manoeuvre_active && setting < MIN_OVERRIDE)
+                    setting = MIN_OVERRIDE;
                 __actual_force[(int) cur_thruster_info.nozzle_direction] += setting;
                 if (   Math.Abs(setting - cur_thruster_info.prev_setting) >= MIN_THRUST_CHANGE
                     || (setting >                         0.0f) != (cur_thruster_info.prev_setting >                         0.0f)
@@ -1760,11 +1764,17 @@ namespace ttdtwm
                             {
                                 if (!use_active_control && _is_solution_good[dir_index])
                                 {
-                                    if (!collective_thrusters.Contains(cur_thruster_info))
+                                    if (!cur_thruster_info.collective_control_on)
+                                    {
                                         collective_thrusters.Add(cur_thruster_info);
+                                        cur_thruster_info.collective_control_on = true;
+                                    }
                                 }
-                                else if (collective_thrusters.Contains(cur_thruster_info))
+                                else if (cur_thruster_info.collective_control_on)
+                                {
                                     collective_thrusters.Remove(cur_thruster_info);
+                                    cur_thruster_info.collective_control_on = false;
+                                }
                             }
                         }
                     }
@@ -1918,7 +1928,7 @@ namespace ttdtwm
             new_thruster.torque_factor        = Vector3.Cross(new_thruster.CoM_offset, -_thrust_forward_vectors[(int) new_thruster.nozzle_direction]);
             new_thruster.reference_vector     = get_reference_vector(new_thruster, _grid_CoM_location, _thrust_forward_vectors[(int) new_thruster.nozzle_direction]);
             new_thruster.thrust_limit         = 1.0f;
-            new_thruster.enable_limit         = new_thruster.enable_rotation = new_thruster.active_control_on = false;
+            new_thruster.enable_limit         = new_thruster.enable_rotation = new_thruster.active_control_on = new_thruster.collective_control_on = false;
             new_thruster.opposing_thruster    = null;
             new_thruster.next_tandem_thruster = new_thruster.prev_tandem_thruster = new_thruster;
             new_thruster.throttle_setting     = "TTDTWM_MT_" + thruster.EntityId.ToString();
@@ -2425,13 +2435,13 @@ namespace ttdtwm
                 }
             }
 
-            _force_override_refresh = true;
+            _force_override_refresh = !screen_info.torque_disabled;
             refresh_turn_sensitivity();
         }
 
         public void handle_2s_period_background()
         {
-            if (_grid_is_movable)
+            if (_grid_is_movable && !screen_info.torque_disabled)
                 check_thruster_control_changed();
         }
 
