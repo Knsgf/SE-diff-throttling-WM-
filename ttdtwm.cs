@@ -481,21 +481,24 @@ namespace ttdtwm
 
         private void create_controller_widgets<_controller_type_>()
         {
-            IMyTerminalControlSeparator controller_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE1");
-            MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line);
-            create_checkbox<_controller_type_>(    "RotationalDamping",        "Rotational Damping", null,                   "On",    "Off", is_grid_rotational_damping_on, set_grid_rotational_damping,      is_grid_control_available);
-            create_switch  <_controller_type_>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM",           is_grid_CoT_mode_on,           set_grid_CoT_mode,      is_grid_control_available);
-            create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad",    use_individual_calibration,   choose_calibration_method,      is_grid_control_available);
-            create_switch  <_controller_type_>(          "LandingMode",            "Touchdown Mode", null,   "On",  "Off", "Land", "Flight",       is_grid_landing_mode_on,       set_grid_landing_mode, is_grid_landing_mode_available);
+            if (!screen_info.torque_disabled)
+            { 
+                IMyTerminalControlSeparator controller_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE1");
+                MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line);
+                create_checkbox<_controller_type_>(    "RotationalDamping",        "Rotational Damping", null,                   "On",    "Off", is_grid_rotational_damping_on, set_grid_rotational_damping,      is_grid_control_available);
+                create_switch  <_controller_type_>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM",           is_grid_CoT_mode_on,           set_grid_CoT_mode,      is_grid_control_available);
+                create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad",    use_individual_calibration,   choose_calibration_method,      is_grid_control_available);
+                create_switch  <_controller_type_>(          "LandingMode",            "Touchdown Mode", null,   "On",  "Off", "Land", "Flight",       is_grid_landing_mode_on,       set_grid_landing_mode, is_grid_landing_mode_available);
 
-            IMyTerminalControlSeparator controller_line2 = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE2");
-            MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line2);
-            IMyTerminalControlLabel controller_line_ID_override_label = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_ID_OVR");
-            controller_line_ID_override_label.Label = MyStringId.GetOrCompute("Inertia Damper Overrides");
-            MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_ID_override_label);
-            create_checkbox<_controller_type_>(      "ForeAftIDDisable", "Disable fore/aft"      , null, "On", "Off", create_damper_override_reader(2), create_damper_override_setter(2), is_grid_control_available);
-            create_checkbox<_controller_type_>("PortStarboardIDDisable", "Disable port/starboard", null, "On", "Off", create_damper_override_reader(0), create_damper_override_setter(0), is_grid_control_available);
-            create_checkbox<_controller_type_>("DorsalVentralIDDisable", "Disable dorsal/ventral", null, "On", "Off", create_damper_override_reader(1), create_damper_override_setter(1), is_grid_control_available);
+                IMyTerminalControlSeparator controller_line2 = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE2");
+                MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line2);
+                IMyTerminalControlLabel controller_line_ID_override_label = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_ID_OVR");
+                controller_line_ID_override_label.Label = MyStringId.GetOrCompute("Inertia Damper Overrides");
+                MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_ID_override_label);
+                create_checkbox<_controller_type_>(      "ForeAftIDDisable", "Disable fore/aft"      , null, "On", "Off", create_damper_override_reader(2), create_damper_override_setter(2), is_grid_control_available);
+                create_checkbox<_controller_type_>("PortStarboardIDDisable", "Disable port/starboard", null, "On", "Off", create_damper_override_reader(0), create_damper_override_setter(0), is_grid_control_available);
+                create_checkbox<_controller_type_>("DorsalVentralIDDisable", "Disable dorsal/ventral", null, "On", "Off", create_damper_override_reader(1), create_damper_override_setter(1), is_grid_control_available);
+            }
 
             IMyTerminalControlLabel controller_line_ID_mode = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_IDMODE");
             controller_line_ID_mode.Label = MyStringId.GetOrCompute("Inertia Damper Mode");
@@ -528,7 +531,7 @@ namespace ttdtwm
                 MyAPIGateway.Entities.OnEntityRemove += on_entity_removed;
                 _entity_events_set = true;
             }
-            if (!_panel_controls_set && _sample_thruster != null && _sample_controller != null && MyAPIGateway.TerminalControls != null)
+            if (!_panel_controls_set && screen_info.settings_loaded && _sample_thruster != null && _sample_controller != null && MyAPIGateway.TerminalControls != null)
             {
                 try
                 {
@@ -554,6 +557,12 @@ namespace ttdtwm
                 create_PB_property<Func<double, double, Vector3D>, IMyProgrammableBlock>(         "ComputeOrbitNormal", get_orbit_normal_calculator    );
                 create_PB_property<Func<Vector3D, double>        , IMyProgrammableBlock>("ConvertRadialToTtrueAnomaly", get_radius_to_anomaly_converter);
 
+                _panel_controls_set = true;
+                _sample_thruster    = null;
+                _sample_controller  = null;
+
+                if (screen_info.torque_disabled)
+                    return;
                 IMyTerminalControlSeparator thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(thruster_line);
                 create_switch  <IMyThrust>(     "ActiveControl",             "Steering", null, "On", "Off", "On", "Off", thruster_tagger.is_under_active_control, thruster_tagger.set_active_control , thruster_tagger.is_active_control_available);
@@ -582,10 +591,6 @@ namespace ttdtwm
                     },
                     thruster_tagger.throttle_status, "Decrease");
                 create_PB_property<float, IMyThrust>("BalancedLevel", thruster_tagger.get_thrust_limit);
-
-                _panel_controls_set = true;
-                _sample_thruster    = null;
-                _sample_controller  = null;
             }
         }
 
