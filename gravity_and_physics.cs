@@ -40,8 +40,9 @@ namespace ttdtwm
         public Vector3D local_gravity { get; private set; }
 
         // Size and shape elements
-        public double semi_major_axis { get; private set; }
-        public double eccentricity    { get; private set; }
+        public double reference_radius { get; private set; }
+        public double semi_major_axis  { get; private set; }
+        public double eccentricity     { get; private set; }
 
         // Orientation elements
         public double inclination                 { get; private set; }
@@ -77,12 +78,13 @@ namespace ttdtwm
 
         #region Element calculation
 
-        public void calculate_primary_elements(double SGP, Vector3D radius_vector, Vector3D linear_velocity, Vector3D local_gravity, string body_name, bool minor_body)
+        public void calculate_primary_elements(double SGP, Vector3D radius_vector, Vector3D linear_velocity, Vector3D local_gravity, string body_name, double body_radius, bool minor_body)
         {
             _current_SGP       = SGP;
             name               = body_name;
             foreign_reference  = minor_body;
             this.local_gravity = local_gravity;
+            reference_radius   = body_radius;
 
             Vector3D specific_angular_momentum;
             specific_angular_momentum = _specific_angular_momentum = Vector3D.Cross(radius_vector, linear_velocity);
@@ -319,7 +321,7 @@ namespace ttdtwm
         class gravity_source
         {
             public string   name;
-            public double   surface_gravity, radius2, standard_gravitational_parameter;
+            public double   surface_gravity, radius, radius2, standard_gravitational_parameter;
             public Vector3D centre_position;
         }
 
@@ -370,6 +372,7 @@ namespace ttdtwm
             var new_gravity_source = new gravity_source
             {
                 name            = new_planetoid.Name,
+                radius          = new_planetoid.MaximumRadius,
                 radius2         = new_planetoid.MaximumRadius * new_planetoid.MaximumRadius,
                 surface_gravity = REFERENCE_GRAVITY * new_planetoid.GetInitArguments.SurfaceGravity
             };
@@ -466,7 +469,7 @@ namespace ttdtwm
             Vector3D grid_vector   = _grid_position - selected_reference.centre_position;
             double   SGP           = GRAVITY_ON ? selected_reference.standard_gravitational_parameter : (_grid.Physics.Gravity.Length() * grid_vector.LengthSquared());
             Vector3D local_gravity = calculate_gravity_vector(selected_reference, _grid_position);
-            new_elements.calculate_primary_elements(SGP, grid_vector, _absolute_linear_velocity, local_gravity, selected_reference.name, selected_reference != _current_reference);
+            new_elements.calculate_primary_elements(SGP, grid_vector, _absolute_linear_velocity, local_gravity, selected_reference.name, selected_reference.radius, selected_reference != _current_reference);
 
             if (!primary_only)
             {
@@ -477,17 +480,18 @@ namespace ttdtwm
 
         private void calculate_plane_intersection()
         {
-            Vector3D specific_angular_momentum    = _current_elements.specific_angular_momentum;
-            _alignment_info.relative_inclination  = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(specific_angular_momentum, _alignment_info.target_normal) / specific_angular_momentum.Length(), -1.0, 1.0));
-            Vector3D intersection_ascending_node  = Vector3D.Cross(_alignment_info.target_normal, specific_angular_momentum);
-            _alignment_info.ascending_node_vector = intersection_ascending_node;
+            Vector3D                 specific_angular_momentum = _current_elements.specific_angular_momentum;
+            orbit_plane_intersection alignment_info            = _alignment_info;
+            alignment_info.relative_inclination  = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(specific_angular_momentum, alignment_info.target_normal) / specific_angular_momentum.Length(), -1.0, 1.0));
+            Vector3D intersection_ascending_node = Vector3D.Cross(alignment_info.target_normal, specific_angular_momentum);
+            alignment_info.ascending_node_vector = intersection_ascending_node;
 
             double eccentricity = _current_elements.eccentricity, mean_motion = _current_elements.mean_motion, orbit_period = _current_elements.orbit_period;
             double mean_anomaly = _current_elements.mean_anomaly;
             double intersection_true_anomaly = _current_elements.get_true_anomaly(intersection_ascending_node);
-            _alignment_info.time_to_ascending_node = floor_mod((orbit_elements.convert_true_anomaly_to_mean(eccentricity, intersection_true_anomaly) - mean_anomaly) * mean_motion, orbit_period);
+            alignment_info.time_to_ascending_node = floor_mod((orbit_elements.convert_true_anomaly_to_mean(eccentricity, intersection_true_anomaly) - mean_anomaly) * mean_motion, orbit_period);
             intersection_true_anomaly = (intersection_true_anomaly + Math.PI) % (2.0 * Math.PI);
-            _alignment_info.time_to_descending_node = floor_mod((orbit_elements.convert_true_anomaly_to_mean(eccentricity, intersection_true_anomaly) - mean_anomaly) * mean_motion, orbit_period);
+            alignment_info.time_to_descending_node = floor_mod((orbit_elements.convert_true_anomaly_to_mean(eccentricity, intersection_true_anomaly) - mean_anomaly) * mean_motion, orbit_period);
         }
 
         #endregion
@@ -548,6 +552,7 @@ namespace ttdtwm
             if (output == null || !_PB_elements.TryGetValue(PB, out PB_elements))
                 return;
 
+            output["RBR"] = PB_elements.reference_radius;
             output["SMA"] = PB_elements.semi_major_axis;
             output["Ecc"] = PB_elements.eccentricity;
             output["Inc"] = PB_elements.inclination;
@@ -816,10 +821,12 @@ namespace ttdtwm
             }
 
             update_grid_position_and_velocity();
-            Vector3D gravity_vector           = calculate_gravity_vector(_current_reference, _grid_position);
-            Vector3  stock_gravity_force      = _grid.Physics.Gravity;
+            Vector3D gravity_vector      = calculate_gravity_vector(_current_reference, _grid_position);
+            Vector3  stock_gravity_force = _grid.Physics.Gravity;
+            double   gravity_magnitude   = gravity_vector.Length(), stock_gravity_magnitude = stock_gravity_force.Length();
+            if (gravity_magnitude < stock_gravity_magnitude)
+                gravity_vector *= stock_gravity_magnitude / gravity_magnitude;
             Vector3D gravity_correction_force = _grid.Physics.Mass * (gravity_vector - stock_gravity_force) + _accumulated_gravity;
-
             if (gravity_correction_force.LengthSquared() >= 1.0 || _current_torque.LengthSquared() >= 1.0f)
                 _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, GRAVITY_ON ? (gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND) : Vector3D.Zero, _grid_position, _current_torque /*Vector3.Zero*/);
             _current_torque = Vector3.Zero;
@@ -854,7 +861,8 @@ namespace ttdtwm
         {
             IMyCharacter   player;
             gravity_source current_source;
-            Vector3D       player_positon, gravity_vector;
+            Vector3D       player_positon, gravity_vector, stock_gravity_vector;
+            double         gravity_magnitude, stock_gravity_magnitude;
 
             foreach (KeyValuePair<IMyCharacter, gravity_source> player_entry in _PC_current_source)
             {
@@ -863,9 +871,14 @@ namespace ttdtwm
                 if (current_source == null || !player.EnabledThrusts || player.EnabledDamping || player.Physics == null || !player.Physics.Enabled)
                     continue;
 
-                player_positon = player.PositionComp.GetPosition();
-                gravity_vector = calculate_gravity_vector(current_source, player_positon);
-                player.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, (gravity_vector - player.Physics.Gravity) * player.Physics.Mass / MyEngineConstants.UPDATE_STEPS_PER_SECOND, player_positon, Vector3.Zero);
+                player_positon          = player.PositionComp.GetPosition();
+                gravity_vector          = calculate_gravity_vector(current_source, player_positon);
+                stock_gravity_vector    = player.Physics.Gravity;
+                gravity_magnitude       = gravity_vector.Length();
+                stock_gravity_magnitude = stock_gravity_vector.Length();
+                if (gravity_magnitude < stock_gravity_magnitude)
+                    gravity_vector *= stock_gravity_magnitude / gravity_magnitude;
+                player.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, (gravity_vector - stock_gravity_vector) * player.Physics.Mass / MyEngineConstants.UPDATE_STEPS_PER_SECOND, player_positon, Vector3.Zero);
             }
         }
 

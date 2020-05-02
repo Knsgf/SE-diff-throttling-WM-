@@ -69,6 +69,9 @@ namespace ttdtwm
                 _last_item_count = item_count;
             }
 
+            int[] vB = _vB, vN = _vN;
+            List<solver_entry> items = this.items;
+
             _E.set_to_identity(num_vars);
             _cB.clear(1,   num_vars);
             _cN.clear(1, item_count);
@@ -89,15 +92,15 @@ namespace ttdtwm
             for (int cur_item = 0; cur_item < item_count; ++cur_item)
             {
                 cur_index = cur_item + 2;
-                _vB   [cur_index] = cur_item;
-                _vN   [cur_item ] = cur_item + num_vars;
+                vB    [cur_index] = cur_item;
+                vN    [cur_item ] = cur_item + num_vars;
                 B0_ref[cur_index] = items[cur_item].x;
                 B1_ref[cur_index] = items[cur_item].y;
                 _N[cur_index][cur_item] = 1.0;
                 _b[cur_index][       0] = items[cur_item].max_value;
             }
-            _vB[0] = item_count;
-            _vB[1] = item_count + 1;
+            vB[0] = item_count;
+            vB[1] = item_count + 1;
         }
 
         private bool perform_pivot(int num_vars, int entering_var, int leaving_var, int iterations)

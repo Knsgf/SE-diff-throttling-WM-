@@ -213,6 +213,7 @@ namespace ttdtwm
         private void update_ECU_cockpit_controls()
         {
             bool CoT_mode_on = false, landing_mode_on = false, rotational_damping_on = true, use_individual_calibration = false, circularise_on = false;
+            engine_control_unit ECU = _ECU;
 
             foreach (IMyControllableEntity cur_controller in _ship_controllers)
             {
@@ -223,16 +224,16 @@ namespace ttdtwm
                 circularise_on             = controller_data.ContainsCIRCULARISETag();
                 landing_mode_on            = controller_data.ContainsLANDINGTag() && is_landing_mode_available;
                 _ID_on                     = cur_controller.EnabledDamping;
-                _ECU.translate_damper_override(controller_data.IDOverrides(), (IMyTerminalBlock) cur_controller);
+                ECU.translate_damper_override(controller_data.IDOverrides(), (IMyTerminalBlock) cur_controller);
                 break;
             }
-            _ECU.CoT_mode_on                = CoT_mode_on;
-            _ECU.use_individual_calibration = use_individual_calibration;
-            _ECU.landing_mode_on            = landing_mode_on;
-            _ECU.rotational_damping_on      = rotational_damping_on;
-            _ECU.linear_dampers_on          = _ID_on;
-            _ECU.circularise_on             = circularise_on;
-            _ECU.secondary_ECU              = _is_secondary;
+            ECU.CoT_mode_on                = CoT_mode_on;
+            ECU.use_individual_calibration = use_individual_calibration;
+            ECU.landing_mode_on            = landing_mode_on;
+            ECU.rotational_damping_on      = rotational_damping_on;
+            ECU.linear_dampers_on          = _ID_on;
+            ECU.circularise_on             = circularise_on;
+            ECU.secondary_ECU              = _is_secondary;
         }
 
         private void initialise_ECU_and_physics()
@@ -421,8 +422,7 @@ namespace ttdtwm
 
             engine_control_unit current_ECU = instance._ECU;
             current_ECU.current_trim    = structurise_vector(argument, 0);
-            current_ECU.last_trim       = structurise_vector(argument, 6);
-            current_ECU.linear_integral = structurise_vector(argument, 12);
+            current_ECU.linear_integral = structurise_vector(argument, 6);
         }
 
         internal static void sync_manoeuvre(object entity, byte[] argument, int length)
@@ -488,15 +488,13 @@ namespace ttdtwm
 
         private void send_I_terms_message()
         {
-            if (_ECU.current_trim != _prev_trim || _ECU.last_trim != _prev_last_trim || _ECU.linear_integral != _prev_linear_integral)
+            if (_ECU.current_trim != _prev_trim || _ECU.linear_integral != _prev_linear_integral)
             {
                 _prev_trim            = _ECU.current_trim;
-                _prev_last_trim       = _ECU.last_trim;
                 _prev_linear_integral = _ECU.linear_integral;
                 serialise_vector(_prev_trim           , __message, 0);
-                serialise_vector(_prev_last_trim      , __message, 6);
-                serialise_vector(_prev_linear_integral, __message, 12);
-                sync_helper.send_message_to_others(sync_helper.message_types.I_TERMS, this, __message, 18);
+                serialise_vector(_prev_linear_integral, __message, 6);
+                sync_helper.send_message_to_others(sync_helper.message_types.I_TERMS, this, __message, 12);
             }
         }
 

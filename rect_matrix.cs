@@ -10,29 +10,10 @@ namespace ttdtwm
         private int        _width, _initial_width, _height;
         private double[][] _contents;
 
-        public double[] this[int row]
-        {
-            get
-            {
-                return _contents[row];
-            }
-        }
+        public double[] this[int row] => _contents[row];
 
-        public int rows
-        {
-            get
-            {
-                return _height;
-            }
-        }
-
-        public int columns
-        {
-            get
-            {
-                return _width;
-            }
-        }
+        public int rows    => _height;
+        public int columns => _width;
 
         #region Assignment operations
 
@@ -48,19 +29,23 @@ namespace ttdtwm
             else if (new_columns <= 0)
                 new_columns = new_rows;
 
+            int        width, height;
+            double[][] contents;
             if (new_rows == _height && new_columns == _initial_width)
             {
-                _width = _initial_width;
-                for (int cur_row = 0; cur_row < _height; ++cur_row)
-                    Array.Clear(_contents[cur_row], 0, _width);
+                width    = _width = _initial_width;
+                height   = _height;
+                contents = _contents;
+                for (int cur_row = 0; cur_row < height; ++cur_row)
+                    Array.Clear(contents[cur_row], 0, width);
             }
             else
             {
-                _width    = _initial_width = new_columns;
-                _height   = new_rows;
-                _contents = new double[_height][];
-                for (int cur_row = 0; cur_row < _height; ++cur_row)
-                    _contents[cur_row] = new double[_width];
+                width    = _width    = _initial_width = new_columns;
+                height   = _height   = new_rows;
+                contents = _contents = new double[height][];
+                for (int cur_row = 0; cur_row < height; ++cur_row)
+                    contents[cur_row] = new double[width];
             }
         }
 
@@ -93,8 +78,10 @@ namespace ttdtwm
             if (_width != 1 || _height != b._height)
                 clear(b._height, 1);
 
-            for (int cur_row = 0; cur_row < _height; ++cur_row)
-                _contents[cur_row][0] = b._contents[cur_row][column];
+            int        height   = _height;
+            double[][] contents = _contents, source = b._contents;
+            for (int cur_row = 0; cur_row < height; ++cur_row)
+                contents[cur_row][0] = source[cur_row][column];
         }
 
         /*
@@ -122,9 +109,10 @@ namespace ttdtwm
 
         public void zero_roundoff_errors()
         {
+            double[][] contents = _contents;
             for (int cur_row = 0; cur_row < _height; ++cur_row)
             {
-                double[] row_ref = _contents[cur_row];
+                double[] row_ref = contents[cur_row];
 
                 for (int cur_column = 0; cur_column < _width; ++cur_column)
                 {
@@ -290,7 +278,7 @@ namespace ttdtwm
 
         public void log(string name, bool show_contents = true)
         {
-            StringBuilder row = new StringBuilder();
+            var row = new StringBuilder();
 
             MyLog.Default.WriteLine(string.Format("\n{0} {1}x{2}", name, _height, _width));
             if (!show_contents)

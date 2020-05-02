@@ -17,8 +17,8 @@ namespace ttdtwm
 
         private sealed class sparse_row: sparse_row_ref
         {
-            private int                     _width;
-            private Dictionary<int, double> _row_ref;
+            private int _width;
+            private readonly Dictionary<int, double> _row_ref;
 
             private sparse_row()
             {
@@ -57,10 +57,13 @@ namespace ttdtwm
 
             public void set_width(int columns)
             {
-                for (int cur_column = columns; cur_column < _width; ++cur_column)
+                int width = _width;
+                Dictionary<int, double> row_ref = _row_ref;
+
+                for (int cur_column = columns; cur_column < width; ++cur_column)
                 {
-                    if (_row_ref.ContainsKey(cur_column))
-                        _row_ref.Remove(cur_column);
+                    if (row_ref.ContainsKey(cur_column))
+                        row_ref.Remove(cur_column);
                 }
                 _width = columns;
             }
@@ -74,13 +77,7 @@ namespace ttdtwm
         private Dictionary<int, double>[] _contents;
         private sparse_row[]              _row_objects;
 
-        public sparse_row_ref this[int row]
-        {
-            get
-            {
-                return _row_objects[row];
-            }
-        }
+        public sparse_row_ref this[int row] => _row_objects[row];
 
         #region Assigment operations
 
@@ -96,46 +93,58 @@ namespace ttdtwm
             else if (new_columns <= 0)
                 new_columns = new_rows;
 
-            _width = _initial_width = new_columns;
+            int initial_width;
+            _width = _initial_width = initial_width = new_columns;
+            int height;
+            Dictionary<int, double>[] contents;
+            sparse_row[] row_objects;
             if (new_rows == _height)
             {
-                for (int cur_row = 0; cur_row < _height; ++cur_row)
+                height      = _height;
+                contents    = _contents;
+                row_objects = _row_objects;
+                for (int cur_row = 0; cur_row < height; ++cur_row)
                 {
-                    _contents   [cur_row].Clear();
-                    _row_objects[cur_row].set_width(_initial_width);
+                    contents   [cur_row].Clear();
+                    row_objects[cur_row].set_width(initial_width);
                 }
             }
             else
             {
-                _height      = new_rows;
-                _contents    = new Dictionary<int, double>[_height];
-                _row_objects = new              sparse_row[_height];
-                for (int cur_row = 0; cur_row < _height; ++cur_row)
+                _height      = height      = new_rows;
+                _contents    = contents    = new Dictionary<int, double>[height];
+                _row_objects = row_objects = new              sparse_row[height];
+                for (int cur_row = 0; cur_row < height; ++cur_row)
                 {
-                    _contents   [cur_row] = new Dictionary<int, double>();
-                    _row_objects[cur_row] = new sparse_row(_contents[cur_row], _initial_width);
+                    contents   [cur_row] = new Dictionary<int, double>();
+                    row_objects[cur_row] = new sparse_row(contents[cur_row], initial_width);
                 }
             }
 
-            if (__index_array == null || __index_array.Length < _initial_width)
+            if (__index_array == null || __index_array.Length < initial_width)
                 __index_array = new int[_initial_width];
         }
 
         public void set_to_identity(int size = 0)
         {
             clear(size);
-            for (int cur_element = 0; cur_element < _height; ++cur_element)
-                _contents[cur_element].Add(cur_element, 1.0);
+            int height = _height;
+            Dictionary<int, double>[] contents = _contents;
+            for (int cur_element = 0; cur_element < height; ++cur_element)
+                contents[cur_element].Add(cur_element, 1.0);
         }
 
         public void copy_from(sparse_matrix b)
         {
             clear(b._height, b._width);
-            for (int cur_row = 0; cur_row < _height; ++cur_row)
-            {
-                IDictionary<int, double> row_ref = _contents[cur_row], src_row_ref = b._contents[cur_row];
 
-                foreach (var cur_element in src_row_ref)
+            int height = _height;
+            Dictionary<int, double>[] contents = _contents, source = b._contents;
+            for (int cur_row = 0; cur_row < height; ++cur_row)
+            {
+                IDictionary<int, double> row_ref = contents[cur_row], src_row_ref = source[cur_row];
+
+                foreach (KeyValuePair<int, double> cur_element in src_row_ref)
                     row_ref.Add(cur_element);
             }
         }
@@ -147,10 +156,12 @@ namespace ttdtwm
             Dictionary<int, double> row_ref;
 
             clear(b._height, 1);
-            for (int cur_row = 0; cur_row < _height; ++cur_row)
+            int height = _height;
+            Dictionary<int, double>[] contents = _contents, source = b._contents;
+            for (int cur_row = 0; cur_row < height; ++cur_row)
             {
-                row_ref  =   _contents[cur_row];
-                non_zero = b._contents[cur_row].TryGetValue(column, out value);
+                row_ref  = contents[cur_row];
+                non_zero =   source[cur_row].TryGetValue(column, out value);
                 if (non_zero)
                     row_ref[0] = value;
                 else if (row_ref.ContainsKey(0))
@@ -160,12 +171,14 @@ namespace ttdtwm
 
         private void exchange_rows(int row1, int row2)
         {
-            Dictionary<int, double> temp_row = _contents[row1];
-            _contents[row1]                  = _contents[row2];
-            _contents[row2]                  = temp_row;
-            sparse_row temp_row_obj = _row_objects[row1];
-            _row_objects[row1]      = _row_objects[row2];
-            _row_objects[row2]      = temp_row_obj;
+            Dictionary<int, double>[] contents = _contents;
+            Dictionary<int, double> temp_row   = contents[row1];
+            contents[row1]                     = contents[row2];
+            contents[row2]                     = temp_row;
+            sparse_row[] row_objects = _row_objects;
+            sparse_row temp_row_obj  = row_objects[row1];
+            row_objects[row1]        = row_objects[row2];
+            row_objects[row2]        = temp_row_obj;
         }
 
         public static void exchange_columns(sparse_matrix a, int column_a, sparse_matrix b, int column_b)
@@ -177,10 +190,12 @@ namespace ttdtwm
             bool                    non_zero_a, non_zero_b;
             Dictionary<int, double> a_row_ref, b_row_ref;
 
-            for (int cur_row = 0; cur_row < a._height; ++cur_row)
+            int height = a._height;
+            Dictionary<int, double>[] contents_a = a._contents, contents_b = b._contents;
+            for (int cur_row = 0; cur_row < height; ++cur_row)
             {
-                a_row_ref = a._contents[cur_row];
-                b_row_ref = b._contents[cur_row];
+                a_row_ref = contents_a[cur_row];
+                b_row_ref = contents_b[cur_row];
                 non_zero_a = a_row_ref.TryGetValue(column_a, out a_value);
                 non_zero_b = b_row_ref.TryGetValue(column_b, out b_value);
                 if (non_zero_a)
@@ -210,26 +225,31 @@ namespace ttdtwm
                 throw new ArgumentException("Shrink amount negative or too big");
 
             _width -= shrink;
-            for (int cur_row = 0; cur_row < _height; ++cur_row)
-                _row_objects[cur_row].set_width(_width);
+            int width = _width, height = _height;
+            sparse_row[] row_objects = _row_objects;
+            for (int cur_row = 0; cur_row < height; ++cur_row)
+                row_objects[cur_row].set_width(width);
         }
 
         public void purge_zeroes()
         {
             Dictionary<int, double> cur_row_ref;
 
-            for (int cur_row = 0; cur_row < _height; ++cur_row)
+            int   height      = _height;
+            int[] index_array = __index_array;
+            Dictionary<int, double>[] contents = _contents;
+            for (int cur_row = 0; cur_row < height; ++cur_row)
             {
-                cur_row_ref    = _contents[cur_row];
+                cur_row_ref    = contents[cur_row];
                 int num_zeroes = 0;
 
-                foreach (var cur_element in cur_row_ref)
+                foreach (KeyValuePair<int, double> cur_element in cur_row_ref)
                 {
                     if (Math.Abs(cur_element.Value) < revised_simplex_solver.EPSILON)
-                        __index_array[num_zeroes++] = cur_element.Key;
+                        index_array[num_zeroes++] = cur_element.Key;
                 }
                 for (int cur_index = 0; cur_index < num_zeroes; ++cur_index)
-                    cur_row_ref.Remove(__index_array[cur_index]);
+                    cur_row_ref.Remove(index_array[cur_index]);
             }
         }
 
@@ -244,11 +264,13 @@ namespace ttdtwm
 
             double[]                minuend_row_ref;
             Dictionary<int, double> subtrahend_row_ref;
-            for (int cur_row = 0; cur_row < subtrahend._height; ++cur_row)
+            int height = subtrahend._height;
+            Dictionary<int, double>[] subtrahend_contents = subtrahend._contents;
+            for (int cur_row = 0; cur_row < height; ++cur_row)
             {
-                minuend_row_ref    =              minuend[cur_row];
-                subtrahend_row_ref = subtrahend._contents[cur_row];
-                foreach (var cur_element in subtrahend_row_ref)
+                minuend_row_ref    =             minuend[cur_row];
+                subtrahend_row_ref = subtrahend_contents[cur_row];
+                foreach (KeyValuePair<int, double> cur_element in subtrahend_row_ref)
                     minuend_row_ref[cur_element.Key] -= cur_element.Value;
             }
         }
@@ -263,15 +285,17 @@ namespace ttdtwm
             int                     cur_column;
 
             result.clear(left._height, right._width);
-            for (int cur_row = 0; cur_row < result._height; ++cur_row)
+            int result_height = result._height;
+            Dictionary<int, double>[] result_contents = result._contents, left_contents = left._contents, right_contents = right._contents;
+            for (int cur_row = 0; cur_row < result_height; ++cur_row)
             {
-                left_row_ref   =   left._contents[cur_row];
-                result_row_ref = result._contents[cur_row];
-                foreach (var cur_diagonal in left_row_ref)
+                left_row_ref   =   left_contents[cur_row];
+                result_row_ref = result_contents[cur_row];
+                foreach (KeyValuePair<int, double> cur_diagonal in left_row_ref)
                 {
                     cur_element   = cur_diagonal.Value;
-                    right_row_ref = right._contents[cur_diagonal.Key];
-                    foreach (var cur_horizontal in right_row_ref)
+                    right_row_ref = right_contents[cur_diagonal.Key];
+                    foreach (KeyValuePair<int, double> cur_horizontal in right_row_ref)
                     {
                         cur_column = cur_horizontal.Key;
                         if (result_row_ref.ContainsKey(cur_column))
@@ -293,15 +317,17 @@ namespace ttdtwm
             double                  cur_element;
 
             result.clear(left._height, right._width);
-            for (int cur_row = 0; cur_row < left._height; ++cur_row)
+            int left_height = left._height;
+            Dictionary<int, double>[] left_contents = left._contents, right_contents = right._contents;
+            for (int cur_row = 0; cur_row < left_height; ++cur_row)
             {
-                left_row_ref   = left._contents[cur_row];
-                result_row_ref =         result[cur_row];
-                foreach (var cur_diagonal in left_row_ref)
+                left_row_ref   = left_contents[cur_row];
+                result_row_ref =        result[cur_row];
+                foreach (KeyValuePair<int, double> cur_diagonal in left_row_ref)
                 {
                     cur_element   = cur_diagonal.Value;
-                    right_row_ref = right._contents[cur_diagonal.Key];
-                    foreach (var cur_horizontal in right_row_ref)
+                    right_row_ref = right_contents[cur_diagonal.Key];
+                    foreach (KeyValuePair<int, double> cur_horizontal in right_row_ref)
                         result_row_ref[cur_horizontal.Key] += cur_element * cur_horizontal.Value;
                 }
             }
@@ -319,15 +345,16 @@ namespace ttdtwm
             double                  cur_element;
 
             result.clear(left_height, right._width);
+            Dictionary<int, double>[] right_contents = right._contents;
             for (int cur_row = 0; cur_row < left_height; ++cur_row)
             {
                 left_row_ref   =   left[cur_row];
                 result_row_ref = result[cur_row];
                 for (int sum_index = 0; sum_index < left_width; ++sum_index)
                 {
-                    cur_element   =    left_row_ref[sum_index];
-                    right_row_ref = right._contents[sum_index];
-                    foreach (var cur_horizontal in right_row_ref)
+                    cur_element   =   left_row_ref[sum_index];
+                    right_row_ref = right_contents[sum_index];
+                    foreach (KeyValuePair<int, double> cur_horizontal in right_row_ref)
                         result_row_ref[cur_horizontal.Key] += cur_element * cur_horizontal.Value;
                 }
             }
@@ -345,11 +372,13 @@ namespace ttdtwm
             double                  cur_element;
 
             result.clear(left._height, right_width);
-            for (int cur_row = 0; cur_row < left._height; ++cur_row)
+            int left_height = left._height;
+            Dictionary<int, double>[] left_contents = left._contents;
+            for (int cur_row = 0; cur_row < left_height; ++cur_row)
             {
-                left_row_ref   = left._contents[cur_row];
-                result_row_ref =         result[cur_row];
-                foreach (var cur_diagonal in left_row_ref)
+                left_row_ref   = left_contents[cur_row];
+                result_row_ref =        result[cur_row];
+                foreach (KeyValuePair<int, double> cur_diagonal in left_row_ref)
                 {
                     cur_element   = cur_diagonal.Value;
                     right_row_ref = right[cur_diagonal.Key];
@@ -364,16 +393,18 @@ namespace ttdtwm
             if (operand._width != operand._height || identity._width != identity._height || operand._height != identity._height)
                 throw new ArgumentException("Cannot invert non-square matrix");
 
-            for (int cur_item = 0; cur_item < operand._height; ++cur_item)
+            int operand_height = operand._height;
+            Dictionary<int, double>[] operand_contents = operand._contents;
+            for (int cur_item = 0; cur_item < operand_height; ++cur_item)
             {
                 double cur_element;
-                operand._contents[cur_item].TryGetValue(cur_item, out cur_element);
+                operand_contents[cur_item].TryGetValue(cur_item, out cur_element);
                 double max_element = Math.Abs(cur_element), test_element, column_element;
                 int    max_row     = cur_item;
 
-                for (int cur_row = cur_item + 1; cur_row < operand._height; ++cur_row)
+                for (int cur_row = cur_item + 1; cur_row < operand_height; ++cur_row)
                 {
-                    operand._contents[cur_row].TryGetValue(cur_item, out column_element);
+                    operand_contents[cur_row].TryGetValue(cur_item, out column_element);
                     test_element = Math.Abs(column_element);
                     if (test_element > max_element)
                     {
@@ -388,7 +419,7 @@ namespace ttdtwm
                 }
 
                 double divider, multiplier;
-                operand._contents[cur_item].TryGetValue(cur_item, out divider);
+                operand_contents[cur_item].TryGetValue(cur_item, out divider);
                 if (divider != 1.0)
                 {
                     if (divider >= -revised_simplex_solver.EPSILON && divider <= revised_simplex_solver.EPSILON)
@@ -398,29 +429,29 @@ namespace ttdtwm
                         return false;
                     }
                     operand.divide_row(cur_item, divider);
-                    operand._contents[cur_item][cur_item] = 1.0;
+                    operand_contents[cur_item][cur_item] = 1.0;
                     identity.divide_row(cur_item, divider);
                 }
-                for (int cur_row = cur_item + 1; cur_row < operand._height; ++cur_row)
+                for (int cur_row = cur_item + 1; cur_row < operand_height; ++cur_row)
                 {
-                    if (operand._contents[cur_row].TryGetValue(cur_item, out multiplier))
+                    if (operand_contents[cur_row].TryGetValue(cur_item, out multiplier))
                     {
                         operand.subtract_row(cur_row, cur_item, multiplier);
-                        operand._contents[cur_row].Remove(cur_item);
+                        operand_contents[cur_row].Remove(cur_item);
                         identity.subtract_row(cur_row, cur_item, multiplier);
                     }
                 }
             }
 
-            for (int cur_item = operand._height - 1; cur_item > 0; --cur_item)
+            for (int cur_item = operand_height - 1; cur_item > 0; --cur_item)
             {
                 double multiplier;
 
                 for (int cur_row = 0; cur_row < cur_item; ++cur_row)
                 {
-                    if (operand._contents[cur_row].TryGetValue(cur_item, out multiplier))
+                    if (operand_contents[cur_row].TryGetValue(cur_item, out multiplier))
                     {
-                        operand._contents[cur_row].Remove(cur_item);
+                        operand_contents[cur_row].Remove(cur_item);
                         identity.subtract_row(cur_row, cur_item, multiplier);
                     }
                 }
@@ -441,7 +472,7 @@ namespace ttdtwm
             Dictionary<int, double> dest_row_ref = _contents[destination_row], source_row_ref = _contents[source_row];
             int                     cur_column;
 
-            foreach (var cur_element in source_row_ref)
+            foreach (KeyValuePair<int, double> cur_element in source_row_ref)
             {
                 cur_column = cur_element.Key;
                 if (dest_row_ref.ContainsKey(cur_column))
@@ -453,21 +484,22 @@ namespace ttdtwm
 
         public void divide_row(int row, double divider)
         {
-            Dictionary<int, double> row_ref      = _contents[row];
-            int                     num_elements = 0;
+            Dictionary<int, double> row_ref = _contents[row];
+            int   num_elements = 0;
+            int[] index_array  = __index_array;
             
             foreach (int cur_column in row_ref.Keys)
-                __index_array[num_elements++] = cur_column;
+                index_array[num_elements++] = cur_column;
             for (int cur_column = 0; cur_column < num_elements; ++cur_column)
-                row_ref[__index_array[cur_column]] /= divider;
+                row_ref[index_array[cur_column]] /= divider;
         }
 
         #endregion
 
         public void log(string name, bool show_contents = true)
         {
-            StringBuilder row        = new StringBuilder();
-            uint          non_zeroes = 0;
+            var  row        = new StringBuilder();
+            uint non_zeroes = 0;
 
             MyLog.Default.WriteLine(string.Format("\n{0} {1}x{2}", name, _height, _width));
             for (int cur_row = 0; cur_row < _height; ++cur_row)
