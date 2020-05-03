@@ -581,6 +581,8 @@ namespace ttdtwm
             if (output == null || !_PB_elements.TryGetValue(PB, out PB_elements))
                 return;
 
+            if (true_anomaly != null)
+                true_anomaly = floor_mod((double) true_anomaly, 2.0 * Math.PI);
             PB_elements.calculate_positional_elements(true_anomaly);
             output["MnA"] = PB_elements.mean_anomaly;
             output["TfP"] = PB_elements.time_from_periapsis;
