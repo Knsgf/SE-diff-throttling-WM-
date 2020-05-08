@@ -260,6 +260,14 @@ namespace ttdtwm
             };
         }
 
+        private Func<string> get_reference_name_fetcher(IMyTerminalBlock PB)
+        {
+            return delegate()
+            {
+                return gravity_and_physics.retrieve_reference_name(PB);
+            };
+        }
+
         private Action<Dictionary<string, Vector3D>> get_vector_fetcher(IMyTerminalBlock PB)
         {
             return delegate (Dictionary<string, Vector3D> vector_elements)
@@ -547,6 +555,7 @@ namespace ttdtwm
                 create_controller_widgets<IMyRemoteControl>();
 
                 create_PB_property<Func<string, string, bool>, IMyProgrammableBlock>("ComputeOrbitElements", get_elements_calculator);
+                create_PB_property<Func<string>, IMyProgrammableBlock>("GetReferenceBodyName", get_reference_name_fetcher);
                 create_PB_property<Action<Dictionary<string, Vector3D>>, IMyProgrammableBlock>("GetPrimaryVectors", get_vector_fetcher);
                 create_PB_property<Action<Dictionary<string,   double>>, IMyProgrammableBlock>("GetPrimaryScalars", get_scalar_fetcher);
                 create_PB_property<Action<Dictionary<string,   double>>, IMyProgrammableBlock>("GetDerivedElements", get_derived_fetcher);

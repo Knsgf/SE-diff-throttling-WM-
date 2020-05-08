@@ -5,6 +5,7 @@ using System.Text;
 using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
 using VRage.Game;
+using VRage.Game.Entity;
 using VRage.Game.ModAPI;
 using VRage.Game.Components;
 using VRage.Utils;
@@ -512,9 +513,30 @@ namespace ttdtwm
             gravity_and_physics instance;
             if (grid_name == null)
                 instance = _grid_list[PB.CubeGrid];
-            else if (!screen_info.scripts_can_inspect_orbit_of_any_ship || !_grid_names.TryGetValue(grid_name, out instance))
+            else if (!_grid_names.TryGetValue(grid_name, out instance))
                 return false;
-            
+
+            if (!screen_info.scripts_can_inspect_orbit_of_any_ship)
+            {
+                List<long> grid_owner_list = instance._grid.SmallOwners;
+                if (grid_owner_list.Count > 0)
+                {
+                    long PB_owner      = PB.OwnerId;
+                    bool access_denied = true;
+
+                    foreach (long cur_owner in grid_owner_list)
+                    {
+                        if (MyIDModule.GetRelationPlayerPlayer(cur_owner, PB_owner) != MyRelationsBetweenPlayers.Enemies)
+                        {
+                            access_denied = false;
+                            break;
+                        }
+                    }
+                    if (access_denied)
+                        return false;
+                }
+            }
+
             gravity_source selected_reference;
             if (reference_name == null)
             {
@@ -532,6 +554,14 @@ namespace ttdtwm
             instance.calculate_elements(selected_reference, ref PB_elements, primary_only: true);
             _PB_elements[PB] = PB_elements;
             return true;
+        }
+
+        public static string retrieve_reference_name(IMyTerminalBlock PB)
+        {
+            orbit_elements PB_elements;
+            if (!_PB_elements.TryGetValue(PB, out PB_elements))
+                return null;
+            return PB_elements.name;
         }
 
         public static void retrieve_primary_vectors(IMyTerminalBlock PB, Dictionary<string, Vector3D> output)
@@ -830,7 +860,7 @@ namespace ttdtwm
                 gravity_vector *= stock_gravity_magnitude / gravity_magnitude;
             Vector3D gravity_correction_force = _grid.Physics.Mass * (gravity_vector - stock_gravity_force) + _accumulated_gravity;
             if (gravity_correction_force.LengthSquared() >= 1.0 || _current_torque.LengthSquared() >= 1.0f)
-                _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, GRAVITY_ON ? (gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND) : Vector3D.Zero, _grid_position, _current_torque /*Vector3.Zero*/);
+                _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, GRAVITY_ON ? (gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND) : Vector3D.Zero, _grid_position, _current_torque);
             _current_torque = Vector3.Zero;
             if (GRAVITY_ON && _grid.Physics.LinearVelocity.LengthSquared() <= 0.01f && stock_gravity_force.LengthSquared() < 0.0001f)
                 _accumulated_gravity += gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND;
