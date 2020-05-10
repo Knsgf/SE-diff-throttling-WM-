@@ -11,7 +11,7 @@ using VRage.Game.Components;
 using VRage.Utils;
 using VRageMath;
 
-namespace ttdtwm
+namespace orbiter_SE
 {
     sealed class orbit_elements
     {

@@ -2,7 +2,7 @@
 
 using Sandbox.ModAPI;
 
-namespace ttdtwm
+namespace orbiter_SE
 {
     static class thruster_tagger
     {

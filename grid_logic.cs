@@ -7,7 +7,7 @@ using VRage.Game.ModAPI.Interfaces;
 using VRage.Utils;
 using VRageMath;
 
-namespace ttdtwm
+namespace orbiter_SE
 {
     sealed class grid_logic: IDisposable
     {
@@ -448,7 +448,7 @@ namespace ttdtwm
                 if (sync_manoeuvre)
                 {
                     __message[0] = (byte) selection;
-                    sync_helper.send_message_to_others(sync_helper.message_types.manoeuvre, this, __message, 1);
+                    sync_helper.send_message_to_others(sync_helper.message_types.MANOEUVRE, this, __message, 1);
                 }
             }
         }

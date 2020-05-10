@@ -10,7 +10,7 @@ using VRage.Game.ModAPI;
 using VRage.Utils;
 using VRageMath;
 
-namespace ttdtwm
+namespace orbiter_SE
 {
     sealed class engine_control_unit
     {
@@ -832,7 +832,7 @@ namespace ttdtwm
             }
 
             _all_engines_off        = reset_all_thrusters;
-            force_override_refresh = false;
+            _force_override_refresh = false;
         }
 
         private void initialise_linear_controls(Vector3 local_linear_velocity_vector, Vector3 local_gravity_vector)

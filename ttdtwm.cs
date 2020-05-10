@@ -15,7 +15,7 @@ using VRage.Utils;
 using VRageMath;
 using PB = Sandbox.ModAPI.Ingame;
 
-namespace ttdtwm
+namespace orbiter_SE
 {
     [MySessionComponentDescriptor(MyUpdateOrder.AfterSimulation)]
     public class session_handler: MySessionComponentBase

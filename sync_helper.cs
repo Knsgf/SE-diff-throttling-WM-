@@ -8,7 +8,7 @@ using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
 using VRage.Utils;
 
-namespace ttdtwm
+namespace orbiter_SE
 {
 
     static class sync_helper
@@ -16,7 +16,7 @@ namespace ttdtwm
         const ushort SYNC_MESSAGE_ID = 17370;
 
         internal const int MAX_MESSAGE_LENGTH = 200;
-        internal enum message_types { I_TERMS, MANUAL_THROTTLE, manoeuvre, CONTROL_LIMIT, THRUST_LOSS, GET_THRUST_LIMIT, REMOTE_SCREEN_TEXT };
+        internal enum message_types { I_TERMS, MANUAL_THROTTLE, MANOEUVRE, CONTROL_LIMIT, THRUST_LOSS, GET_THRUST_LIMIT, REMOTE_SCREEN_TEXT };
         private static readonly int _num_messages = Enum.GetValues(typeof(message_types)).Length;
 
         const int SIGNATURE_LENGTH = 6;
@@ -36,7 +36,7 @@ namespace ttdtwm
             _message_handlers = new Action<object, byte[], int>[_num_messages];
             _message_handlers[(int) message_types.I_TERMS           ] = grid_logic.I_terms_handler;
             _message_handlers[(int) message_types.THRUST_LOSS       ] = grid_logic.thrust_reduction_handler;
-            _message_handlers[(int) message_types.manoeuvre         ] = grid_logic.sync_manoeuvre;
+            _message_handlers[(int) message_types.MANOEUVRE         ] = grid_logic.sync_manoeuvre;
             _message_handlers[(int) message_types.MANUAL_THROTTLE   ] = engine_control_unit.on_manual_throttle_changed;
             _message_handlers[(int) message_types.GET_THRUST_LIMIT  ] = engine_control_unit.extract_thrust_limit;
             _message_handlers[(int) message_types.REMOTE_SCREEN_TEXT] = screen_info.show_remote_text;

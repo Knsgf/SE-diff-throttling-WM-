@@ -9,7 +9,7 @@ using VRage.Game;
 using VRage.Game.ModAPI;
 using VRage.Utils;
 
-namespace ttdtwm
+namespace orbiter_SE
 {
     public struct OSESettings
     {
@@ -273,11 +273,11 @@ namespace ttdtwm
 
             if (!min_loss_entered || min_thrust_loss < 0 || min_thrust_loss > 100)
             {
-                MyAPIGateway.Utilities.ShowMessage("TP&DT", "Please specify a number between 0 and 100");
+                MyAPIGateway.Utilities.ShowMessage("OSE", "Please specify a number between 0 and 100");
                 return;
             }
             _min_displayed_reduction = min_thrust_loss;
-            MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("Minimum displayed thrust loss is now {0} %", min_thrust_loss));
+            MyAPIGateway.Utilities.ShowMessage("OSE", string.Format("Minimum displayed thrust loss is now {0} %", min_thrust_loss));
             _HUD_messages[THRUST_LOSS].toggled_on = true;
         }
 
@@ -289,7 +289,7 @@ namespace ttdtwm
 
             if (!selection_entered || selection == 0 || selection > 4)
             {
-                MyAPIGateway.Utilities.ShowMessage("TP&DT", "Please specify a number between 1 and 4");
+                MyAPIGateway.Utilities.ShowMessage("OSE", "Please specify a number between 1 and 4");
                 return;
             }
             switch (selection)
@@ -314,7 +314,7 @@ namespace ttdtwm
                     changed_parameter = "Inclination, longitude of ascending node and true longitude";
                     break;
             }
-            MyAPIGateway.Utilities.ShowMessage("TP&DT", changed_parameter + " are now " + (parameter_visible ? "visisble" : "hidden"));
+            MyAPIGateway.Utilities.ShowMessage("OSE", changed_parameter + " are now " + (parameter_visible ? "visisble" : "hidden"));
             _HUD_messages[ORBITAL_ELEMENTS].toggled_on = true;
         }
 
@@ -324,37 +324,37 @@ namespace ttdtwm
             double   inclination;
             if (!double.TryParse(split_input[0], out inclination))
             {
-                MyAPIGateway.Utilities.ShowMessage("TP&DT", "Please specify inclination and LAN in degrees, separated by space");
+                MyAPIGateway.Utilities.ShowMessage("OSE", "Please specify inclination and LAN in degrees, separated by space");
                 return;
             }
             if (inclination < 0.0 || inclination > 180.0)
             {
-                MyAPIGateway.Utilities.ShowMessage("TP&DT", "Inclination must be between 0 and 180");
+                MyAPIGateway.Utilities.ShowMessage("OSE", "Inclination must be between 0 and 180");
                 return;
             }
 
             double LAN = 0.0;
             if (inclination != 0.0 && (split_input.Length < 2 || !double.TryParse(split_input[1], out LAN)))
             {
-                MyAPIGateway.Utilities.ShowMessage("TP&DT", "Please specify inclination and LAN in degrees, separated by space");
+                MyAPIGateway.Utilities.ShowMessage("OSE", "Please specify inclination and LAN in degrees, separated by space");
                 return;
             }
 
             if (inclination == 0.0)
             {
                 gravity_and_physics.set_target_plane(local_controller_grid, 0.0, 0.0);
-                MyAPIGateway.Utilities.ShowMessage("TP&DT", "Target plane set with inc. = 0 deg, LAN = 0 deg");
+                MyAPIGateway.Utilities.ShowMessage("OSE", "Target plane set with inc. = 0 deg, LAN = 0 deg");
             }
             else
             {
                 if (LAN < 0.0 || LAN > 360.0)
                 {
-                    MyAPIGateway.Utilities.ShowMessage("TP&DT", "LAN must be between 0 and 360");
+                    MyAPIGateway.Utilities.ShowMessage("OSE", "LAN must be between 0 and 360");
                     return;
                 }
 
                 gravity_and_physics.set_target_plane(local_controller_grid, inclination * Math.PI / 180.0, LAN * Math.PI / 180.0);
-                MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("Target plane set with inc. = {0} deg, LAN = {1} deg", inclination, LAN));
+                MyAPIGateway.Utilities.ShowMessage("OSE", string.Format("Target plane set with inc. = {0} deg, LAN = {1} deg", inclination, LAN));
             }
             _HUD_messages[PLANE_ALIGNMENT].toggled_on = true;
         }
@@ -377,7 +377,7 @@ namespace ttdtwm
                 {
                     string new_reference = gravity_and_physics.set_current_reference(local_controller_grid, parameter);
                     if (new_reference != null)
-                        MyAPIGateway.Utilities.ShowMessage("TP&DT", "Changed reference body to " + new_reference);
+                        MyAPIGateway.Utilities.ShowMessage("OSE", "Changed reference body to " + new_reference);
                     return;
                 }
                 if (!_HUD_messages.ContainsKey(command))
@@ -387,12 +387,12 @@ namespace ttdtwm
                 else if (!_requires_natural_gravity.Contains(command) || gravity_and_physics.world_has_gravity)
                 {
                     _HUD_messages[command].toggled_on = !_HUD_messages[command].toggled_on;
-                    MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("{0} is now {1}", _HUD_messages[command].screen_description, _HUD_messages[command].toggled_on ? "visible" : "hidden"));
+                    MyAPIGateway.Utilities.ShowMessage("OSE", string.Format("{0} is now {1}", _HUD_messages[command].screen_description, _HUD_messages[command].toggled_on ? "visible" : "hidden"));
                     if (command == PLANE_ALIGNMENT && !_HUD_messages[PLANE_ALIGNMENT].toggled_on)
                         gravity_and_physics.clear_target_plane(local_controller_grid);
                 }
                 else
-                    MyAPIGateway.Utilities.ShowMessage("TP&DT", string.Format("{0} cannot be toggled in zero-g worlds", _HUD_messages[command].screen_description));
+                    MyAPIGateway.Utilities.ShowMessage("OSE", string.Format("{0} cannot be toggled in zero-g worlds", _HUD_messages[command].screen_description));
             }
 
             try

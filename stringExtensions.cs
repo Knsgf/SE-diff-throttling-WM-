@@ -2,7 +2,7 @@
 
 using VRageMath;
 
-namespace ttdtwm
+namespace orbiter_SE
 {
     static class stringExtensions
     {

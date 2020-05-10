@@ -2,7 +2,7 @@
 
 using VRage.Utils;
 
-namespace ttdtwm
+namespace orbiter_SE
 {
     // Technically a struct, but C# doesnt' allow to modify fields of a struct which is implemented as property
     sealed class solver_entry

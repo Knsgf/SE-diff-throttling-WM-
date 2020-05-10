@@ -3,7 +3,7 @@ using System.Text;
 
 using VRage.Utils;
 
-namespace ttdtwm
+namespace orbiter_SE
 {
     struct dense_matrix
     {
