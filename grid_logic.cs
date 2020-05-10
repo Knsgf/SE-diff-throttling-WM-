@@ -23,13 +23,13 @@ namespace ttdtwm
 
         private List<grid_logic>    _secondary_grids = null;
         private engine_control_unit _ECU             = null;
-        private gravity_simulation  _grid_physics    = null;
+        private torque_simulation   _grid_physics    = null;
         private IMyPlayer           _prev_player     = null;
 
         private int     _num_thrusters = 0, _prev_thrust_reduction = 0;
         private bool    _disposed = false;
         private bool    _ID_on = true, _is_secondary = false;
-        private Vector3 _prev_trim, _prev_last_trim, _prev_linear_integral;
+        private Vector3 _prev_trim, _prev_linear_integral;
 
         #endregion
 
@@ -101,27 +101,6 @@ namespace ttdtwm
             }
         }
 
-        public bool is_circularisation_avaiable => gravity_and_physics.world_has_gravity && _ECU.current_speed >= engine_control_unit.MIN_CIRCULARISATION_SPEED;
-
-        public bool circularise
-        {
-            get
-            {
-                return is_circularisation_avaiable && _ECU.circularise_on;
-            }
-            set
-            {
-                IMyTerminalBlock controller_terminal;
-
-                _ECU.circularise_on = value && is_circularisation_avaiable;
-                foreach (IMyControllableEntity cur_controller in _ship_controllers)
-                {
-                    controller_terminal = (IMyTerminalBlock) cur_controller;
-                    controller_terminal.CustomData = value ? controller_terminal.CustomData.AddCIRCULARISETag() : controller_terminal.CustomData.RemoveCIRCULARISETag();
-                }
-            }
-        }
-
         public bool is_secondary
         {
             get
@@ -133,10 +112,6 @@ namespace ttdtwm
                 _ECU.secondary_ECU = _is_secondary = value;
             }
         }
-
-        public Func<orbit_elements> orbit_elements_reader => _grid_physics.current_elements_reader;
-
-        public engine_control_unit.ID_manoeuvres current_manoeuvre => is_circularisation_avaiable ? _ECU.current_manoeuvre : engine_control_unit.ID_manoeuvres.manoeuvre_off;
 
         #endregion
 
@@ -232,13 +207,12 @@ namespace ttdtwm
             ECU.landing_mode_on            = landing_mode_on;
             ECU.rotational_damping_on      = rotational_damping_on;
             ECU.linear_dampers_on          = _ID_on;
-            ECU.circularise_on             = circularise_on;
             ECU.secondary_ECU              = _is_secondary;
         }
 
         private void initialise_ECU_and_physics()
         {
-            var grid_movement = new gravity_and_physics(_grid);
+            var grid_movement = new thruster_physics(_grid);
             _ECU              = new engine_control_unit(_grid, grid_movement);
             _grid_physics     = grid_movement;
 
@@ -301,7 +275,6 @@ namespace ttdtwm
                 {
                     var controller_terminal = (IMyTerminalBlock) controller;
 
-                    controller_terminal.AppendingCustomInfo += gravity_and_physics.list_current_elements;
                     _ship_controllers.Add(controller);
                     session_handler.sample_controller(ship_controller);
                     if (_ECU != null)
@@ -314,8 +287,6 @@ namespace ttdtwm
                             controller_terminal.CustomData = controller_terminal.CustomData.RemoveDAMPINGTag();
                         if (_ECU.use_individual_calibration)
                             controller_terminal.CustomData = controller_terminal.CustomData.AddICTag();
-                        if (_ECU.circularise_on)
-                            controller_terminal.CustomData = controller_terminal.CustomData.AddCIRCULARISETag();
                         controller_terminal.CustomData = controller_terminal.CustomData.SetIDOvveride(_ECU.get_damper_override_for_cockpit(controller_terminal));
                     }
 
@@ -356,7 +327,6 @@ namespace ttdtwm
                 var controller = entity as IMyControllableEntity;
                 if (controller != null)
                 {
-                    ((IMyTerminalBlock) controller).AppendingCustomInfo -= gravity_and_physics.list_current_elements;
                     _ship_controllers.Remove(controller);
 
                     var RC_block = entity as IMyRemoteControl;
@@ -380,10 +350,6 @@ namespace ttdtwm
                     _ECU.dispose_gyroscope(gyro);
                     return;
                 }
-
-                var PB = entity as IMyProgrammableBlock;
-                if (PB != null)
-                    gravity_and_physics.dispose_PB(PB);
             }
         }
 
@@ -425,33 +391,9 @@ namespace ttdtwm
             current_ECU.linear_integral = structurise_vector(argument, 6);
         }
 
-        internal static void sync_manoeuvre(object entity, byte[] argument, int length)
-        {
-            if (length != 1)
-                return;
-            var instance = entity as grid_logic;
-            if (instance == null || instance._disposed)
-                return;
-
-            instance.start_manoeuvre((engine_control_unit.ID_manoeuvres) argument[0], false);
-        }
-
         #endregion
 
         #region event triggers
-
-        public void start_manoeuvre(engine_control_unit.ID_manoeuvres selection, bool sync_manoeuvre)
-        {
-            if (is_circularisation_avaiable)
-            {
-                _ECU.begin_manoeuvre(selection);
-                if (sync_manoeuvre)
-                {
-                    __message[0] = (byte) selection;
-                    sync_helper.send_message_to_others(sync_helper.message_types.manoeuvre, this, __message, 1);
-                }
-            }
-        }
 
         private void send_thrust_reduction_message(IMyPlayer controlling_player)
         {
@@ -528,7 +470,7 @@ namespace ttdtwm
                     _ID_on = cur_controller.EnabledDamping;
                     break;
                 }
-                _grid_physics.simulate_gravity_and_torque();
+                _grid_physics.simulate_torque();
 
                 if (_num_thrusters > 0 || _secondary_grids != null)
                 {
@@ -557,16 +499,14 @@ namespace ttdtwm
                                 Vector3D world_linear_velocity, world_angular_velocity;
                                 Vector3  target_linear_velocity, linear_control, rotation_control, gyro_override;
                                 bool     gyro_override_active, circularisation_on;
-                                engine_control_unit.ID_manoeuvres current_manoeuvre;
 
                                 _ECU.get_primary_control_parameters(out world_linear_velocity, out target_linear_velocity, out world_angular_velocity, 
-                                    out linear_control, out rotation_control, out gyro_override_active, out gyro_override, out circularisation_on,
-                                    out current_manoeuvre);
+                                    out linear_control, out rotation_control, out gyro_override_active, out gyro_override, out circularisation_on);
                                 foreach (grid_logic cur_secondary in _secondary_grids)
                                 {
                                     cur_secondary._ID_on = _ID_on;
                                     cur_secondary._ECU.set_secondary_control_parameters(world_linear_velocity, target_linear_velocity, world_angular_velocity, 
-                                        linear_control, rotation_control, gyro_override_active, gyro_override, circularisation_on, current_manoeuvre);
+                                        linear_control, rotation_control, gyro_override_active, gyro_override, circularisation_on);
                                 }
                             }
                         }
@@ -581,8 +521,6 @@ namespace ttdtwm
         {
             check_disposed();
 
-            screen_info.set_displayed_orbital_elements(_grid, _grid_physics.current_elements_reader);
-            screen_info.set_displayed_target_plane    (_grid, _grid_physics.plane_alignment_reader );
             if (!_is_secondary)
                 session_handler.get_secondary_grids(_grid, ref _secondary_grids);
 
@@ -638,7 +576,6 @@ namespace ttdtwm
 
         public void handle_2s_period_background()
         {
-            _grid_physics.update_current_reference();
             if (!_grid.IsStatic && (_num_thrusters > 0 || _secondary_grids != null))
             {
                 lock (_ECU)
@@ -691,7 +628,6 @@ namespace ttdtwm
                 _grid.OnBlockAdded   -= on_block_added;
                 _grid.OnBlockRemoved -= on_block_removed;
                 sync_helper.deregister_entity(_grid.EntityId);
-                _grid_physics.Dispose();
 
                 var block_list = new List<IMySlimBlock>();
                 _grid.GetBlocks(block_list,

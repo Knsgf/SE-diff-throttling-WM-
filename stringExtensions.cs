@@ -253,11 +253,6 @@ namespace ttdtwm
             return SetTagValue(blockData, GetTagValue(blockData) | IC_MASK);
         }
 
-        public static string AddCIRCULARISETag(this string blockData)
-        {
-            return SetTagValue(blockData, GetTagValue(blockData) | CIRCULARISE_MASK);
-        }
-
         #endregion
 
         #region RemoveTag()
@@ -300,11 +295,6 @@ namespace ttdtwm
         public static string RemoveICTag(this string blockData)
         {
             return SetTagValue(blockData, GetTagValue(blockData) & ~IC_MASK);
-        }
-
-        public static string RemoveCIRCULARISETag(this string blockData)
-        {
-            return SetTagValue(blockData, GetTagValue(blockData) & ~CIRCULARISE_MASK);
         }
 
         #endregion
