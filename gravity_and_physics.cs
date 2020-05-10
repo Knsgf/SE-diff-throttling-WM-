@@ -81,6 +81,8 @@ namespace ttdtwm
 
         public void calculate_primary_elements(double SGP, Vector3D radius_vector, Vector3D linear_velocity, Vector3D local_gravity, string body_name, double body_radius, bool minor_body)
         {
+            const double EPSILON = 1.0E-4;
+            
             _current_SGP       = SGP;
             name               = body_name;
             foreign_reference  = minor_body;
@@ -91,9 +93,12 @@ namespace ttdtwm
             specific_angular_momentum = _specific_angular_momentum = Vector3D.Cross(radius_vector, linear_velocity);
             double areal_velocity     = specific_angular_momentum.Length();
 
-            var AN_vector = new Vector3D(specific_angular_momentum.Z, 0.0, -specific_angular_momentum.X);
-            if (!Vector3D.IsZero(AN_vector))
+            var    AN_vector        = new Vector3D(specific_angular_momentum.Z, 0.0, -specific_angular_momentum.X);
+            double AN_vector_length = AN_vector.Length();
+            if (AN_vector_length >= EPSILON)
                 AN_vector /= AN_vector.Length();
+            else
+                AN_vector = Vector3D.Right;
             _AN_vector = AN_vector;
 
             double speed          = linear_velocity.Length();
@@ -115,13 +120,21 @@ namespace ttdtwm
             }
             else if (eccentricity <= 1.0001)
                 eccentricity = 1.0001;
-            this.eccentricity = eccentricity;
+            if (eccentricity >= EPSILON)
+                this.eccentricity = eccentricity;
+            else
+            {
+                this.eccentricity = eccentricity = 0.0;
+                eccentricity_vector = Vector3D.Zero;
+            }
 
             inclination = (areal_velocity > 0.0) ? Math.Acos(specific_angular_momentum.Y / areal_velocity) : 0.0;
+            if (inclination > -EPSILON && inclination < EPSILON)
+                inclination = 0.0;
             if (inclination != 0.0)
             {
                 longitude_of_ascending_node = Math.Acos(AN_vector.X);
-                argument_of_periapsis       = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(AN_vector, eccentricity_vector) / eccentricity, -1.0, 1.0));
+                argument_of_periapsis       = (eccentricity > 0.0) ? Math.Acos(MathHelperD.Clamp(Vector3D.Dot(AN_vector, eccentricity_vector) / eccentricity, -1.0, 1.0)) : 0.0;
             }
             else
             {
