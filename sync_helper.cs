@@ -22,7 +22,7 @@ namespace orbiter_SE
         const int SIGNATURE_LENGTH = 6;
         private static readonly Dictionary<int, byte[]> _out_buffers = new Dictionary<int, byte[]>();
         private static readonly                 byte[]  _in_buffer   = new byte[MAX_MESSAGE_LENGTH];
-        private static readonly                 byte[]  _signature   = { 0, 0, 0x27, 0x5B, 0xE5, 0x8E };
+        private static readonly                 byte[]  _signature   = { 0, 0, 0x7B, 0x87, 0xAC, 0xC0 };
 
         private static readonly Dictionary<  long, object> _entities   = new Dictionary<  long, object>();
         private static readonly Dictionary<object,   long> _entity_ids = new Dictionary<object,   long>();
