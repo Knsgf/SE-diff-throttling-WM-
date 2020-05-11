@@ -17,7 +17,7 @@ using PB = Sandbox.ModAPI.Ingame;
 
 namespace orbiter_SE
 {
-    [MySessionComponentDescriptor(MyUpdateOrder.AfterSimulation)]
+    [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation | MyUpdateOrder.AfterSimulation)]
     public class session_handler: MySessionComponentBase
     {
         public const bool SINGLE_THREADED_EXEC = false;
@@ -639,15 +639,12 @@ namespace orbiter_SE
             }
         }
 
-        public override void UpdateAfterSimulation()
+        public override void UpdateBeforeSimulation()
         {
-            base.UpdateAfterSimulation();
+            base.UpdateBeforeSimulation();
 
             if (_grids_handle_60Hz == null)
-            {
-                try_register_handlers();
                 return;
-            }
 
             screen_info.refresh_local_player_info();
             if (--_count15 <= 0)
@@ -667,12 +664,18 @@ namespace orbiter_SE
                 {
                     _count8_foreground = 8;
                     _grids_handle_2s_period_foreground();
-                    try_register_handlers();
                 }
                 _grids_handle_4Hz_foreground();
             }
             _grids_handle_60Hz();
             gravity_and_physics.apply_gravity_to_players();
+        }
+
+        public override void UpdateAfterSimulation()
+        {
+            base.UpdateAfterSimulation();
+            if (_grids_handle_60Hz == null)
+                try_register_handlers();
         }
 
         public session_handler()
