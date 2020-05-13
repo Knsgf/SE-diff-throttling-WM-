@@ -17,7 +17,7 @@ using PB = Sandbox.ModAPI.Ingame;
 
 namespace ttdtwm
 {
-    [MySessionComponentDescriptor(MyUpdateOrder.AfterSimulation)]
+    [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation | MyUpdateOrder.AfterSimulation)]
     public class session_handler: MySessionComponentBase
     {
         public const bool SINGLE_THREADED_EXEC = false;
@@ -471,17 +471,14 @@ namespace ttdtwm
             }
         }
 
-        public override void UpdateAfterSimulation()
+        public override void UpdateBeforeSimulation()
         {
-            base.UpdateAfterSimulation();
-
-            if (_grids_handle_60Hz == null)
-            {
-                try_register_handlers();
-                return;
-            }
+            base.UpdateBeforeSimulation();
 
             screen_info.refresh_local_player_info();
+            if (_grids_handle_60Hz == null)
+                return;
+
             if (--_count15 <= 0)
             {
                 _count15 = 15;
@@ -499,11 +496,17 @@ namespace ttdtwm
                 {
                     _count8_foreground = 8;
                     _grids_handle_2s_period_foreground();
-                    try_register_handlers();
                 }
                 _grids_handle_4Hz_foreground();
             }
             _grids_handle_60Hz();
+        }
+
+        public override void UpdateAfterSimulation()
+        {
+            base.UpdateAfterSimulation();
+            if (!_entity_events_set || !_panel_controls_set || !sync_helper.network_handlers_registered || !screen_info.settings_loaded)
+                try_register_handlers();
         }
 
         public session_handler()

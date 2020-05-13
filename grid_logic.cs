@@ -29,7 +29,8 @@ namespace ttdtwm
         private int     _num_thrusters = 0, _prev_thrust_reduction = 0;
         private bool    _disposed = false;
         private bool    _ID_on = true, _is_secondary = false;
-        private Vector3 _prev_trim, _prev_linear_integral;
+        
+        private Vector3 _prev_trim, _prev_aux_trim, _prev_linear_integral;
 
         #endregion
 
@@ -364,7 +365,10 @@ namespace ttdtwm
 
         private static float structurise_float_from_short(byte[] buffer, int buffer_offset)
         {
-            return ((short) (buffer[buffer_offset] | (buffer[buffer_offset + 1] << 8))) / MESSAGE_MULTIPLIER;
+            short result = buffer[buffer_offset], msb = buffer[buffer_offset + 1];
+            msb <<= 8;
+            result |= msb;
+            return result / MESSAGE_MULTIPLIER;
         }
 
         private static Vector3 structurise_vector(byte[] buffer, int buffer_offset)
@@ -388,7 +392,8 @@ namespace ttdtwm
 
             engine_control_unit current_ECU = instance._ECU;
             current_ECU.current_trim    = structurise_vector(argument, 0);
-            current_ECU.linear_integral = structurise_vector(argument, 6);
+            current_ECU.aux_trim        = structurise_vector(argument, 6);
+            current_ECU.linear_integral = structurise_vector(argument, 12);
         }
 
         #endregion
@@ -417,8 +422,8 @@ namespace ttdtwm
 
             short value16 = (short) (value * MESSAGE_MULTIPLIER);
 
-            buffer[buffer_offset    ] = (byte) (value16 & 0xFF);
-            buffer[buffer_offset + 1] = (byte) (value16 >> 8);
+            buffer[buffer_offset    ] = (byte) ((value16     ) & 0xFF);
+            buffer[buffer_offset + 1] = (byte) ((value16 >> 8) & 0xFF);
         }
 
         private static void serialise_vector(Vector3 value, byte[] buffer, int buffer_offset)
@@ -430,13 +435,19 @@ namespace ttdtwm
 
         private void send_I_terms_message()
         {
-            if (_ECU.current_trim != _prev_trim || _ECU.linear_integral != _prev_linear_integral)
+            if (MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer)
+                return;
+
+            Vector3 current_trim = _ECU.current_trim, aux_trim = _ECU.aux_trim, linear_integral = _ECU.linear_integral;
+            if (current_trim != _prev_trim || aux_trim != _prev_aux_trim || linear_integral != _prev_linear_integral)
             {
-                _prev_trim            = _ECU.current_trim;
-                _prev_linear_integral = _ECU.linear_integral;
-                serialise_vector(_prev_trim           , __message, 0);
-                serialise_vector(_prev_linear_integral, __message, 6);
-                sync_helper.send_message_to_others(sync_helper.message_types.I_TERMS, this, __message, 12);
+                _prev_trim            = current_trim;
+                _prev_aux_trim        = aux_trim;
+                _prev_linear_integral = linear_integral;
+                serialise_vector(   current_trim, __message, 0);
+                serialise_vector(       aux_trim, __message, 6);
+                serialise_vector(linear_integral, __message, 12);
+                sync_helper.send_message_to_others(sync_helper.message_types.I_TERMS, this, __message, 18);
             }
         }
 
@@ -478,6 +489,7 @@ namespace ttdtwm
                     {
                         if (!_is_secondary)
                         {
+                            send_I_terms_message();
                             IMyPlayer controlling_player = get_controlling_player();
                             if (controlling_player != null)
                             {

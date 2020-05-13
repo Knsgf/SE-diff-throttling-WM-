@@ -38,6 +38,11 @@ namespace ttdtwm
 
         private static int _min_displayed_reduction = 10;
 
+        static byte[] _message = new byte[9];
+
+        private static readonly Dictionary<string, string> _client_messages = new Dictionary<string, string>(), _server_messages = new Dictionary<string, string>();
+        private static readonly Dictionary<string, int> _remote_message_times = new Dictionary<string, int>();
+
         #region Properties
 
         public static IMyPlayer                                          local_player          { get; private set; }
@@ -52,8 +57,15 @@ namespace ttdtwm
 
         static private void display_info(IMyCubeGrid grid, string message, int display_time_ms, string font)
         {
-            if (grid == null || local_controller_grid == grid)
-                MyAPIGateway.Utilities.ShowNotification(message, display_time_ms, font);
+            try
+            {
+                if (local_player != null && (grid == null || local_controller_grid == grid))
+                    MyAPIGateway.Utilities.ShowNotification(message, display_time_ms, font);
+            }
+            catch (Exception e)
+            {
+                MyLog.Default.WriteLine(e);
+            }
         }
 
         static public void screen_text(IMyCubeGrid grid, string method_name, string message, int display_time_ms)
@@ -65,22 +77,24 @@ namespace ttdtwm
                 display_info(grid, string.Format("{0}(): {1} {2}", method_name, grid_name, message), display_time_ms, MyFontEnum.White);
         }
 
-        static private void remote_info(IMyCubeGrid grid, string message, int display_time_ms)
+        static private void remote_info(IMyCubeGrid grid, string message_id, string message, int display_time_ms)
         {
             if (MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || !sync_helper.network_handlers_registered)
                 return;
 
             if (grid == null)
             {
-                message = display_time_ms.ToString() + " " + message;
+                message = display_time_ms.ToString() + " " + message_id + " " + message;
                 sync_helper.send_message_to_others(sync_helper.message_types.REMOTE_SCREEN_TEXT, null, Encoding.UTF8.GetBytes(message), Encoding.UTF8.GetByteCount(message));
+                if (local_player != null)
+                    show_remote_text(null, Encoding.UTF8.GetBytes(message), Encoding.UTF8.GetByteCount(message));
             }
             else 
             {
                 IMyPlayer recipient = MyAPIGateway.Multiplayer.Players.GetPlayerControllingEntity(grid);
                 if (recipient != null)
                 {
-                    message = display_time_ms.ToString() + " " + message;
+                    message = display_time_ms.ToString() + " " + message_id + " " + message;
                     sync_helper.send_message_to(recipient.SteamUserId, sync_helper.message_types.REMOTE_SCREEN_TEXT, null, Encoding.UTF8.GetBytes(message), Encoding.UTF8.GetByteCount(message));
                 }
             }
@@ -88,25 +102,50 @@ namespace ttdtwm
 
         public static void show_remote_text(object entity, byte[] message, int length)
         {
-            string[] message_parts = Encoding.UTF8.GetString(message, 0, length).Split(whitespace_char, 2);
-            screen_text(null, "", message_parts[1], int.Parse(message_parts[0]));
+            string[] message_parts = Encoding.UTF8.GetString(message, 0, length).Split(whitespace_char, 3);
+            string message_id = message_parts[1];
+            _remote_message_times[message_id] = int.Parse(message_parts[0]);
+            _server_messages     [message_id] = message_parts[2];
+
+            List<string> messages_to_remove = null;
+            foreach (string cur_message in _remote_message_times.Keys)
+            {
+                if (_server_messages.ContainsKey(cur_message) && _client_messages.ContainsKey(cur_message))
+                {
+                    string output = _server_messages[cur_message];
+
+                    if (_client_messages[cur_message] != "")
+                        output += "\n" + _client_messages[cur_message];
+                    screen_text(null, "", output, _remote_message_times[cur_message]);
+                    if (messages_to_remove == null)
+                        messages_to_remove = new List<string>();
+                    messages_to_remove.Add(cur_message);
+                }
+            }
+            if (messages_to_remove != null)
+            {
+                foreach (string cur_message in messages_to_remove)
+                {
+                    _remote_message_times.Remove(cur_message);
+                    _server_messages.Remove(cur_message);
+                    _client_messages.Remove(cur_message);
+                }
+            }
         }
 
-        public static void remote_screen_text(IMyCubeGrid grid, string method_name, string message, int display_time_ms)
+        public static void dual_screen_text(IMyCubeGrid grid, string message_id, string method_name, string message, int display_time_ms)
         {
-            string grid_name = (grid == null) ? "" : ("\"" + grid.DisplayName + "\"");
-            if (method_name == "")
-                remote_info(grid, string.Format("{0} {1}", grid_name, message), display_time_ms);
-            else
-                remote_info(grid, string.Format("{0}(): {1} {2}", method_name, grid_name, message), display_time_ms);
-        }
+            string combined_id = message_id, message_prefix = (method_name != "") ? (method_name + "(): ") : "";
 
-        public static void dual_screen_text(IMyCubeGrid grid, string method_name, string message, int display_time_ms)
-        {
+            if (grid != null)
+            {
+                combined_id    += ":" + grid.DisplayName;
+                message_prefix += "\"" + grid.DisplayName + "\" ";
+            }
+            if (local_player != null && !_client_messages.ContainsKey(combined_id))
+                _client_messages[combined_id] = message_prefix + "<C> " + message;
             if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
-                remote_screen_text(grid, method_name, "SVR " + message, display_time_ms);
-            else
-                screen_text(grid, method_name, "CLI " + message, display_time_ms);
+                remote_info(grid, combined_id, message_prefix + "<S> " + message, display_time_ms);
         }
 
         #endregion
@@ -227,7 +266,7 @@ namespace ttdtwm
                 _UI_handlers_registered = true;
             }
 
-            if (!_settings_loaded && _UI_handlers_registered)
+            if (!_settings_loaded && _UI_handlers_registered && sync_helper.network_handlers_registered && (local_player != null || MyAPIGateway.Multiplayer.IsServer))
             {
                 if (MyAPIGateway.Utilities.FileExistsInLocalStorage(settings_file, typeof(TTDTWMSettings)))
                 {

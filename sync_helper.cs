@@ -16,13 +16,14 @@ namespace ttdtwm
         const ushort SYNC_MESSAGE_ID = 17370;
 
         internal const int MAX_MESSAGE_LENGTH = 200;
+
         internal enum message_types { I_TERMS, MANUAL_THROTTLE, CONTROL_LIMIT, THRUST_LOSS, GET_THRUST_LIMIT, REMOTE_SCREEN_TEXT };
         private static readonly int _num_messages = Enum.GetValues(typeof(message_types)).Length;
 
         const int SIGNATURE_LENGTH = 6;
         private static readonly Dictionary<int, byte[]> _out_buffers = new Dictionary<int, byte[]>();
         private static readonly                 byte[]  _in_buffer   = new byte[MAX_MESSAGE_LENGTH];
-        private static readonly                 byte[]  _signature   = { 0, 0, 0x27, 0x5B, 0xE5, 0x8E };
+        private static readonly                 byte[]  _signature   = { 0, 0, 0x7B, 0x87, 0xAC, 0xC0 };
 
         private static readonly Dictionary<  long, object> _entities   = new Dictionary<  long, object>();
         private static readonly Dictionary<object,   long> _entity_ids = new Dictionary<object,   long>();
@@ -97,8 +98,6 @@ namespace ttdtwm
             }
             //log_sync_action("on_message_received", "signature valid");
             object entity = decode_entity_id(message);
-            if (entity == null)
-                return;
             //log_sync_action("on_message_received", "entity valid");
             for (int index = 0; index < length; ++index)
                 _in_buffer[index] = message[SIGNATURE_LENGTH + 1 + 8 + index];
@@ -131,6 +130,15 @@ namespace ttdtwm
             byte[] message_buffer = fill_message(message_id, entity, message, length);
             if (message_buffer != null)
                 MyAPIGateway.Multiplayer.SendMessageTo(SYNC_MESSAGE_ID, message_buffer, recipient);
+        }
+
+        public static void send_message_to_server(message_types message_id, object entity, byte[] message, int length)
+        {
+            if (!network_handlers_registered || MyAPIGateway.Multiplayer.IsServer)
+                return;
+            byte[] message_buffer = fill_message(message_id, entity, message, length);
+            if (message_buffer != null)
+                MyAPIGateway.Multiplayer.SendMessageToServer(SYNC_MESSAGE_ID, message_buffer);
         }
 
         public static void try_register_handlers()
@@ -171,11 +179,16 @@ namespace ttdtwm
 
         private static bool encode_entity_id(object entity, byte[] message)
         {
-            if (entity == null && !_entities.TryGetValue(0, out entity))
-                return false;
-            if (!_entity_ids.ContainsKey(entity))
-                return false;
-            long entity_id = _entity_ids[entity];
+            long entity_id;
+
+            if (entity == null)
+                entity_id = 0;
+            else
+            {
+                if (!_entity_ids.ContainsKey(entity))
+                    return false;
+                entity_id = _entity_ids[entity];
+            }
             for (int cur_byte = 0; cur_byte < 8; ++cur_byte)
             {
                 message[cur_byte + SIGNATURE_LENGTH + 1] = (byte) (entity_id & 0xFF);
@@ -189,7 +202,7 @@ namespace ttdtwm
             long entity_id = 0;
             for (int cur_byte = 7; cur_byte >= 0; --cur_byte)
                 entity_id = (entity_id << 8) | message[cur_byte + SIGNATURE_LENGTH + 1];
-            return _entities.ContainsKey(entity_id) ? _entities[entity_id] : null;
+            return (entity_id != 0 && _entities.ContainsKey(entity_id)) ? _entities[entity_id] : null;
         }
 
         #endregion
