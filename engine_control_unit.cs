@@ -233,6 +233,19 @@ namespace orbiter_SE
             }
         }
 
+        public Vector3 aux_trim
+        {
+            get
+            {
+                Vector3 result = recompose_vector(_aux_trim);
+                return result;
+            }
+            set
+            {
+                decompose_vector(value, _aux_trim);
+            }
+        }
+
         public Vector3 linear_integral
         {
             get
@@ -275,7 +288,7 @@ namespace orbiter_SE
 
         private void screen_vector<type>(string method_name, string vector_name, type[] vector, int display_time_ms)
         {
-            screen_info.screen_text(_grid, method_name, string.Format("{0} = {1:F3}/{2:F3}/{3:F3}/{4:F3}/{5:F3}/{6:F3}", 
+            screen_info.screen_text(_grid, method_name, string.Format("{0} = {1:F5}/{2:F5}/{3:F5}/{4:F5}/{5:F5}/{6:F5}", 
                 vector_name,
                 vector[(int) thrust_dir.fore     ],
                 vector[(int) thrust_dir.aft      ],
@@ -283,6 +296,18 @@ namespace orbiter_SE
                 vector[(int) thrust_dir.port     ],
                 vector[(int) thrust_dir.dorsal   ],
                 vector[(int) thrust_dir.ventral  ]), display_time_ms);
+        }
+
+        private void dual_screen_vector<type>(bool global_msg, string method_name, string vector_name, type[] vector, int display_time_ms)
+        {
+            screen_info.dual_screen_text(global_msg ? null : _grid, vector_name, method_name, string.Format("{0} = {1:F5}/{2:F5}/{3:F5}/{4:F5}/{5:F5}/{6:F5}",
+                vector_name,
+                vector[(int) thrust_dir.fore],
+                vector[(int) thrust_dir.aft],
+                vector[(int) thrust_dir.starboard],
+                vector[(int) thrust_dir.port],
+                vector[(int) thrust_dir.dorsal],
+                vector[(int) thrust_dir.ventral]), display_time_ms);
         }
 
         #endregion
@@ -714,40 +739,26 @@ namespace orbiter_SE
             const float MIN_THRUST_CHANGE = 1.0E+3f;
 
             float         setting;
-            bool          dry_run = false, force_override_refresh = _force_override_refresh;
+            bool          dry_run, force_override_refresh = _force_override_refresh;
             thruster_info cur_thruster_info;
             IMyThrust     thruster;
 
             if (reset_all_thrusters && _all_engines_off && !force_override_refresh)
                 return;
 
-            if (!is_under_control_of(screen_info.local_controller) && MyAPIGateway.Multiplayer != null)
-            {
-                bool controls_active = _manual_rotation.LengthSquared() >= 0.0001f || _linear_control.LengthSquared() >= 0.0001f;
-                if (MyAPIGateway.Multiplayer.IsServer)
-                {
-                    if (controls_active)
-                        dry_run = true;
-
-                }
-                else if (!controls_active)
-                    dry_run = true;
-            }
-
-            /*
-            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+            IMyMultiplayer network_info = MyAPIGateway.Multiplayer;
+            if (network_info == null)
                 dry_run = false;
             else
             {
-                bool is_rotation_small = (_manual_rotation - _prev_rotation).LengthSquared() < 0.0001f;
-
-                dry_run         = !_force_override_refresh || is_rotation_small && (_linear_control - _prev_control).LengthSquared() < 0.0001f;
-                _prev_control   = _linear_control;
-                _linear_control = Vector3.Zero;
-                if (!is_rotation_small)
-                    _prev_rotation = _manual_rotation;
+                IMyPlayer controlling_player = network_info.Players.GetPlayerControllingEntity(_grid);
+                //dry_run = (controlling_player == null) ? !network_info.IsServer : (controlling_player != screen_info.local_player);
+                bool controls_active = _manual_rotation.LengthSquared() >= 0.0001f || _linear_control.LengthSquared() >= 0.0001f;
+                if (network_info.IsServer)
+                    dry_run = controls_active && controlling_player != screen_info.local_player;
+                else
+                    dry_run = !controls_active || controlling_player != screen_info.local_player;
             }
-            */
 
             bool[] is_controlled_side = __is_controlled_side;
             for (int dir_index = 0; dir_index < 6; ++dir_index)

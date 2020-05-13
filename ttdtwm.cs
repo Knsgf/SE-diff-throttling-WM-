@@ -643,10 +643,10 @@ namespace orbiter_SE
         {
             base.UpdateBeforeSimulation();
 
+            screen_info.refresh_local_player_info();
             if (_grids_handle_60Hz == null)
                 return;
 
-            screen_info.refresh_local_player_info();
             if (--_count15 <= 0)
             {
                 _count15 = 15;
@@ -674,7 +674,7 @@ namespace orbiter_SE
         public override void UpdateAfterSimulation()
         {
             base.UpdateAfterSimulation();
-            if (_grids_handle_60Hz == null)
+            if (!_entity_events_set || !_panel_controls_set || !sync_helper.network_handlers_registered || !screen_info.settings_loaded)
                 try_register_handlers();
         }
 

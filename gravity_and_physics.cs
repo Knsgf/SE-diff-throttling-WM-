@@ -135,16 +135,18 @@ namespace orbiter_SE
             {
                 longitude_of_ascending_node = Math.Acos(AN_vector.X);
                 argument_of_periapsis       = (eccentricity > 0.0) ? Math.Acos(MathHelperD.Clamp(Vector3D.Dot(AN_vector, eccentricity_vector) / eccentricity, -1.0, 1.0)) : 0.0;
+                if (AN_vector.Z > 0.0)
+                    longitude_of_ascending_node = 2.0 * Math.PI - longitude_of_ascending_node;
+                if (eccentricity_vector.Y < 0.0)
+                    argument_of_periapsis = 2.0 * Math.PI - argument_of_periapsis;
             }
             else
             {
                 longitude_of_ascending_node = 0.0;
                 argument_of_periapsis       = (eccentricity > 0.0) ? Math.Acos(eccentricity_vector.X / eccentricity) : 0.0;
+                if (eccentricity_vector.Z > 0.0)
+                    argument_of_periapsis = 2.0 * Math.PI - argument_of_periapsis;
             }
-            if (AN_vector.Z > 0.0)
-                longitude_of_ascending_node = 2.0 * Math.PI - longitude_of_ascending_node;
-            if (eccentricity_vector.Y < 0.0)
-                argument_of_periapsis = 2.0 * Math.PI - argument_of_periapsis;
 
             _anomaly90           = Vector3D.Cross(specific_angular_momentum, (eccentricity > 0.0) ? eccentricity_vector : AN_vector);
             _eccentricity_vector = eccentricity * Vector3D.Normalize(Vector3D.Cross(_anomaly90, specific_angular_momentum));
@@ -338,8 +340,6 @@ namespace orbiter_SE
             public double   surface_gravity, radius, radius2, standard_gravitational_parameter;
             public Vector3D centre_position;
         }
-
-        Action<MyPhysicsForceType, Vector3?, Vector3D?, Vector3?, float?, bool, bool> apply_force;
 
         private static readonly Dictionary<     string, gravity_source     > _gravity_source_names = new Dictionary<     string, gravity_source     >();
         private static readonly Dictionary<   MyPlanet, gravity_source     > _gravity_sources      = new Dictionary<   MyPlanet, gravity_source     >();
@@ -844,20 +844,33 @@ namespace orbiter_SE
             _absolute_linear_velocity = (new_position - _grid_position) * MyEngineConstants.UPDATE_STEPS_PER_SECOND;
             _grid_position            = new_position;
 
-            MatrixD  grid_matrix = _grid.WorldMatrix;
+            /*
+            MatrixD  grid_matrix = _grid.WorldMatrix.GetOrientation();
+            
             Vector3D new_forward = grid_matrix.Forward, new_right = grid_matrix.Right, new_up = grid_matrix.Up;
-            Vector3D angular_pitch_yaw  = Vector3D.Cross(new_forward, (new_forward - _grid_forward) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
-            Vector3D angular_pitch_roll = Vector3D.Cross(new_up     , (new_up      - _grid_up     ) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
-            Vector3D angular_roll_yaw   = Vector3D.Cross(new_right  , (new_right   - _grid_right  ) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
-            _absolute_angular_velocity  = (angular_pitch_yaw + angular_pitch_roll + angular_roll_yaw) / 2.0;
+            Vector3D angular_pitch_yaw         = Vector3D.Cross(new_forward, (new_forward - _grid_forward) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
+            Vector3D angular_pitch_roll        = Vector3D.Cross(new_up     , (new_up      - _grid_up     ) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
+            Vector3D angular_roll_yaw          = Vector3D.Cross(new_right  , (new_right   - _grid_right  ) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
+            screen_info.screen_text(_grid, "", $"{new_forward - _grid_forward}", 16);
+            screen_info.screen_text(_grid, "", $"{new_up - _grid_up}", 16);
+            Vector3D absolute_angular_velocity = (angular_pitch_yaw + angular_pitch_roll + angular_roll_yaw) / 2.0;
+            Vector3D physics_angular_velocity  = _grid.Physics.AngularVelocity;
+            double angular_velocity_length2a = _absolute_angular_velocity.LengthSquared(), angular_velocity_length2b = physics_angular_velocity.LengthSquared();
+            _absolute_angular_velocity = (angular_velocity_length2a < angular_velocity_length2b) ? absolute_angular_velocity : physics_angular_velocity;
+            */
+            _absolute_angular_velocity = _grid.Physics.AngularVelocity;
+            //screen_info.screen_text(_grid, "update_grid_position_and_velocity", _absolute_angular_velocity.ToString(), 16);
+            /*
             _grid_forward = new_forward;
             _grid_right   = new_right;
             _grid_up      = new_up;
+            */
         }
 
         public void apply_torque(Vector3 absolute_torque)
         {
             _current_torque = absolute_torque;
+            //screen_info.screen_text(_grid, "apply_torque", $"{_current_torque}", 16);
         }
 
         public void simulate_gravity_and_torque()
@@ -882,8 +895,8 @@ namespace orbiter_SE
             Vector3D gravity_correction_force = _grid.Physics.Mass * (gravity_vector - stock_gravity_force) + _accumulated_gravity;
             if (gravity_correction_force.LengthSquared() >= 1.0 || _current_torque.LengthSquared() >= 1.0f)
             {
-                Vector3 gravity_correction_impulse = gravity_correction_force * MyEngineConstants.PHYSICS_STEP_SIZE_IN_SECONDS;
-                apply_force(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, GRAVITY_ON ? gravity_correction_impulse : Vector3.Zero, grid_position, _current_torque, null, true, false);
+                Vector3 gravity_correction_impulse = GRAVITY_ON ? ((Vector3) (gravity_correction_force * MyEngineConstants.PHYSICS_STEP_SIZE_IN_SECONDS)) : Vector3.Zero;
+                _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, gravity_correction_impulse, grid_position, _current_torque);
             }
             _current_torque = Vector3.Zero;
             if (GRAVITY_ON && _grid.Physics.LinearVelocity.LengthSquared() <= 0.01f && stock_gravity_force.LengthSquared() < 0.0001f)
@@ -969,7 +982,6 @@ namespace orbiter_SE
                 _grid_up            = grid_matrix.Up;
             }
             _grid_list[grid_ref] = _grid_names[grid_ref.DisplayName] = this;
-            apply_force = _grid.Physics.AddForce;
         }
     }
 }
