@@ -63,6 +63,11 @@ namespace orbiter_SE
 
         #region Debug display
 
+        private static void log_screen_info_action(string method_name, string message)
+        {
+            MyLog.Default.WriteLine(string.Format("TTDTWM\tscreen_info.{0}(): {1}", method_name, message));
+        }
+
         static private void display_info(IMyCubeGrid grid, string message, int display_time_ms, string font)
         {
             try
@@ -465,9 +470,7 @@ namespace orbiter_SE
                     message[0] |= 0x2;
                 if (torque_disabled)
                     message[0] |= 0x4;
-                ulong recipient = 0;
-                for (int cur_byte = 8; cur_byte >= 1; --cur_byte)
-                    recipient = (recipient << 8) | message[cur_byte];
+                ulong recipient = sync_helper.decode_unsigned(8, message, 1);
                 sync_helper.send_message_to(recipient, sync_helper.message_types.GLOBAL_MODES, null, message, 1);
             }
             else if (message[0] > 0 && length == 1 && !MyAPIGateway.Multiplayer.IsServer)
@@ -525,12 +528,7 @@ namespace orbiter_SE
                     else
                     {
                         _message[0] = 0;
-                        ulong player_id = local_player.SteamUserId;
-                        for (int cur_byte = 1; cur_byte <= 8; ++cur_byte)
-                        {
-                            _message[cur_byte] = (byte) (player_id & 0xFF);
-                            player_id >>= 8;
-                        }
+                        sync_helper.encode_unsigned(local_player.SteamUserId, 8, _message, 1);
                         sync_helper.send_message_to_server(sync_helper.message_types.GLOBAL_MODES, null, _message, 9);
                     }
                 }
