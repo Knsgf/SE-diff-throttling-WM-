@@ -1,11 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
-using System.IO;
 
 using Sandbox.ModAPI;
 using VRage.Game.ModAPI;
-using VRage.Game.ModAPI.Interfaces;
 using VRage.Utils;
 
 namespace ttdtwm
@@ -17,7 +14,7 @@ namespace ttdtwm
 
         internal const int MAX_MESSAGE_LENGTH = 200;
 
-        internal enum message_types { I_TERMS, MANUAL_THROTTLE, CONTROL_LIMIT, THRUST_LOSS, GET_THRUST_LIMIT, REMOTE_SCREEN_TEXT };
+        internal enum message_types: byte { I_TERMS, MANUAL_THROTTLE, MANOEUVRE, CONTROL_LIMIT, THRUST_LOSS, GET_THRUST_LIMIT, REMOTE_SCREEN_TEXT, GLOBAL_MODES };
         private static readonly int _num_messages = Enum.GetValues(typeof(message_types)).Length;
 
         const int SIGNATURE_LENGTH = 6;
@@ -58,6 +55,50 @@ namespace ttdtwm
             MyLog.Default.WriteLine("TTDTWM SYNC\tsync_helper." + method_name + "(): [" + player_name + "] " + message);
         }
 
+        #region little-endian integer serialisers
+
+        public static void encode_unsigned(ulong value, int bytes, byte[] message, int message_offset)
+        {
+            int end_offset = message_offset + bytes;
+            for (int cur_byte = message_offset; cur_byte < end_offset; ++cur_byte)
+            {
+                message[cur_byte] = (byte) (value & 0xFF);
+                value >>= 8;
+            }
+        }
+
+        public static void encode_signed(long value, int bytes, byte[] message, int message_offset)
+        {
+            int end_offset = message_offset + bytes;
+            for (int cur_byte = message_offset; cur_byte < end_offset; ++cur_byte)
+            {
+                message[cur_byte] = (byte) (value & 0xFF);
+                value >>= 8;
+            }
+        }
+
+        public static ulong decode_unsigned(int bytes, byte[] message, int message_offset)
+        {
+            ulong result = 0;
+            int end_offset = message_offset + bytes;
+
+            for (int cur_byte = end_offset - 1; cur_byte >= message_offset; --cur_byte)
+                result = (result << 8) | message[cur_byte];
+            return result;
+        }
+
+        public static long decode_signed(int bytes, byte[] message, int message_offset)
+        {
+            int end_offset = message_offset + bytes - 1;
+            long result = (message[end_offset] >= 0x80) ? -1 : 0;
+
+            for (int cur_byte = end_offset; cur_byte >= message_offset; --cur_byte)
+                result = (result << 8) | message[cur_byte];
+            return result;
+        }
+
+        #endregion
+
         #region Network handlers
 
         private static byte[] fill_message(message_types message_id, object entity, byte[] message, int length)
@@ -76,8 +117,9 @@ namespace ttdtwm
             if (!encode_entity_id(entity, message_buffer))
                 return null;
             //log_sync_action("fill_message", string.Format("entity valid ({0})", message_id));
-            for (uint index = 0; index < length; ++index)
-                message_buffer[index + SIGNATURE_LENGTH + 1 + 8] = message[index];
+            int buffer_index = SIGNATURE_LENGTH + 1 + 8;
+            for (int index = 0; index < length; ++index)
+                message_buffer[buffer_index++] = message[index];
             return message_buffer;
         }
 
@@ -99,8 +141,9 @@ namespace ttdtwm
             //log_sync_action("on_message_received", "signature valid");
             object entity = decode_entity_id(message);
             //log_sync_action("on_message_received", "entity valid");
+            int buffer_index = SIGNATURE_LENGTH + 1 + 8;
             for (int index = 0; index < length; ++index)
-                _in_buffer[index] = message[SIGNATURE_LENGTH + 1 + 8 + index];
+                _in_buffer[index] = message[buffer_index++];
             invoke_handler(entity, _in_buffer, length);
         }
 
@@ -189,19 +232,13 @@ namespace ttdtwm
                     return false;
                 entity_id = _entity_ids[entity];
             }
-            for (int cur_byte = 0; cur_byte < 8; ++cur_byte)
-            {
-                message[cur_byte + SIGNATURE_LENGTH + 1] = (byte) (entity_id & 0xFF);
-                entity_id >>= 8;
-            }
+            encode_signed(entity_id, 8, message, SIGNATURE_LENGTH + 1);
             return true;
         }
 
         private static object decode_entity_id(byte[] message)
         {
-            long entity_id = 0;
-            for (int cur_byte = 7; cur_byte >= 0; --cur_byte)
-                entity_id = (entity_id << 8) | message[cur_byte + SIGNATURE_LENGTH + 1];
+            long entity_id = decode_signed(8, message, SIGNATURE_LENGTH + 1);
             return (entity_id != 0 && _entities.ContainsKey(entity_id)) ? _entities[entity_id] : null;
         }
 

@@ -55,6 +55,11 @@ namespace ttdtwm
 
         #region Debug display
 
+        private static void log_screen_info_action(string method_name, string message)
+        {
+            MyLog.Default.WriteLine(string.Format("TTDTWM\tscreen_info.{0}(): {1}", method_name, message));
+        }
+
         static private void display_info(IMyCubeGrid grid, string message, int display_time_ms, string font)
         {
             try

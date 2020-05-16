@@ -363,21 +363,13 @@ namespace ttdtwm
             screen_info.set_displayed_thrust_reduction(instance._grid, argument[0], !instance._is_secondary && instance._secondary_grids == null);
         }
 
-        private static float structurise_float_from_short(byte[] buffer, int buffer_offset)
-        {
-            short result = buffer[buffer_offset], msb = buffer[buffer_offset + 1];
-            msb <<= 8;
-            result |= msb;
-            return result / MESSAGE_MULTIPLIER;
-        }
-
         private static Vector3 structurise_vector(byte[] buffer, int buffer_offset)
         {
             Vector3 result;
 
-            result.X = structurise_float_from_short(buffer, buffer_offset    );
-            result.Y = structurise_float_from_short(buffer, buffer_offset + 2);
-            result.Z = structurise_float_from_short(buffer, buffer_offset + 4);
+            result.X = sync_helper.decode_signed(2, buffer, buffer_offset    ) / MESSAGE_MULTIPLIER;
+            result.Y = sync_helper.decode_signed(2, buffer, buffer_offset + 2) / MESSAGE_MULTIPLIER;
+            result.Z = sync_helper.decode_signed(2, buffer, buffer_offset + 4) / MESSAGE_MULTIPLIER;
             return result;
         }
 
@@ -420,10 +412,7 @@ namespace ttdtwm
             else if (value < short.MinValue / MESSAGE_MULTIPLIER)
                 value = short.MinValue / MESSAGE_MULTIPLIER;
 
-            short value16 = (short) (value * MESSAGE_MULTIPLIER);
-
-            buffer[buffer_offset    ] = (byte) ((value16     ) & 0xFF);
-            buffer[buffer_offset + 1] = (byte) ((value16 >> 8) & 0xFF);
+            sync_helper.encode_signed((long) (value * MESSAGE_MULTIPLIER), 2, buffer, buffer_offset);
         }
 
         private static void serialise_vector(Vector3 value, byte[] buffer, int buffer_offset)
@@ -433,11 +422,8 @@ namespace ttdtwm
             serialise_float_to_short(value.Z, buffer, buffer_offset + 4);
         }
 
-        private void send_I_terms_message()
+        private void send_I_terms_message(ulong? recipient)
         {
-            if (MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer)
-                return;
-
             Vector3 current_trim = _ECU.current_trim, aux_trim = _ECU.aux_trim, linear_integral = _ECU.linear_integral;
             if (current_trim != _prev_trim || aux_trim != _prev_aux_trim || linear_integral != _prev_linear_integral)
             {
@@ -447,7 +433,10 @@ namespace ttdtwm
                 serialise_vector(   current_trim, __message, 0);
                 serialise_vector(       aux_trim, __message, 6);
                 serialise_vector(linear_integral, __message, 12);
-                sync_helper.send_message_to_others(sync_helper.message_types.I_TERMS, this, __message, 18);
+                if (recipient != null)
+                    sync_helper.send_message_to((ulong) recipient, sync_helper.message_types.I_TERMS, this, __message, 18);
+                else
+                    sync_helper.send_message_to_others(sync_helper.message_types.I_TERMS, this, __message, 18);
             }
         }
 
@@ -489,12 +478,12 @@ namespace ttdtwm
                     {
                         if (!_is_secondary)
                         {
-                            send_I_terms_message();
                             IMyPlayer controlling_player = get_controlling_player();
                             if (controlling_player != null)
                             {
-                                if (controlling_player == screen_info.local_player || MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
-                                    handle_user_input(controlling_player.Controller.ControlledEntity);
+                                handle_user_input(controlling_player.Controller.ControlledEntity);
+                                if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
+                                    send_I_terms_message(controlling_player.SteamUserId);
                             }
                             else
                             {
@@ -581,7 +570,7 @@ namespace ttdtwm
                 { 
                     _ECU.handle_2s_period_foreground();
                     if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
-                        send_I_terms_message();
+                        send_I_terms_message(null);
                 }
             }
         }
