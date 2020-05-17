@@ -1489,6 +1489,7 @@ namespace orbiter_SE
             if (sleep_mode_on)
             {
                 thrust_reduction = 0;
+                _linear_control  = Vector3.Zero;
                 apply_thrust_settings(reset_all_thrusters: true);
                 return;
             }
