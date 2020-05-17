@@ -229,6 +229,16 @@ namespace orbiter_SE
             };
         }
 
+        private int get_current_ID_mode(IMyTerminalBlock controller)
+        {
+            grid_logic controller_grid = _grids[controller.CubeGrid];
+            engine_control_unit.ID_manoeuvres current_manoeuvre = controller_grid.current_manoeuvre;
+            
+            if (current_manoeuvre != engine_control_unit.ID_manoeuvres.manoeuvre_off)
+                return (int) current_manoeuvre + 1;
+            return controller_grid.circularise ? 1 : 0;
+        }
+
         private Func<double, double, double> get_true_to_mean_converter(IMyTerminalBlock dummy)
         {
             return gravity_and_physics.convert_true_anomaly_to_mean;
@@ -523,6 +533,8 @@ namespace orbiter_SE
             create_button<_controller_type_>("IDAntiNormal", "Anti-normal", null, "Start", create_manoeuvre_starter(engine_control_unit.ID_manoeuvres.burn_antinormal), is_grid_circularise_mode_available, create_manoeuvre_indicator(engine_control_unit.ID_manoeuvres.burn_antinormal));
             create_button<_controller_type_>("IDOutward"   ,     "Outward", null, "Start", create_manoeuvre_starter(engine_control_unit.ID_manoeuvres.burn_outward   ), is_grid_circularise_mode_available, create_manoeuvre_indicator(engine_control_unit.ID_manoeuvres.burn_outward   ));
             create_button<_controller_type_>("IDInward"    ,      "Inward", null, "Start", create_manoeuvre_starter(engine_control_unit.ID_manoeuvres.burn_inward    ), is_grid_circularise_mode_available, create_manoeuvre_indicator(engine_control_unit.ID_manoeuvres.burn_inward    ));
+
+            create_PB_property<int, _controller_type_>("CurrentIDMode", get_current_ID_mode);
         }
 
         private void try_register_handlers()
