@@ -2362,8 +2362,8 @@ namespace ttdtwm
                 && (!linear_dampers_on && !secondary_ECU || _grid.Physics.Gravity.LengthSquared() < 0.01f && current_speed < 0.1f))
             {
                 handle_thrust_control(_world_linear_velocity, _target_velocity, _world_angular_velocity, sleep_mode_on: true);
-                if (autopilot_on)
-                    calculate_and_apply_torque();
+                //if (autopilot_on)
+                //    calculate_and_apply_torque();
             }
             else
             {
