@@ -35,92 +35,10 @@ namespace orbiter_SE
 
         #region Properties
 
-        public bool is_CoT_mode_available => _num_thrusters > 0 && !_grid.IsStatic && _grid.Physics != null && _grid.Physics.Enabled;
-
-        public bool CoT_mode_on
-        {
-            get
-            {
-                return is_CoT_mode_available && _ECU.CoT_mode_on;
-            }
-            set
-            {
-                IMyTerminalBlock controller_terminal;
-
-                _ECU.CoT_mode_on = value && is_CoT_mode_available;
-                foreach (IMyControllableEntity cur_controller in _ship_controllers)
-                {
-                    controller_terminal = (IMyTerminalBlock) cur_controller;
-                    controller_terminal.CustomData = value ? controller_terminal.CustomData.AddCOTTag() : controller_terminal.CustomData.RemoveCOTTag();
-                }
-            }
-        }
-
-        public bool rotational_damping_on
-        {
-            get
-            {
-                return !is_CoT_mode_available || _ECU.rotational_damping_on;
-            }
-            set
-            {
-                set_rotational_damping(value);
-            }
-        }
-
-        public bool is_landing_mode_available => is_CoT_mode_available && _grid.Physics.Gravity.LengthSquared() > 0.01f;
-
-        public bool landing_mode_on
-        {
-            get
-            {
-                return is_landing_mode_available && _ECU.landing_mode_on;
-            }
-            set
-            {
-                set_landing_mode(value);
-            }
-        }
-
-        public bool use_individual_calibration
-        {
-            get
-            {
-                return is_CoT_mode_available && _ECU.use_individual_calibration;
-            }
-            set
-            {
-                IMyTerminalBlock controller_terminal;
-
-                _ECU.use_individual_calibration = value && is_CoT_mode_available;
-                foreach (IMyControllableEntity cur_controller in _ship_controllers)
-                {
-                    controller_terminal = (IMyTerminalBlock) cur_controller;
-                    controller_terminal.CustomData = value ? controller_terminal.CustomData.AddICTag() : controller_terminal.CustomData.RemoveICTag();
-                }
-            }
-        }
-
-        public bool is_circularisation_avaiable => gravity_and_physics.world_has_gravity && _ECU.current_speed >= engine_control_unit.MIN_CIRCULARISATION_SPEED;
-
-        public bool circularise
-        {
-            get
-            {
-                return is_circularisation_avaiable && _ECU.circularise_on;
-            }
-            set
-            {
-                IMyTerminalBlock controller_terminal;
-
-                _ECU.circularise_on = value && is_circularisation_avaiable;
-                foreach (IMyControllableEntity cur_controller in _ship_controllers)
-                {
-                    controller_terminal = (IMyTerminalBlock) cur_controller;
-                    controller_terminal.CustomData = value ? controller_terminal.CustomData.AddCIRCULARISETag() : controller_terminal.CustomData.RemoveCIRCULARISETag();
-                }
-            }
-        }
+        public bool is_thrust_control_available => _num_thrusters > 0 && !_grid.IsStatic && _grid.Physics != null && _grid.Physics.Enabled;
+        public bool is_landing_mode_available   => is_thrust_control_available && _grid.Physics.Gravity.LengthSquared() > 0.01f;
+        public bool is_circularisation_avaiable => gravity_and_physics.world_has_gravity;
+        public bool circularise                 => is_circularisation_avaiable && _ECU.circularise_on;
 
         public bool is_secondary
         {
@@ -134,13 +52,73 @@ namespace orbiter_SE
             }
         }
 
-        public Func<orbit_elements> orbit_elements_reader => _grid_physics.current_elements_reader;
-
+        public Vector3 dampers_axes_enabled => _ECU.dampers_axes_enabled;
         public engine_control_unit.ID_manoeuvres current_manoeuvre => is_circularisation_avaiable ? _ECU.current_manoeuvre : engine_control_unit.ID_manoeuvres.manoeuvre_off;
+        public engine_control_unit ECU => _ECU;
 
         #endregion
 
-        #region ID overrides and manoeuvres
+        #region Grid modes, ID overrides and manoeuvres
+
+        public void set_CoT_mode(bool CoT_mode_on)
+        {
+            log_grid_action("set_CoT_mode", CoT_mode_on.ToString());
+            _ECU.CoT_mode_on = CoT_mode_on && is_thrust_control_available;
+        }
+
+        public void set_individual_calibration_use(bool use_individual_calibration)
+        {
+            log_grid_action("set_individual_calibration_use", use_individual_calibration.ToString());
+            _ECU.use_individual_calibration = use_individual_calibration && is_thrust_control_available;
+        }
+
+        public void set_circularisation(bool cirucilarise)
+        {
+            log_grid_action("set_circularisation", cirucilarise.ToString());
+            _ECU.circularise_on = cirucilarise && is_circularisation_avaiable;
+        }
+
+        public void set_touchdown_mode(bool touchdown_mode_on, bool set_secondary = false)
+        {
+            log_grid_action("set_touchdown_mode", touchdown_mode_on.ToString());
+            if (!set_secondary)
+            {
+                if (_is_secondary)
+                    return;
+                touchdown_mode_on &= is_landing_mode_available;
+            }
+            _ECU.touchdown_mode_on = touchdown_mode_on;
+            
+            if (!set_secondary && !_is_secondary && _secondary_grids != null)
+            {
+                foreach (grid_logic cur_secondary in _secondary_grids)
+                    cur_secondary.set_touchdown_mode(touchdown_mode_on, true);
+            }
+        }
+
+        public void set_rotational_damping(bool rotational_damping_on, bool set_secondary = false)
+        {
+            log_grid_action("set_rotational_damping", rotational_damping_on.ToString());
+            if (!set_secondary)
+            {
+                if (_is_secondary)
+                    return;
+                rotational_damping_on |= !is_thrust_control_available;
+            }
+            _ECU.rotational_damping_on = rotational_damping_on;
+
+            if (!set_secondary && !_is_secondary && _secondary_grids != null)
+            {
+                foreach (grid_logic cur_secondary in _secondary_grids)
+                    cur_secondary.set_rotational_damping(rotational_damping_on, true);
+            }
+        }
+
+        public void set_damper_enabled_axes(bool fore_aft_enable, bool port_starboard_enable, bool dorsal_ventral_enable)
+        {
+            log_grid_action("set_damper_enabled_axes", $"Z={fore_aft_enable} X={port_starboard_enable} Y={dorsal_ventral_enable}");
+            _ECU.set_damper_enabled_axes(fore_aft_enable, port_starboard_enable, dorsal_ventral_enable);
+        }
 
         public bool is_ID_axis_overriden(IMyTerminalBlock controller, int axis)
         {
@@ -161,9 +139,9 @@ namespace orbiter_SE
             }
         }
 
-        public void set_ID_override(IMyTerminalBlock controller, int axis = -1, bool new_state_enabled = false)
+        public void set_ID_override(IMyTerminalBlock controller, int axis, bool new_state_enabled)
         {
-            Vector3 new_override = controller.CustomData.IDOverrides();
+            Vector3 new_override = _ECU.get_damper_override_for_cockpit(controller);
             switch (axis)
             {
                 case 0:
@@ -179,13 +157,12 @@ namespace orbiter_SE
                     break;
             }
             _ECU.translate_damper_override(new_override, controller);
+        }
 
-            IMyTerminalBlock controller_terminal;
-            foreach (IMyControllableEntity cur_controller in _ship_controllers)
-            {
-                controller_terminal = (IMyTerminalBlock) cur_controller;
-                controller_terminal.CustomData = controller_terminal.CustomData.SetIDOvveride(_ECU.get_damper_override_for_cockpit(controller_terminal));
-            }
+        public void start_manoeuvre(engine_control_unit.ID_manoeuvres selection)
+        {
+            if (is_circularisation_avaiable)
+                _ECU.begin_manoeuvre(selection);
         }
 
         #endregion
@@ -210,7 +187,7 @@ namespace orbiter_SE
             return !_ECU.is_under_control_of(screen_info.local_controller) ? null : screen_info.local_player;
         }
 
-        private void update_ECU_cockpit_controls()
+        public void update_ECU_cockpit_controls()
         {
             bool CoT_mode_on = false, landing_mode_on = false, rotational_damping_on = true, use_individual_calibration = false, circularise_on = false;
             engine_control_unit ECU = _ECU;
@@ -229,7 +206,7 @@ namespace orbiter_SE
             }
             ECU.CoT_mode_on                = CoT_mode_on;
             ECU.use_individual_calibration = use_individual_calibration;
-            ECU.landing_mode_on            = landing_mode_on;
+            ECU.touchdown_mode_on          = landing_mode_on;
             ECU.rotational_damping_on      = rotational_damping_on;
             ECU.linear_dampers_on          = _ID_on;
             ECU.circularise_on             = circularise_on;
@@ -241,48 +218,6 @@ namespace orbiter_SE
             var grid_movement = new gravity_and_physics(_grid);
             _ECU              = new engine_control_unit(_grid, grid_movement);
             _grid_physics     = grid_movement;
-
-            update_ECU_cockpit_controls();
-        }
-
-        private void set_rotational_damping(bool new_state, bool set_secondary = false)
-        {
-            IMyTerminalBlock controller_terminal;
-
-            if (!set_secondary && _is_secondary)
-                return;
-            _ECU.rotational_damping_on = new_state;
-            foreach (IMyControllableEntity cur_controller in _ship_controllers)
-            {
-                controller_terminal = (IMyTerminalBlock) cur_controller;
-                controller_terminal.CustomData = new_state ? controller_terminal.CustomData.AddDAMPINGTag() : controller_terminal.CustomData.RemoveDAMPINGTag();
-            }
-
-            if (!set_secondary && !_is_secondary && _secondary_grids != null)
-            {
-                foreach (grid_logic cur_secondary in _secondary_grids)
-                    cur_secondary.set_rotational_damping(new_state, true);
-            }
-        }
-
-        private void set_landing_mode(bool new_state, bool set_secondary = false)
-        {
-            IMyTerminalBlock controller_terminal;
-
-            if (!set_secondary && _is_secondary)
-                return;
-            _ECU.landing_mode_on = new_state;
-            foreach (IMyControllableEntity cur_controller in _ship_controllers)
-            {
-                controller_terminal = (IMyTerminalBlock) cur_controller;
-                controller_terminal.CustomData = new_state ? controller_terminal.CustomData.AddLANDINGTag() : controller_terminal.CustomData.RemoveLANDINGTag();
-            }
-
-            if (!set_secondary && !_is_secondary && _secondary_grids != null)
-            {
-                foreach (grid_logic cur_secondary in _secondary_grids)
-                    cur_secondary.set_landing_mode(new_state, true);
-            }
         }
 
         #endregion
@@ -308,7 +243,7 @@ namespace orbiter_SE
                     {
                         if (_ECU.CoT_mode_on)
                             controller_terminal.CustomData = controller_terminal.CustomData.AddCOTTag();
-                        if (_ECU.landing_mode_on)
+                        if (_ECU.touchdown_mode_on)
                             controller_terminal.CustomData = controller_terminal.CustomData.AddLANDINGTag();
                         if (!_ECU.rotational_damping_on)
                             controller_terminal.CustomData = controller_terminal.CustomData.RemoveDAMPINGTag();
@@ -332,7 +267,7 @@ namespace orbiter_SE
                         initialise_ECU_and_physics();
                     _ECU.assign_thruster(thruster);
                     session_handler.sample_thruster(thruster);
-                    thruster.AppendingCustomInfo += thruster_tagger.show_thrust_limit;
+                    thruster.AppendingCustomInfo += thruster_and_grid_tagger.show_thrust_limit;
                     ++_num_thrusters;
                     return;
                 }
@@ -368,7 +303,7 @@ namespace orbiter_SE
                 var thruster = entity as IMyThrust;
                 if (thruster != null)
                 {
-                    thruster.AppendingCustomInfo -= thruster_tagger.show_thrust_limit;
+                    thruster.AppendingCustomInfo -= thruster_and_grid_tagger.show_thrust_limit;
                     _ECU.dispose_thruster(thruster);
                     --_num_thrusters;
                     return;
@@ -421,33 +356,9 @@ namespace orbiter_SE
             current_ECU.linear_integral = structurise_vector(argument, 12);
         }
 
-        internal static void sync_manoeuvre(object entity, byte[] argument, int length)
-        {
-            if (length != 1)
-                return;
-            var instance = entity as grid_logic;
-            if (instance == null || instance._disposed)
-                return;
-
-            instance.start_manoeuvre((engine_control_unit.ID_manoeuvres) argument[0], false);
-        }
-
         #endregion
 
         #region event triggers
-
-        public void start_manoeuvre(engine_control_unit.ID_manoeuvres selection, bool sync_manoeuvre)
-        {
-            if (is_circularisation_avaiable)
-            {
-                _ECU.begin_manoeuvre(selection);
-                if (sync_manoeuvre)
-                {
-                    __message[0] = (byte) selection;
-                    sync_helper.send_message_to_others(sync_helper.message_types.MANOEUVRE, this, __message, 1);
-                }
-            }
-        }
 
         private void send_thrust_reduction_message(IMyPlayer controlling_player)
         {
@@ -491,7 +402,7 @@ namespace orbiter_SE
                 serialise_vector(       aux_trim, __message, 6);
                 serialise_vector(linear_integral, __message, 12);
                 if (recipient != null)
-                    sync_helper.send_message_to((ulong) recipient, sync_helper.message_types.I_TERMS, this, __message, 18);
+                    sync_helper.send_message_to((ulong) recipient, sync_helper.message_types.I_TERMS, this, __message, 18, reliable: false);
                 else
                     sync_helper.send_message_to_others(sync_helper.message_types.I_TERMS, this, __message, 18);
             }
@@ -592,7 +503,7 @@ namespace orbiter_SE
                     _ECU.reset_ECU();
                 else
                 {
-                    update_ECU_cockpit_controls();
+                    //update_ECU_cockpit_controls();
                     _ECU.handle_4Hz_foreground();
 
                     IMyPlayer controlling_player = get_controlling_player();
@@ -659,7 +570,7 @@ namespace orbiter_SE
             _grid                 = new_grid;
             _grid.OnBlockAdded   += on_block_added;
             _grid.OnBlockRemoved += on_block_removed;
-            sync_helper.register_entity(this, _grid.EntityId);
+            //sync_helper.register_entity(this, _grid.EntityId);
 
             var block_list = new List<IMySlimBlock>();
             _grid.GetBlocks(block_list,
@@ -682,6 +593,7 @@ namespace orbiter_SE
                 on_block_added(cur_block);
             if (_ECU == null)
                 initialise_ECU_and_physics();
+            thruster_and_grid_tagger.load_grid_settings(_grid, this);
         }
 
         public void Dispose()
@@ -690,7 +602,7 @@ namespace orbiter_SE
             {
                 _grid.OnBlockAdded   -= on_block_added;
                 _grid.OnBlockRemoved -= on_block_removed;
-                sync_helper.deregister_entity(_grid.EntityId);
+                //sync_helper.deregister_entity(_grid.EntityId);
                 _grid_physics.Dispose();
 
                 var block_list = new List<IMySlimBlock>();

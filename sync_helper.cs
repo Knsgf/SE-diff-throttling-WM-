@@ -13,7 +13,7 @@ namespace orbiter_SE
         const ushort SYNC_MESSAGE_ID = 17370;
 
         internal const int MAX_MESSAGE_LENGTH = 200;
-        internal enum message_types: byte { I_TERMS, MANUAL_THROTTLE, MANOEUVRE, CONTROL_LIMIT, THRUST_LOSS, GET_THRUST_LIMIT, REMOTE_SCREEN_TEXT, GLOBAL_MODES };
+        internal enum message_types: byte { I_TERMS, THRUSTER_MODES, MANUAL_THROTTLE, GRID_MODES, MANOEUVRE, THRUST_LOSS, REMOTE_SCREEN_TEXT, GLOBAL_MODES };
         private static readonly int _num_messages = Enum.GetValues(typeof(message_types)).Length;
 
         const int SIGNATURE_LENGTH = 6;
@@ -33,9 +33,8 @@ namespace orbiter_SE
             _message_handlers = new Action<object, byte[], int>[_num_messages];
             _message_handlers[(int) message_types.I_TERMS           ] = grid_logic.I_terms_handler;
             _message_handlers[(int) message_types.THRUST_LOSS       ] = grid_logic.thrust_reduction_handler;
-            _message_handlers[(int) message_types.MANOEUVRE         ] = grid_logic.sync_manoeuvre;
-            _message_handlers[(int) message_types.MANUAL_THROTTLE   ] = engine_control_unit.on_manual_throttle_changed;
-            _message_handlers[(int) message_types.GET_THRUST_LIMIT  ] = engine_control_unit.extract_thrust_limit;
+            //_message_handlers[(int) message_types.MANOEUVRE         ] = grid_logic.sync_manoeuvre;
+            //_message_handlers[(int) message_types.MANUAL_THROTTLE   ] = engine_control_unit.on_manual_throttle_changed;
             _message_handlers[(int) message_types.REMOTE_SCREEN_TEXT] = screen_info.show_remote_text;
             _message_handlers[(int) message_types.GLOBAL_MODES      ] = screen_info.handle_remote_settings;
         }
@@ -148,6 +147,7 @@ namespace orbiter_SE
             invoke_handler(entity, _in_buffer, length);
         }
 
+        /*
         public static void send_message_to_self(message_types message_id, long entity_id, byte[] message, int length)
         {
             if (!_entities.ContainsKey(entity_id))
@@ -157,6 +157,7 @@ namespace orbiter_SE
             if (message_buffer != null)
                 on_message_received(message_buffer);
         }
+        */
 
         public static void send_message_to_others(message_types message_id, object entity, byte[] message, int length)
         {
@@ -167,13 +168,13 @@ namespace orbiter_SE
                 MyAPIGateway.Multiplayer.SendMessageToOthers(SYNC_MESSAGE_ID, message_buffer);
         }
 
-        public static void send_message_to(ulong recipient, message_types message_id, object entity, byte[] message, int length)
+        public static void send_message_to(ulong recipient, message_types message_id, object entity, byte[] message, int length, bool reliable = true)
         {
             if (!network_handlers_registered || !MyAPIGateway.Multiplayer.IsServer)
                 return;
             byte[] message_buffer = fill_message(message_id, entity, message, length);
             if (message_buffer != null)
-                MyAPIGateway.Multiplayer.SendMessageTo(SYNC_MESSAGE_ID, message_buffer, recipient);
+                MyAPIGateway.Multiplayer.SendMessageTo(SYNC_MESSAGE_ID, message_buffer, recipient, reliable);
         }
 
         public static void send_message_to_server(message_types message_id, object entity, byte[] message, int length)

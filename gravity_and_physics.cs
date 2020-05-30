@@ -325,7 +325,8 @@ namespace orbiter_SE
     {
         void     apply_torque(Vector3 absolute_torque);
         void     get_linear_and_angular_velocities(out Vector3D world_linear_velocity, out Vector3D world_angular_velocity);
-        Vector3D get_circular_orbit_velocity(bool refresh_plane);
+        void     refresh_orbit_plane(bool no_plane_change);
+        Vector3D get_circular_orbit_velocity();
         Vector3  get_manoeuvre_direction(engine_control_unit.ID_manoeuvres selection);
     }
 
@@ -353,7 +354,7 @@ namespace orbiter_SE
 
         private Vector3D _grid_position, _absolute_linear_velocity, _absolute_angular_velocity;
         private Vector3D  _current_gravity_vector = Vector3D.Zero, _accumulated_gravity = Vector3D.Zero;
-        private Vector3D _current_angular_momentum;
+        private Vector3D _current_angular_momentum = Vector3D.Up;
         private Vector3D _grid_forward, _grid_right, _grid_up;
 
         private Vector3 _current_torque = Vector3.Zero;
@@ -367,6 +368,12 @@ namespace orbiter_SE
         public static bool world_has_gravity => _gravity_sources.Count > 0;
 
         #region Auxiliaries
+
+        private static void log_physics_action(string method_name, string message)
+        {
+            MyLog.Default.WriteLine(string.Format("TTDTWM\tgravity_and_physics.{0}(): {1}", method_name, message));
+        }
+
 
         public orbit_elements current_elements_reader()
         {
@@ -777,20 +784,39 @@ namespace orbiter_SE
 
         #region Trajectory vectors
 
-        public Vector3D get_circular_orbit_velocity(bool refresh_plane)
+        public void refresh_orbit_plane(bool no_plane_change)
         {
-            gravity_source selected_reference = _display_reference;
+            gravity_source selected_reference = _current_reference;
             if (selected_reference == null)
-                selected_reference = _current_reference;
+            {
+                _current_angular_momentum = Vector3D.Up;
+                return;
+            }
+
+            Vector3D grid_vector = _grid_position - selected_reference.centre_position;
+            Vector3D new_angular_momentum;
+            if (_absolute_linear_velocity.LengthSquared() > 10.0)
+                new_angular_momentum = Vector3D.Cross(grid_vector, _absolute_linear_velocity);
+            else
+            {
+                Vector3D tangent     = Vector3D.Cross(Vector3D.Up, grid_vector);
+                tangent              = (tangent.LengthSquared() < 1.0) ? Vector3D.Forward : Vector3D.Normalize(tangent);
+                new_angular_momentum = Vector3D.Cross(grid_vector, tangent);
+            }
+            if (_current_angular_momentum == Vector3D.Up)
+                _current_angular_momentum = new_angular_momentum;
+            else
+                _current_angular_momentum = no_plane_change ? (Vector3D.Normalize(_current_angular_momentum) * new_angular_momentum.Length()) : new_angular_momentum;
+        }
+
+        public Vector3D get_circular_orbit_velocity()
+        {
+            gravity_source selected_reference = _current_reference;
             if (selected_reference == null)
                 return Vector3D.Zero;
 
             Vector3D grid_vector        = _grid_position - selected_reference.centre_position;
             double   grid_vector_length = grid_vector.Length();
-            if (refresh_plane || _current_angular_momentum.LengthSquared() < 1.0E-6)
-                _current_angular_momentum = Vector3D.Cross(grid_vector, _absolute_linear_velocity);
-            if (_current_angular_momentum.LengthSquared() < 1.0E-6)
-                return Vector3D.Zero;
             if (GRAVITY_ON)
                 return Vector3D.Normalize(Vector3D.Cross(_current_angular_momentum, grid_vector)) * Math.Sqrt(selected_reference.standard_gravitational_parameter / grid_vector_length);
             return  Vector3D.Normalize(Vector3D.Cross(_current_angular_momentum, grid_vector)) * Math.Sqrt(_grid.Physics.Gravity.Length() * grid_vector_length);
@@ -798,34 +824,31 @@ namespace orbiter_SE
 
         public Vector3 get_manoeuvre_direction(engine_control_unit.ID_manoeuvres selection)
         {
-            if (selection == engine_control_unit.ID_manoeuvres.manoeuvre_off || _display_reference == null && _current_reference == null)
+            if (selection == engine_control_unit.ID_manoeuvres.manoeuvre_off || _current_reference == null)
                 return Vector3.Zero;
 
-            if (selection == engine_control_unit.ID_manoeuvres.burn_prograde)
-                return Vector3.Normalize(_absolute_linear_velocity);
-            if (selection == engine_control_unit.ID_manoeuvres.burn_retrograde)
-                return -Vector3.Normalize(_absolute_linear_velocity);
-
-            gravity_source selected_reference = _display_reference;
-            if (selected_reference == null)
-                selected_reference = _current_reference;
-            Vector3D grid_vector      = _grid_position - selected_reference.centre_position;
-            _current_angular_momentum = Vector3D.Cross(grid_vector, _absolute_linear_velocity);
-            Vector3  normal           = (_current_angular_momentum.LengthSquared() > 0.0) ? Vector3.Normalize(_current_angular_momentum) : Vector3.Zero;
+            Vector3D normal = Vector3D.Normalize(_current_angular_momentum);
             if (selection == engine_control_unit.ID_manoeuvres.burn_normal)
                 return normal;
             if (selection == engine_control_unit.ID_manoeuvres.burn_antinormal)
                 return -normal;
 
-            Vector3 outward = Vector3.Cross(_absolute_linear_velocity, normal);
-            if (outward.LengthSquared() > 0.0f)
-                outward.Normalize();
+            Vector3D prograde                      = _absolute_linear_velocity;
+            Vector3D prograde_to_normal_projection = Vector3D.Dot(prograde, normal) * normal;
+            prograde -= prograde_to_normal_projection;
+            if (prograde.LengthSquared() < 1.0)
+                prograde = Vector3D.Cross(normal, _grid_position - _current_reference.centre_position);
+            if (selection == engine_control_unit.ID_manoeuvres.burn_prograde)
+                return Vector3.Normalize(prograde);
+            if (selection == engine_control_unit.ID_manoeuvres.burn_retrograde)
+                return -Vector3.Normalize(prograde);
+
+            Vector3 outward = Vector3.Normalize(Vector3D.Cross(prograde, normal));
             if (selection == engine_control_unit.ID_manoeuvres.burn_outward)
                 return outward;
             if (selection == engine_control_unit.ID_manoeuvres.burn_inward)
                 return -outward;
             return Vector3.Zero;
-
         }
 
         #endregion
@@ -841,7 +864,7 @@ namespace orbiter_SE
         private void update_grid_position_and_velocity()
         {
             Vector3D new_position     = _grid.Physics.CenterOfMassWorld;
-            _absolute_linear_velocity = (new_position - _grid_position) * MyEngineConstants.UPDATE_STEPS_PER_SECOND;
+            _absolute_linear_velocity = /*(new_position - _grid_position) * MyEngineConstants.UPDATE_STEPS_PER_SECOND*/ _grid.Physics.LinearVelocity;
             _grid_position            = new_position;
 
             /*
