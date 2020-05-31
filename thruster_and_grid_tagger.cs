@@ -34,11 +34,11 @@ namespace orbiter_SE
 
         private static readonly Guid _uuid = new Guid("A78B4F70-BC21-4BAF-A403-855F82C2856F");
 
-        private static readonly Dictionary<IMyCubeGrid, grid_logic> _grid_handlers = new Dictionary<IMyCubeGrid, grid_logic>();
+        private static readonly Dictionary<IMyCubeGrid,    grid_logic> _grid_handlers = new Dictionary<IMyCubeGrid,    grid_logic>();
         private static readonly Dictionary<IMyCubeGrid, StringBuilder> _grid_settings = new Dictionary<IMyCubeGrid, StringBuilder>();
 
-        private static readonly Dictionary<IMyTerminalBlock, engine_control_unit> _thruster_hosts = new Dictionary<IMyTerminalBlock, engine_control_unit>();
-        private static readonly Dictionary<IMyTerminalBlock, StringBuilder> _thruster_settings = new Dictionary<IMyTerminalBlock, StringBuilder>();
+        private static readonly Dictionary<IMyTerminalBlock, engine_control_unit> _thruster_hosts    = new Dictionary<IMyTerminalBlock, engine_control_unit>();
+        private static readonly Dictionary<IMyTerminalBlock,       StringBuilder> _thruster_settings = new Dictionary<IMyTerminalBlock,       StringBuilder>();
 
         private static StringBuilder _current_thruster_settings = null, _current_grid_settings = null;
         
@@ -50,7 +50,6 @@ namespace orbiter_SE
         private static IMyCubeGrid _current_grid = null;
         private static int         _grid_switches;
         private static bool        _CoT_mode_on, _individual_calibration_on, _touchdown_mode_on, _rotational_damping_on, _circularisation_on;
-        private static bool        _ID_fore_aft_overridden, _ID_port_starboard_overridden, _ID_dorsal_ventral_overridden;
         private static engine_control_unit.ID_manoeuvres _current_manoeuvre;
 
         private static readonly byte[] _message = new byte[1];
@@ -252,7 +251,7 @@ namespace orbiter_SE
             if (_current_thruster != thruster)
                 return;
 
-            int displayed_thrust_limit = (int) (get_thrust_limit(thruster) + 0.5f);
+            int displayed_thrust_limit = (int) get_thrust_limit(thruster);
             if (displayed_thrust_limit >= -1)
             {
                 if (info_text.Length > 0)
@@ -398,7 +397,7 @@ namespace orbiter_SE
         public static float get_manual_throttle(IMyTerminalBlock thruster)
         {
             update_thruster_flags(thruster);
-            return _manual_throttle;
+            return _manual_throttle * 100.0f / manual_throttle_scale;
         }
 
         public static void set_manual_throttle(IMyTerminalBlock thruster, float new_setting)
@@ -412,9 +411,10 @@ namespace orbiter_SE
                 _manual_throttle = 0;
             else
             {
-                if (new_setting > 100.0f)
-                    new_setting = 100.0f;
-                _manual_throttle = (int) (new_setting * (manual_throttle_scale / 100.0f));
+                new_setting /= 100.0f;
+                if (new_setting > 1.0f)
+                    new_setting = 1.0f;
+                _manual_throttle = (int) (new_setting * manual_throttle_scale);
             }
             host.set_manual_throttle(thruster.EntityId, new_setting);
             store_number(_current_thruster_settings, _manual_throttle, MANUAL_THROTTLE_FIELD_START, MANUAL_THROTTLE_FIELD_END);
