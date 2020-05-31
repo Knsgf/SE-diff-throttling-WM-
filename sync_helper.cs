@@ -14,29 +14,35 @@ namespace orbiter_SE
 
         internal const int MAX_MESSAGE_LENGTH = 200;
         internal enum message_types: byte { I_TERMS, THRUSTER_MODES, MANUAL_THROTTLE, GRID_MODES, MANOEUVRE, THRUST_LOSS, REMOTE_SCREEN_TEXT, GLOBAL_MODES };
-        private static readonly int _num_messages = Enum.GetValues(typeof(message_types)).Length;
+        private static readonly int _num_messages;
 
         const int SIGNATURE_LENGTH = 6;
         private static readonly Dictionary<int, byte[]> _out_buffers = new Dictionary<int, byte[]>();
         private static readonly                 byte[]  _in_buffer   = new byte[MAX_MESSAGE_LENGTH];
         private static readonly                 byte[]  _signature   = { 0, 0, 0x7B, 0x87, 0xAC, 0xC0 };
 
-        private static readonly Dictionary<  long, object> _entities   = new Dictionary<  long, object>();
-        private static readonly Dictionary<object,   long> _entity_ids = new Dictionary<object,   long>();
+        private static readonly Dictionary<  long, object>[] _entities;
+        private static readonly Dictionary<object,   long>[] _entity_ids;
 
-        private static readonly Action<object, byte[], int>[] _message_handlers;
+        private static readonly Action<message_types, object, byte[], int>[] _message_handlers;
 
         public static bool network_handlers_registered { get; private set; }
 
         static sync_helper()
         {
-            _message_handlers = new Action<object, byte[], int>[_num_messages];
+            _num_messages     = Enum.GetValues(typeof(message_types)).Length;
+            _message_handlers = new Action<message_types, object, byte[], int>[_num_messages];
             _message_handlers[(int) message_types.I_TERMS           ] = grid_logic.I_terms_handler;
             _message_handlers[(int) message_types.THRUST_LOSS       ] = grid_logic.thrust_reduction_handler;
-            //_message_handlers[(int) message_types.MANOEUVRE         ] = grid_logic.sync_manoeuvre;
-            //_message_handlers[(int) message_types.MANUAL_THROTTLE   ] = engine_control_unit.on_manual_throttle_changed;
+            _message_handlers[(int) message_types.GRID_MODES        ] = thruster_and_grid_tagger.remote_grid_settings;
+            _message_handlers[(int) message_types.MANOEUVRE         ] = thruster_and_grid_tagger.remote_grid_settings;
+            _message_handlers[(int) message_types.THRUSTER_MODES    ] = thruster_and_grid_tagger.remote_thrust_settings;
+            _message_handlers[(int) message_types.MANUAL_THROTTLE   ] = thruster_and_grid_tagger.remote_thrust_settings;
             _message_handlers[(int) message_types.REMOTE_SCREEN_TEXT] = screen_info.show_remote_text;
             _message_handlers[(int) message_types.GLOBAL_MODES      ] = screen_info.handle_remote_settings;
+
+            _entities   = new Dictionary<long, object>[_num_messages];
+            _entity_ids = new Dictionary<object, long>[_num_messages];
         }
 
         private static void log_sync_action(string method_name, string message)
@@ -105,6 +111,8 @@ namespace orbiter_SE
         {
             if (length > MAX_MESSAGE_LENGTH)
                 return null;
+            if (length < 0)
+                length = 0;
             if (!_out_buffers.ContainsKey(length))
             {
                 _out_buffers.Add(length, new byte[SIGNATURE_LENGTH + 1 + 8 + length]);
@@ -114,7 +122,7 @@ namespace orbiter_SE
             }
             byte[] message_buffer = _out_buffers[length];
             message_buffer[SIGNATURE_LENGTH] = (byte) message_id;
-            if (!encode_entity_id(entity, message_buffer))
+            if (!encode_entity_id(message_id, entity, message_buffer))
                 return null;
             //log_sync_action("fill_message", string.Format("entity valid ({0})", message_id));
             int buffer_index = SIGNATURE_LENGTH + 1 + 8;
@@ -125,12 +133,13 @@ namespace orbiter_SE
 
         private static void on_message_received(byte[] message)
         {
-            int length = message.Length - (SIGNATURE_LENGTH + 1 + 8);
+            int  length     = message.Length - (SIGNATURE_LENGTH + 1 + 8);
+            byte message_id = message[SIGNATURE_LENGTH];
             //log_sync_action("on_message_received", string.Format("length = {0}", length));
-            if (length <= 0 || length > MAX_MESSAGE_LENGTH || message[SIGNATURE_LENGTH] >= _num_messages)
+            if (length <= 0 || length > MAX_MESSAGE_LENGTH || message_id >= _num_messages)
                 return;
             //log_sync_action("on_message_received", string.Format("type = {0}", (message_types) message[SIGNATURE_LENGTH]));
-            Action<object, byte[], int> invoke_handler = _message_handlers[message[SIGNATURE_LENGTH]];
+            Action<message_types, object, byte[], int> invoke_handler = _message_handlers[message_id];
             if (invoke_handler == null)
                 return;
             for (int index = 0; index < SIGNATURE_LENGTH; ++index)
@@ -139,12 +148,11 @@ namespace orbiter_SE
                     return;
             }
             //log_sync_action("on_message_received", "signature valid");
-            object entity = decode_entity_id(message);
-            //log_sync_action("on_message_received", "entity valid");
-            int buffer_index = SIGNATURE_LENGTH + 1 + 8;
+            object entity       = decode_entity_id((message_types) message_id, message);
+            int    buffer_index = SIGNATURE_LENGTH + 1 + 8;
             for (int index = 0; index < length; ++index)
                 _in_buffer[index] = message[buffer_index++];
-            invoke_handler(entity, _in_buffer, length);
+            invoke_handler((message_types) message_id, entity, _in_buffer, length);
         }
 
         /*
@@ -207,22 +215,27 @@ namespace orbiter_SE
 
         #region Entity management
 
-        public static void register_entity(object entity, long entity_id)
+        public static void register_entity(message_types message_type, object entity, long entity_id)
         {
-            _entities.Add  (entity_id,    entity);
-            _entity_ids.Add(   entity, entity_id);
+            if (_entities[(int) message_type] == null)
+            {
+                _entities  [(int) message_type] = new Dictionary<  long, object>();
+                _entity_ids[(int) message_type] = new Dictionary<object,   long>();
+            }
+            _entities  [(int) message_type].Add(entity_id,    entity);
+            _entity_ids[(int) message_type].Add(   entity, entity_id);
         }
 
-        public static void deregister_entity(long entity_id)
+        public static void deregister_entity(message_types message_type, long entity_id)
         {
-            if (_entities.ContainsKey(entity_id))
+            if (_entities[(int) message_type] != null && _entities[(int) message_type].ContainsKey(entity_id))
             {
-                _entity_ids.Remove(_entities[entity_id]);
-                _entities.Remove(entity_id);
+                _entity_ids[(int) message_type].Remove(_entities[(int) message_type][entity_id]);
+                _entities  [(int) message_type].Remove(                              entity_id );
             }
         }
 
-        private static bool encode_entity_id(object entity, byte[] message)
+        private static bool encode_entity_id(message_types message_type, object entity, byte[] message)
         {
             long entity_id;
 
@@ -230,18 +243,18 @@ namespace orbiter_SE
                 entity_id = 0;
             else
             {
-                if (!_entity_ids.ContainsKey(entity))
+                if (!_entity_ids[(int) message_type].ContainsKey(entity))
                     return false;
-                entity_id = _entity_ids[entity];
+                entity_id = _entity_ids[(int) message_type][entity];
             }
             encode_signed(entity_id, 8, message, SIGNATURE_LENGTH + 1);
             return true;
         }
 
-        private static object decode_entity_id(byte[] message)
+        private static object decode_entity_id(message_types message_type, byte[] message)
         {
             long entity_id = decode_signed(8, message, SIGNATURE_LENGTH + 1);
-            return (entity_id != 0 && _entities.ContainsKey(entity_id)) ? _entities[entity_id] : null;
+            return (entity_id != 0 && _entities[(int) message_type] != null && _entities[(int) message_type].ContainsKey(entity_id)) ? _entities[(int) message_type][entity_id] : null;
         }
 
         #endregion

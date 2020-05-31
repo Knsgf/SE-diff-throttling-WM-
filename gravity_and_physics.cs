@@ -864,36 +864,34 @@ namespace orbiter_SE
         private void update_grid_position_and_velocity()
         {
             Vector3D new_position     = _grid.Physics.CenterOfMassWorld;
-            _absolute_linear_velocity = /*(new_position - _grid_position) * MyEngineConstants.UPDATE_STEPS_PER_SECOND*/ _grid.Physics.LinearVelocity;
+            _absolute_linear_velocity = (new_position - _grid_position) * MyEngineConstants.UPDATE_STEPS_PER_SECOND;
             _grid_position            = new_position;
+            if ((_absolute_linear_velocity - _grid.Physics.LinearVelocity).LengthSquared() > 1000.0 * 1000.0
+                && (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer))
+            {
+                //log_physics_action("update_grid_position_and_velocity", $"jump detected {(_absolute_linear_velocity - _grid.Physics.LinearVelocity).Length()}");
+                refresh_orbit_plane(no_plane_change: false);
+            }
 
-            /*
             MatrixD  grid_matrix = _grid.WorldMatrix.GetOrientation();
             
             Vector3D new_forward = grid_matrix.Forward, new_right = grid_matrix.Right, new_up = grid_matrix.Up;
             Vector3D angular_pitch_yaw         = Vector3D.Cross(new_forward, (new_forward - _grid_forward) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
             Vector3D angular_pitch_roll        = Vector3D.Cross(new_up     , (new_up      - _grid_up     ) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
             Vector3D angular_roll_yaw          = Vector3D.Cross(new_right  , (new_right   - _grid_right  ) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
-            screen_info.screen_text(_grid, "", $"{new_forward - _grid_forward}", 16);
-            screen_info.screen_text(_grid, "", $"{new_up - _grid_up}", 16);
             Vector3D absolute_angular_velocity = (angular_pitch_yaw + angular_pitch_roll + angular_roll_yaw) / 2.0;
             Vector3D physics_angular_velocity  = _grid.Physics.AngularVelocity;
             double angular_velocity_length2a = _absolute_angular_velocity.LengthSquared(), angular_velocity_length2b = physics_angular_velocity.LengthSquared();
             _absolute_angular_velocity = (angular_velocity_length2a < angular_velocity_length2b) ? absolute_angular_velocity : physics_angular_velocity;
-            */
-            _absolute_angular_velocity = _grid.Physics.AngularVelocity;
-            //screen_info.screen_text(_grid, "update_grid_position_and_velocity", _absolute_angular_velocity.ToString(), 16);
-            /*
             _grid_forward = new_forward;
             _grid_right   = new_right;
             _grid_up      = new_up;
-            */
+            //_absolute_angular_velocity = _grid.Physics.AngularVelocity;
         }
 
         public void apply_torque(Vector3 absolute_torque)
         {
             _current_torque = absolute_torque;
-            //screen_info.screen_text(_grid, "apply_torque", $"{_current_torque}", 16);
         }
 
         public void simulate_gravity_and_torque()

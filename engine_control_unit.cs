@@ -171,7 +171,7 @@ namespace orbiter_SE
         private Vector3 _target_rotation, _gyro_override = Vector3.Zero, _dampers_axes_enabled = new Vector3(1.0f);
         private bool    _CoM_shifted = false, _current_mode_is_CoT = false, _new_mode_is_CoT = false, _circularise_on = false, _manoeuvre_active = false;
         private bool    _is_gyro_override_active = false, _individual_calibration_on = false, _calibration_ready = false, _calibration_complete = false, _calibration_interrupted = false;
-        private bool    _all_engines_off = false, _force_override_refresh = false;
+        private bool    _all_engines_off = false, _force_override_refresh = false, _dry_run = false;
         private float   _trim_fadeout = 1.0f;
         private bool    _integral_cleared = false, _is_thrust_override_active = false, _grid_is_movable = false;
 
@@ -270,7 +270,7 @@ namespace orbiter_SE
 
         public float current_speed { get; private set; }
 
-        public ID_manoeuvres current_manoeuvre { get; private set; } = ID_manoeuvres.manoeuvre_off;
+        public ID_manoeuvres current_manoeuvre { get; set; } = ID_manoeuvres.manoeuvre_off;
 
         public Vector3 dampers_axes_enabled => _dampers_axes_enabled;
 
@@ -399,7 +399,7 @@ namespace orbiter_SE
                 foreach (thruster_info cur_thruster_info in cur_direction)
                 {
                     if (cur_thruster_info.operational)
-                        torque += cur_thruster_info.torque_factor * cur_thruster_info.actual_max_force * cur_thruster_info.current_setting;
+                        torque += cur_thruster_info.torque_factor * cur_thruster_info.host_thruster.CurrentThrust;
                 }
             }
            
@@ -769,9 +769,15 @@ namespace orbiter_SE
                 //dry_run = (controlling_player == null) ? !network_info.IsServer : (controlling_player != screen_info.local_player);
                 bool controls_active = _manual_rotation.LengthSquared() >= 0.0001f || _linear_control.LengthSquared() >= 0.0001f;
                 if (network_info.IsServer)
-                    dry_run = controls_active && controlling_player != screen_info.local_player;
+                {
+                    _dry_run = dry_run = controls_active && current_manoeuvre == ID_manoeuvres.manoeuvre_off 
+                        && controlling_player != null && controlling_player != screen_info.local_player;
+                }
                 else
-                    dry_run = !controls_active || controlling_player != screen_info.local_player;
+                {
+                    _dry_run = dry_run = !controls_active || current_manoeuvre != ID_manoeuvres.manoeuvre_off 
+                        || controlling_player == null || controlling_player != screen_info.local_player;
+                }
             }
 
             if (reset_all_thrusters)
@@ -1842,6 +1848,7 @@ namespace orbiter_SE
                     update_reference_vectors_for_CoT_mode();
                 else
                     update_reference_vectors_for_CoM_mode();
+                /*
                 log_ECU_action("check_changed_thrusters", string.Format("{0}/{1}/{2}/{3}/{4}/{5} kN",
                     _max_force[(int) thrust_dir.fore     ] / 1000.0f,
                     _max_force[(int) thrust_dir.aft      ] / 1000.0f,
@@ -1849,6 +1856,7 @@ namespace orbiter_SE
                     _max_force[(int) thrust_dir.port     ] / 1000.0f,
                     _max_force[(int) thrust_dir.dorsal   ] / 1000.0f,
                     _max_force[(int) thrust_dir.ventral  ] / 1000.0f));
+                */
             }
 
             bool[] steering_enabled = _steering_enabled;
@@ -2182,11 +2190,11 @@ namespace orbiter_SE
 
         public void set_thruster_steering(long thruster_entity_id, bool steering_on)
         {
-            log_ECU_action("set_thruster_steering", steering_on.ToString());
+            //log_ECU_action("set_thruster_steering", steering_on.ToString());
             change_thruster_switch(thruster_entity_id,
                 delegate (thruster_info thruster_info, bool new_switch)
                 {
-                    log_ECU_action("set_thruster_steering", thruster_info.host_thruster.CustomName);
+                    //log_ECU_action("set_thruster_steering", thruster_info.host_thruster.CustomName);
                     thruster_info.steering_on = thruster_info.enable_rotation = new_switch;
                 },
                 steering_on);
@@ -2194,11 +2202,11 @@ namespace orbiter_SE
 
         public void set_thruster_trim(long thruster_entity_id, bool trim_on)
         {
-            log_ECU_action("set_thruster_trim", trim_on.ToString());
+            //log_ECU_action("set_thruster_trim", trim_on.ToString());
             change_thruster_switch(thruster_entity_id,
                 delegate (thruster_info thruster_info, bool new_switch)
                 {
-                    log_ECU_action("set_thruster_trim", thruster_info.host_thruster.CustomName);
+                    //log_ECU_action("set_thruster_trim", thruster_info.host_thruster.CustomName);
                     thruster_info.is_RCS = new_switch;
                 },
                 !trim_on);
@@ -2206,11 +2214,11 @@ namespace orbiter_SE
 
         public void set_thruster_limiter(long thruster_entity_id, bool limiter_on)
         {
-            log_ECU_action("set_thruster_limiter", limiter_on.ToString());
+            //log_ECU_action("set_thruster_limiter", limiter_on.ToString());
             change_thruster_switch(thruster_entity_id,
                 delegate (thruster_info thruster_info, bool new_switch)
                 {
-                    log_ECU_action("set_thruster_limiter", thruster_info.host_thruster.CustomName);
+                    //log_ECU_action("set_thruster_limiter", thruster_info.host_thruster.CustomName);
                     thruster_info.enable_limit = new_switch;
                 },
                 limiter_on);
@@ -2218,11 +2226,11 @@ namespace orbiter_SE
 
         public void set_thruster_linear_input(long thruster_entity_id, bool linear_disabled)
         {
-            log_ECU_action("set_thruster_linear_input", linear_disabled.ToString());
+            //log_ECU_action("set_thruster_linear_input", linear_disabled.ToString());
             change_thruster_switch(thruster_entity_id,
                 delegate (thruster_info thruster_info, bool new_switch)
                 {
-                    log_ECU_action("set_thruster_linear_input", thruster_info.host_thruster.CustomName);
+                    //log_ECU_action("set_thruster_linear_input", thruster_info.host_thruster.CustomName);
                     thruster_info.disable_linear_input = new_switch;
                     _calibration_interrupted = _calibration_in_progress;
                     _calibration_scheduled[(int) thruster_info.nozzle_direction] = true;
@@ -2249,10 +2257,10 @@ namespace orbiter_SE
         {
             thruster_info thruster_info;
 
-            log_ECU_action("set_manual_throttle", manual_throttle.ToString());
+            //log_ECU_action("set_manual_throttle", manual_throttle.ToString());
             if (_all_thrusters.TryGetValue(thruster_entity_id, out thruster_info))
             {
-                log_ECU_action("set_manual_throttle", thruster_info.host_thruster.CustomName);
+                //log_ECU_action("set_manual_throttle", thruster_info.host_thruster.CustomName);
                 if (manual_throttle < 0.0f)
                     manual_throttle = 0.0f;
                 else if (manual_throttle > 1.0f)
@@ -2263,7 +2271,7 @@ namespace orbiter_SE
 
         public void set_damper_enabled_axes(bool fore_aft_enable, bool port_starboard_enable, bool dorsal_ventral_enable)
         {
-            log_ECU_action("set_damper_enabled_axes", $"Z={fore_aft_enable} X={port_starboard_enable} Y={dorsal_ventral_enable}");
+            //log_ECU_action("set_damper_enabled_axes", $"Z={fore_aft_enable} X={port_starboard_enable} Y={dorsal_ventral_enable}");
             _dampers_axes_enabled.Z =       fore_aft_enable ? 1.0f : 0.0f;
             _dampers_axes_enabled.X = port_starboard_enable ? 1.0f : 0.0f;
             _dampers_axes_enabled.Y = dorsal_ventral_enable ? 1.0f : 0.0f;
@@ -2414,11 +2422,6 @@ namespace orbiter_SE
             return result;
         }
 
-        public void begin_manoeuvre(ID_manoeuvres selection)
-        {
-            current_manoeuvre = (current_manoeuvre == selection) ? ID_manoeuvres.manoeuvre_off : selection;
-        }
-
         #endregion
 
         public void reset_ECU()
@@ -2470,8 +2473,8 @@ namespace orbiter_SE
                     _current_index = 0;
                 _manual_rotation = _sample_sum / NUM_ROTATION_SAMPLES;
 
-                if (_linear_control.LengthSquared() >= 0.0001f)
-                    current_manoeuvre = ID_manoeuvres.manoeuvre_off;
+                if (current_manoeuvre != ID_manoeuvres.manoeuvre_off && _linear_control.LengthSquared() >= 0.0001f)
+                    thruster_and_grid_tagger.start_manoeuvre(_grid, ID_manoeuvres.manoeuvre_off);
                 grid_movement.get_linear_and_angular_velocities(out _world_linear_velocity, out _world_angular_velocity);
                 current_speed    = (float) _world_linear_velocity.Length();
                 if (_match_velocity_with?.Physics != null)
@@ -2483,7 +2486,7 @@ namespace orbiter_SE
                 else
                     _target_velocity = Vector3.Zero;
             }
-            grid_movement.refresh_orbit_plane(_circularise_on && linear_dampers_on && _linear_control.LengthSquared() < 0.0001f 
+            grid_movement.refresh_orbit_plane(!_dry_run && _circularise_on && linear_dampers_on && _linear_control.LengthSquared() < 0.0001f 
                 && current_manoeuvre != ID_manoeuvres.burn_normal && current_manoeuvre != ID_manoeuvres.burn_antinormal);
 
             _grid_mass = _grid.Physics.Mass;

@@ -62,25 +62,25 @@ namespace orbiter_SE
 
         public void set_CoT_mode(bool CoT_mode_on)
         {
-            log_grid_action("set_CoT_mode", CoT_mode_on.ToString());
+            //log_grid_action("set_CoT_mode", CoT_mode_on.ToString());
             _ECU.CoT_mode_on = CoT_mode_on && is_thrust_control_available;
         }
 
         public void set_individual_calibration_use(bool use_individual_calibration)
         {
-            log_grid_action("set_individual_calibration_use", use_individual_calibration.ToString());
+            //log_grid_action("set_individual_calibration_use", use_individual_calibration.ToString());
             _ECU.use_individual_calibration = use_individual_calibration && is_thrust_control_available;
         }
 
         public void set_circularisation(bool cirucilarise)
         {
-            log_grid_action("set_circularisation", cirucilarise.ToString());
+            //log_grid_action("set_circularisation", cirucilarise.ToString());
             _ECU.circularise_on = cirucilarise && is_circularisation_avaiable;
         }
 
         public void set_touchdown_mode(bool touchdown_mode_on, bool set_secondary = false)
         {
-            log_grid_action("set_touchdown_mode", touchdown_mode_on.ToString());
+            //log_grid_action("set_touchdown_mode", touchdown_mode_on.ToString());
             if (!set_secondary)
             {
                 if (_is_secondary)
@@ -98,7 +98,7 @@ namespace orbiter_SE
 
         public void set_rotational_damping(bool rotational_damping_on, bool set_secondary = false)
         {
-            log_grid_action("set_rotational_damping", rotational_damping_on.ToString());
+            //log_grid_action("set_rotational_damping", rotational_damping_on.ToString());
             if (!set_secondary)
             {
                 if (_is_secondary)
@@ -116,7 +116,7 @@ namespace orbiter_SE
 
         public void set_damper_enabled_axes(bool fore_aft_enable, bool port_starboard_enable, bool dorsal_ventral_enable)
         {
-            log_grid_action("set_damper_enabled_axes", $"Z={fore_aft_enable} X={port_starboard_enable} Y={dorsal_ventral_enable}");
+            //log_grid_action("set_damper_enabled_axes", $"Z={fore_aft_enable} X={port_starboard_enable} Y={dorsal_ventral_enable}");
             _ECU.set_damper_enabled_axes(fore_aft_enable, port_starboard_enable, dorsal_ventral_enable);
         }
 
@@ -161,8 +161,8 @@ namespace orbiter_SE
 
         public void start_manoeuvre(engine_control_unit.ID_manoeuvres selection)
         {
-            if (is_circularisation_avaiable)
-                _ECU.begin_manoeuvre(selection);
+            if (is_circularisation_avaiable || selection == engine_control_unit.ID_manoeuvres.manoeuvre_off)
+                _ECU.current_manoeuvre = selection;
         }
 
         #endregion
@@ -322,7 +322,7 @@ namespace orbiter_SE
             }
         }
 
-        internal static void thrust_reduction_handler(object entity, byte[] argument, int length)
+        internal static void thrust_reduction_handler(sync_helper.message_types message_type, object entity, byte[] argument, int length)
         {
             var instance = entity as grid_logic;
             if (length != 1 || instance == null || instance._disposed)
@@ -341,7 +341,7 @@ namespace orbiter_SE
             return result;
         }
 
-        internal static void I_terms_handler(object entity, byte[] argument, int length)
+        internal static void I_terms_handler(sync_helper.message_types message_type, object entity, byte[] argument, int length)
         {
             if (length != 18 || MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
                 return;
@@ -570,7 +570,8 @@ namespace orbiter_SE
             _grid                 = new_grid;
             _grid.OnBlockAdded   += on_block_added;
             _grid.OnBlockRemoved += on_block_removed;
-            //sync_helper.register_entity(this, _grid.EntityId);
+            sync_helper.register_entity(sync_helper.message_types.I_TERMS    , this, _grid.EntityId);
+            sync_helper.register_entity(sync_helper.message_types.THRUST_LOSS, this, _grid.EntityId);
 
             var block_list = new List<IMySlimBlock>();
             _grid.GetBlocks(block_list,
@@ -602,7 +603,9 @@ namespace orbiter_SE
             {
                 _grid.OnBlockAdded   -= on_block_added;
                 _grid.OnBlockRemoved -= on_block_removed;
-                //sync_helper.deregister_entity(_grid.EntityId);
+                sync_helper.deregister_entity(sync_helper.message_types.I_TERMS    , _grid.EntityId);
+                sync_helper.deregister_entity(sync_helper.message_types.THRUST_LOSS, _grid.EntityId);
+                thruster_and_grid_tagger.dispose_grid(_grid);
                 _grid_physics.Dispose();
 
                 var block_list = new List<IMySlimBlock>();

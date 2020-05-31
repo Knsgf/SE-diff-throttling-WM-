@@ -100,7 +100,7 @@ namespace orbiter_SE
                 message = display_time_ms.ToString() + " " + message_id + " " + message;
                 sync_helper.send_message_to_others(sync_helper.message_types.REMOTE_SCREEN_TEXT, null, Encoding.UTF8.GetBytes(message), Encoding.UTF8.GetByteCount(message));
                 if (local_player != null)
-                    show_remote_text(null, Encoding.UTF8.GetBytes(message), Encoding.UTF8.GetByteCount(message));
+                    show_remote_text(sync_helper.message_types.REMOTE_SCREEN_TEXT, null, Encoding.UTF8.GetBytes(message), Encoding.UTF8.GetByteCount(message));
             }
             else 
             {
@@ -113,7 +113,7 @@ namespace orbiter_SE
             }
         }
 
-        public static void show_remote_text(object entity, byte[] message, int length)
+        public static void show_remote_text(sync_helper.message_types message_type, object entity, byte[] message, int length)
         {
             string[] message_parts = Encoding.UTF8.GetString(message, 0, length).Split(whitespace_char, 3);
             string message_id = message_parts[1];
@@ -152,7 +152,7 @@ namespace orbiter_SE
 
             if (grid != null)
             {
-                combined_id    += ":" + grid.DisplayName;
+                combined_id    += grid.EntityId.ToString();
                 message_prefix += "\"" + grid.DisplayName + "\" ";
             }
             if (local_player != null && !_client_messages.ContainsKey(combined_id))
@@ -461,7 +461,7 @@ namespace orbiter_SE
 
         #endregion
 
-        public static void handle_remote_settings(object entity, byte[] message, int length)
+        public static void handle_remote_settings(sync_helper.message_types message_type, object entity, byte[] message, int length)
         {
             if (message[0] == 0 && length == 9 && MyAPIGateway.Multiplayer.IsServer)
             {

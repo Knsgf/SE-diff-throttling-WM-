@@ -427,7 +427,7 @@ namespace orbiter_SE
         {
             sync_helper.try_register_handlers();
             screen_info.try_register_handlers();
-            if (!_entity_events_set && MyAPIGateway.Entities != null)
+            if (!_entity_events_set && screen_info.settings_loaded && MyAPIGateway.Entities != null)
             {
                 var existing_entities = new HashSet<IMyEntity>();
                 MyAPIGateway.Entities.GetEntities(existing_entities);
@@ -563,6 +563,7 @@ namespace orbiter_SE
                     _count8_foreground = 8;
                     _grids_handle_2s_period_foreground();
                 }
+                thruster_and_grid_tagger.handle_4Hz();
                 _grids_handle_4Hz_foreground();
             }
             _grids_handle_60Hz();
@@ -579,13 +580,11 @@ namespace orbiter_SE
         public session_handler()
         {
             _session_ref = this;
-            sync_helper.register_entity(this, 0);
         }
 
         protected override void UnloadData()
         {
             base.UnloadData();
-            sync_helper.deregister_entity(0);
             sync_helper.deregister_handlers();
             screen_info.deregister_handlers();
             foreach (IMyCubeGrid leftover_grid in _grids.Keys.ToList())
