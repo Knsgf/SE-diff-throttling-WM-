@@ -863,15 +863,10 @@ namespace orbiter_SE
 
         private void update_grid_position_and_velocity()
         {
-            Vector3D new_position     = _grid.Physics.CenterOfMassWorld;
-            _absolute_linear_velocity = (new_position - _grid_position) * MyEngineConstants.UPDATE_STEPS_PER_SECOND;
-            _grid_position            = new_position;
-            if ((_absolute_linear_velocity - _grid.Physics.LinearVelocity).LengthSquared() > 1000.0 * 1000.0
-                && (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer))
-            {
-                //log_physics_action("update_grid_position_and_velocity", $"jump detected {(_absolute_linear_velocity - _grid.Physics.LinearVelocity).Length()}");
-                refresh_orbit_plane(no_plane_change: false);
-            }
+            Vector3D new_position = _grid.Physics.CenterOfMassWorld;
+            _absolute_linear_velocity = sync_helper.running_on_server ? ((new_position - _grid_position) * MyEngineConstants.UPDATE_STEPS_PER_SECOND) 
+                : ((Vector3D) _grid.Physics.LinearVelocity);
+            _grid_position = new_position;
 
             MatrixD  grid_matrix = _grid.WorldMatrix.GetOrientation();
             
@@ -879,10 +874,8 @@ namespace orbiter_SE
             Vector3D angular_pitch_yaw         = Vector3D.Cross(new_forward, (new_forward - _grid_forward) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
             Vector3D angular_pitch_roll        = Vector3D.Cross(new_up     , (new_up      - _grid_up     ) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
             Vector3D angular_roll_yaw          = Vector3D.Cross(new_right  , (new_right   - _grid_right  ) * MyEngineConstants.UPDATE_STEPS_PER_SECOND);
-            Vector3D absolute_angular_velocity = (angular_pitch_yaw + angular_pitch_roll + angular_roll_yaw) / 2.0;
-            Vector3D physics_angular_velocity  = _grid.Physics.AngularVelocity;
-            double angular_velocity_length2a = _absolute_angular_velocity.LengthSquared(), angular_velocity_length2b = physics_angular_velocity.LengthSquared();
-            _absolute_angular_velocity = (angular_velocity_length2a < angular_velocity_length2b) ? absolute_angular_velocity : physics_angular_velocity;
+            _absolute_angular_velocity = sync_helper.running_on_server ? ((angular_pitch_yaw + angular_pitch_roll + angular_roll_yaw) / 2.0) 
+                : ((Vector3D) _grid.Physics.AngularVelocity);
             _grid_forward = new_forward;
             _grid_right   = new_right;
             _grid_up      = new_up;
@@ -930,6 +923,7 @@ namespace orbiter_SE
         public void update_current_reference()
         {
             _current_reference = get_reference_body(_grid_position);
+            //log_physics_action("update_current_reference", $"{(_grid_position - _current_reference.centre_position).Length()} {_absolute_linear_velocity.Length()}");
         }
 
         #endregion

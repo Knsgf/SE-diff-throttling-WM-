@@ -768,7 +768,7 @@ namespace orbiter_SE
                 IMyPlayer controlling_player = network_info.Players.GetPlayerControllingEntity(_grid);
                 //dry_run = (controlling_player == null) ? !network_info.IsServer : (controlling_player != screen_info.local_player);
                 bool controls_active = _manual_rotation.LengthSquared() >= 0.0001f || _linear_control.LengthSquared() >= 0.0001f;
-                if (network_info.IsServer)
+                if (sync_helper.running_on_server)
                 {
                     _dry_run = dry_run = controls_active && current_manoeuvre == ID_manoeuvres.manoeuvre_off 
                         && controlling_player != null && controlling_player != screen_info.local_player;
@@ -1399,7 +1399,7 @@ namespace orbiter_SE
                 }
             }
 
-            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+            if (sync_helper.running_on_server)
             { 
                 if (zero_thrust_reduction)
                     thrust_reduction = 0;
@@ -2022,7 +2022,7 @@ namespace orbiter_SE
             new_thruster.manual_throttle      = 0.0f;
             new_thruster.operational          = thruster.Enabled && thruster.IsFunctional;
 
-            if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+            if (sync_helper.running_on_server)
                 thruster.ThrustOverride = 0.0f;
             thruster.IsWorkingChanged += check_thruster_status;
             lock (_uncontrolled_thrusters)
@@ -2447,7 +2447,7 @@ namespace orbiter_SE
             turn_sensitivity[(int) thrust_dir.fore  ] = turn_sensitivity[(int) thrust_dir.aft      ] = Math.Max(ship_size.X, ship_size.Y) * SENSITIVITY_MULT;  // roll
         }
 
-        public void handle_60Hz()
+        public void handle_60Hz(bool jump_drive_engaged)
         {
             if (!_grid_is_movable)
             {
@@ -2486,7 +2486,7 @@ namespace orbiter_SE
                 else
                     _target_velocity = Vector3.Zero;
             }
-            grid_movement.refresh_orbit_plane(!_dry_run && _circularise_on && linear_dampers_on && _linear_control.LengthSquared() < 0.0001f 
+            grid_movement.refresh_orbit_plane(!_dry_run && !jump_drive_engaged && _circularise_on && linear_dampers_on && _linear_control.LengthSquared() < 0.0001f 
                 && current_manoeuvre != ID_manoeuvres.burn_normal && current_manoeuvre != ID_manoeuvres.burn_antinormal);
 
             _grid_mass = _grid.Physics.Mass;

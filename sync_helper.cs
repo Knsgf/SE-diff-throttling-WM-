@@ -26,7 +26,8 @@ namespace orbiter_SE
 
         private static readonly Action<message_types, object, byte[], int>[] _message_handlers;
 
-        public static bool network_handlers_registered { get; private set; }
+        public static bool network_handlers_registered { get; private set; } = false;
+        public static bool running_on_server           { get; private set; } = true;
 
         static sync_helper()
         {
@@ -51,7 +52,7 @@ namespace orbiter_SE
 
             if (MyAPIGateway.Multiplayer == null)
                 player_name = "LOCAL";
-            else if (MyAPIGateway.Multiplayer.IsServer)
+            else if (running_on_server)
                 player_name = "SERVER";
             else
             {
@@ -178,7 +179,7 @@ namespace orbiter_SE
 
         public static void send_message_to(ulong recipient, message_types message_id, object entity, byte[] message, int length, bool reliable = true)
         {
-            if (!network_handlers_registered || !MyAPIGateway.Multiplayer.IsServer)
+            if (!network_handlers_registered || !running_on_server)
                 return;
             byte[] message_buffer = fill_message(message_id, entity, message, length);
             if (message_buffer != null)
@@ -187,7 +188,7 @@ namespace orbiter_SE
 
         public static void send_message_to_server(message_types message_id, object entity, byte[] message, int length)
         {
-            if (!network_handlers_registered || MyAPIGateway.Multiplayer.IsServer)
+            if (!network_handlers_registered || running_on_server)
                 return;
             byte[] message_buffer = fill_message(message_id, entity, message, length);
             if (message_buffer != null)
@@ -200,6 +201,7 @@ namespace orbiter_SE
             {
                 MyAPIGateway.Multiplayer.RegisterMessageHandler(SYNC_MESSAGE_ID, on_message_received);
                 network_handlers_registered = true;
+                running_on_server           = MyAPIGateway.Multiplayer.IsServer;
             }
         }
 
@@ -209,6 +211,7 @@ namespace orbiter_SE
                 return;
             MyAPIGateway.Multiplayer.UnregisterMessageHandler(SYNC_MESSAGE_ID, on_message_received);
             network_handlers_registered = false;
+            running_on_server           = true;
         }
 
         #endregion

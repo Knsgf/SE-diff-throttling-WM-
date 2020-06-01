@@ -32,7 +32,7 @@ namespace orbiter_SE
         {
             public IMyHudNotification contents;
             public string             screen_description;
-            public bool               toggled_on, currently_visible, set_to_visible;
+            public bool               toggled_on, /*currently_visible,*/ set_to_visible;
         }
 
         private static Dictionary<string, HUD_notification> _HUD_messages             = new Dictionary<string, HUD_notification>();
@@ -92,7 +92,7 @@ namespace orbiter_SE
 
         static private void remote_info(IMyCubeGrid grid, string message_id, string message, int display_time_ms)
         {
-            if (MyAPIGateway.Multiplayer == null || !MyAPIGateway.Multiplayer.IsServer || !sync_helper.network_handlers_registered)
+            if (!sync_helper.network_handlers_registered || !sync_helper.running_on_server)
                 return;
 
             if (grid == null)
@@ -157,7 +157,7 @@ namespace orbiter_SE
             }
             if (local_player != null && !_client_messages.ContainsKey(combined_id))
                 _client_messages[combined_id] = message_prefix + "<C> " + message;
-            if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
+            if (sync_helper.running_on_server)
                 remote_info(grid, combined_id, message_prefix + "<S> " + message, display_time_ms);
         }
 
@@ -170,7 +170,7 @@ namespace orbiter_SE
         {
             var new_message = new HUD_notification();
             new_message.contents           = MyAPIGateway.Utilities.CreateNotification(default_text, 0, default_colour);
-            new_message.currently_visible  = false;
+            //new_message.currently_visible  = false;
             new_message.toggled_on         = toggled_on;
             new_message.screen_description = screen_description;
             _HUD_messages[message_cmd]     = new_message;
@@ -463,7 +463,7 @@ namespace orbiter_SE
 
         public static void handle_remote_settings(sync_helper.message_types message_type, object entity, byte[] message, int length)
         {
-            if (message[0] == 0 && length == 9 && MyAPIGateway.Multiplayer.IsServer)
+            if (message[0] == 0 && length == 9 && sync_helper.running_on_server)
             {
                 message[0] = 1;
                 if (scripts_can_inspect_orbit_of_any_ship)
@@ -473,7 +473,7 @@ namespace orbiter_SE
                 ulong recipient = sync_helper.decode_unsigned(8, message, 1);
                 sync_helper.send_message_to(recipient, sync_helper.message_types.GLOBAL_MODES, null, message, 1);
             }
-            else if (message[0] > 0 && length == 1 && !MyAPIGateway.Multiplayer.IsServer)
+            else if (message[0] > 0 && length == 1 && !sync_helper.running_on_server)
             {
                 scripts_can_inspect_orbit_of_any_ship = (message[0] & 0x2) != 0;
                 torque_disabled                       = (message[0] & 0x4) != 0;
@@ -493,7 +493,7 @@ namespace orbiter_SE
                 _UI_handlers_registered = true;
             }
 
-            if (!_local_settings_loaded && _UI_handlers_registered && sync_helper.network_handlers_registered && (local_player != null || MyAPIGateway.Multiplayer.IsServer))
+            if (!_local_settings_loaded && _UI_handlers_registered && sync_helper.network_handlers_registered && (local_player != null || sync_helper.running_on_server))
             {
                 if (MyAPIGateway.Utilities.FileExistsInLocalStorage(settings_file, typeof(OSESettings)))
                 {
@@ -520,7 +520,7 @@ namespace orbiter_SE
                     _HUD_messages[   THRUST_LOSS].toggled_on = stored_settings.ShowThrustReduction;
                     _HUD_messages[VERTICAL_SPEED].toggled_on = stored_settings.ShowVerticalSpeed;
                     _min_displayed_reduction                 = stored_settings.MinDisplayedReduction;
-                    if (MyAPIGateway.Multiplayer.IsServer)
+                    if (sync_helper.running_on_server)
                     {
                         scripts_can_inspect_orbit_of_any_ship = stored_settings.AllowScriptsToInspectOrbitOfAnyShip;
                         torque_disabled                       = stored_settings.DisableTorque;
@@ -534,7 +534,7 @@ namespace orbiter_SE
                 }
                 command_handler(null, ref _local_settings_loaded);
                 _local_settings_loaded = true;
-                if (MyAPIGateway.Multiplayer.IsServer)
+                if (sync_helper.running_on_server)
                     _server_settings_loaded = true;
             }
         }
@@ -568,14 +568,20 @@ namespace orbiter_SE
                 HUD_notification cur_message = message_entry.Value;
                 bool show_message = player_in_cockpit && _HUD_messages[message_entry.Key].toggled_on && cur_message.set_to_visible;
 
+                IMyHudNotification contents = cur_message.contents;
+                /*
                 if (cur_message.currently_visible != show_message)
                 {
                     if (show_message)
-                        cur_message.contents.Show();
+                        contents.Show();
                     else
-                        cur_message.contents.Hide();
+                        contents.Hide();
                     cur_message.currently_visible = show_message;
                 }
+                */
+                contents.Hide();
+                if (show_message)
+                    contents.Show();
             }
         }
     }

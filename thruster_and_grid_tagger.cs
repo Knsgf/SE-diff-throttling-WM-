@@ -126,11 +126,8 @@ namespace orbiter_SE
             store_number(stored_settings, switches, beginning, end);
             entity.Storage[_uuid] = stored_settings.ToString();
             
-            if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
-            {
-                _message[0] = (byte) switches;
-                sync_helper.send_message_to_others(sync_message, entity, _message, 1);
-            }
+            _message[0] = (byte) switches;
+            sync_helper.send_message_to_others(sync_message, entity, _message, 1);
         }
 
         #endregion
@@ -171,7 +168,6 @@ namespace orbiter_SE
             _current_anti_slip_on      = (_thruster_switches &  THRUST_TRIM) != 0;
             _current_thrust_limiter_on = (_thruster_switches & THRUST_LIMIT) != 0;
             _current_disable_linear    = (_thruster_switches &   LINEAR_OFF) != 0;
-            thruster.RefreshCustomInfo();
 
             if (use_remote_switches)
             {
@@ -219,7 +215,7 @@ namespace orbiter_SE
             if (thruster == null)
                 return;
 
-            if (MyAPIGateway.Multiplayer.IsServer)
+            if (sync_helper.running_on_server)
             {
                 if (message_type == sync_helper.message_types.MANUAL_THROTTLE && length == 2)
                 {
@@ -227,7 +223,7 @@ namespace orbiter_SE
                     //log_tagger_action("remote_thrust_settings", $"received \"{thruster.CustomName}\" T={_manual_throttle / MANUAL_THROTTLE_SCALE * 100.0f}");
                     update_thruster_flags(thruster, use_remote_manual_throttle: true);
                 }
-                if (message_type == sync_helper.message_types.THRUSTER_MODES)
+                else if (message_type == sync_helper.message_types.THRUSTER_MODES)
                 {
                     if (length == 1)
                     {
@@ -257,7 +253,7 @@ namespace orbiter_SE
 
         public static void attach_ECU(IMyTerminalBlock thruster, engine_control_unit ECU)
         {
-            sync_helper.register_entity(sync_helper.message_types.THRUSTER_MODES, thruster, thruster.EntityId);
+            sync_helper.register_entity(sync_helper.message_types.THRUSTER_MODES , thruster, thruster.EntityId);
             sync_helper.register_entity(sync_helper.message_types.MANUAL_THROTTLE, thruster, thruster.EntityId);
             _thruster_hosts   [thruster] = ECU;
             _thruster_settings[thruster] = new StringBuilder(new string('0', THRUSTER_FIELDS_LENGTH));
@@ -265,7 +261,7 @@ namespace orbiter_SE
             if (thruster.Storage == null)
                 thruster.Storage = new MyModStorageComponent();
 
-            if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
+            if (!sync_helper.running_on_server)
             {
                 //log_tagger_action("attach_ECU", $"requesting \"{thruster.CustomName}\" state for player {screen_info.local_player.SteamUserId}");
                 sync_helper.encode_unsigned(screen_info.local_player.SteamUserId, 8, _message, 0);
@@ -322,7 +318,7 @@ namespace orbiter_SE
             engine_control_unit host;
 
             if (!_thruster_hosts.TryGetValue(thruster, out host))
-                return 0;
+                return -2;
             return host.extract_thrust_limit(thruster.EntityId);
         }
 
@@ -520,7 +516,7 @@ namespace orbiter_SE
             if (grid == null)
                 return;
 
-            if (MyAPIGateway.Multiplayer.IsServer)
+            if (sync_helper.running_on_server)
             {
                 if (message_type == sync_helper.message_types.MANOEUVRE && length == 1)
                 {
@@ -534,7 +530,7 @@ namespace orbiter_SE
                     {
                         _grid_switches = argument[0];
                         //log_tagger_action("remote_grid_settings", $"received \"{grid.DisplayName}\" S={_grid_switches:X}h");
-                        update_grid_flags(grid, use_remote_settings: true);
+                        update_grid_flags(grid, use_remote_switches: true);
                     }
                     if (length == 8)
                     {
@@ -552,7 +548,7 @@ namespace orbiter_SE
                 _grid_switches     =                                     argument[0];
                 _current_manoeuvre = (engine_control_unit.ID_manoeuvres) argument[1];
                 //log_tagger_action("remote_grid_settings", $"received \"{grid.DisplayName}\" S={_grid_switches:X}h+M={_current_manoeuvre}");
-                update_grid_flags(grid, use_remote_settings: true, use_remote_manoeuvre: true);
+                update_grid_flags(grid, use_remote_switches: true, use_remote_manoeuvre: true);
             }
         }
 
@@ -566,7 +562,7 @@ namespace orbiter_SE
             if (grid.Storage == null)
                 grid.Storage = new MyModStorageComponent();
 
-            if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
+            if (!sync_helper.running_on_server)
             {
                 //log_tagger_action("load_grid_settings", $"requesting \"{grid.DisplayName}\" state for player {screen_info.local_player.SteamUserId}");
                 sync_helper.encode_unsigned(screen_info.local_player.SteamUserId, 8, _message, 0);
@@ -606,7 +602,7 @@ namespace orbiter_SE
             if (grid_data.Length > GRID_MODE_FIELD_END)
             {
                 _grid_switches = parse_number(grid_data, GRID_MODE_FIELD_START, GRID_MODE_FIELD_END);
-                update_grid_flags(grid, use_remote_settings: true);
+                update_grid_flags(grid, use_remote_switches: true);
             }
             if (grid_data.Length >= GRID_FIELDS_LENGTH)
             {
@@ -621,14 +617,14 @@ namespace orbiter_SE
             sync_helper.deregister_entity(sync_helper.message_types.MANOEUVRE , grid.EntityId);
         }
 
-        private static void update_grid_flags(IMyCubeGrid grid, bool use_remote_settings = false, bool use_remote_manoeuvre = false)
+        private static void update_grid_flags(IMyCubeGrid grid, bool use_remote_switches = false, bool use_remote_manoeuvre = false)
         {
-            if (grid == _current_grid && !use_remote_settings && !use_remote_manoeuvre)
+            if (grid == _current_grid && !use_remote_switches && !use_remote_manoeuvre)
                 return;
 
             _current_grid          = grid;
             _current_grid_settings = _grid_settings[grid];
-            if (!use_remote_settings)
+            if (!use_remote_switches)
                 _grid_switches = parse_number(_current_grid_settings, GRID_MODE_FIELD_START, GRID_MODE_FIELD_END);
             else
             {
@@ -648,7 +644,7 @@ namespace orbiter_SE
             _individual_calibration_on = (_grid_switches &  INDIVIDUAL_CALIBRATION) != 0;
             _circularisation_on        = (_grid_switches &          ID_CIRCULARISE) != 0;
 
-            if (use_remote_settings)
+            if (use_remote_switches)
             {
                 grid_logic grid_handler = _grid_handlers[grid];
                 grid_handler.set_CoT_mode                  (_CoT_mode_on              );
@@ -674,7 +670,7 @@ namespace orbiter_SE
             IMyCubeGrid grid = controller.CubeGrid;
             if (((MyCubeGrid) grid).HasMainCockpit() && !ship_controller.IsMainCockpit)
                 return false;
-            if (controller != _last_controller)
+            if (controller != _last_controller && (!sync_helper.running_on_server || screen_info.local_player != null))
             {
                 controller.RefreshCustomInfo();
                 _last_controller = controller;

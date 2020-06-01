@@ -6,6 +6,7 @@ using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Interfaces;
 using VRage.Utils;
 using VRageMath;
+using PB = Sandbox.ModAPI.Ingame;
 
 namespace orbiter_SE
 {
@@ -20,6 +21,7 @@ namespace orbiter_SE
         private readonly IMyCubeGrid                    _grid;
         private readonly HashSet<IMyControllableEntity> _ship_controllers = new HashSet<IMyControllableEntity>();
         private readonly HashSet<IMyRemoteControl>      _RC_blocks        = new HashSet<IMyRemoteControl>();
+        private readonly HashSet<IMyJumpDrive>          _jump_drives      = new HashSet<IMyJumpDrive>();
 
         private List<grid_logic>    _secondary_grids = null;
         private engine_control_unit _ECU             = null;
@@ -28,7 +30,7 @@ namespace orbiter_SE
 
         private int     _num_thrusters = 0, _prev_thrust_reduction = 0;
         private bool    _disposed = false;
-        private bool    _ID_on = true, _is_secondary = false;
+        private bool    _ID_on = true, _is_secondary = false, _jump_drive_engaged = false;
         private Vector3 _prev_trim, _prev_aux_trim, _prev_linear_integral;
 
         #endregion
@@ -239,20 +241,6 @@ namespace orbiter_SE
                     controller_terminal.AppendingCustomInfo += gravity_and_physics.list_current_elements;
                     _ship_controllers.Add(controller);
                     session_handler.sample_controller(ship_controller);
-                    if (_ECU != null)
-                    {
-                        if (_ECU.CoT_mode_on)
-                            controller_terminal.CustomData = controller_terminal.CustomData.AddCOTTag();
-                        if (_ECU.touchdown_mode_on)
-                            controller_terminal.CustomData = controller_terminal.CustomData.AddLANDINGTag();
-                        if (!_ECU.rotational_damping_on)
-                            controller_terminal.CustomData = controller_terminal.CustomData.RemoveDAMPINGTag();
-                        if (_ECU.use_individual_calibration)
-                            controller_terminal.CustomData = controller_terminal.CustomData.AddICTag();
-                        if (_ECU.circularise_on)
-                            controller_terminal.CustomData = controller_terminal.CustomData.AddCIRCULARISETag();
-                        controller_terminal.CustomData = controller_terminal.CustomData.SetIDOvveride(_ECU.get_damper_override_for_cockpit(controller_terminal));
-                    }
 
                     var RC_block = entity as IMyRemoteControl;
                     if (RC_block != null)
@@ -263,8 +251,6 @@ namespace orbiter_SE
                 var thruster = entity as IMyThrust;
                 if (thruster != null)
                 {
-                    if (_ECU == null)
-                        initialise_ECU_and_physics();
                     _ECU.assign_thruster(thruster);
                     session_handler.sample_thruster(thruster);
                     thruster.AppendingCustomInfo += thruster_and_grid_tagger.show_thrust_limit;
@@ -275,9 +261,15 @@ namespace orbiter_SE
                 var gyro = entity as IMyGyro;
                 if (gyro != null)
                 {
-                    if (_ECU == null)
-                        initialise_ECU_and_physics();
                     _ECU.assign_gyroscope(gyro);
+                    return;
+                }
+
+                var jump_drive = entity as IMyJumpDrive;
+                if (jump_drive != null)
+                {
+                    log_grid_action("on_block_added", jump_drive.EntityId.ToString());
+                    _jump_drives.Add(jump_drive);
                 }
             }
         }
@@ -318,7 +310,14 @@ namespace orbiter_SE
 
                 var PB = entity as IMyProgrammableBlock;
                 if (PB != null)
+                {
                     gravity_and_physics.dispose_PB(PB);
+                    return;
+                }
+
+                var jump_drive = entity as IMyJumpDrive;
+                if (jump_drive != null)
+                    _jump_drives.Remove(jump_drive);
             }
         }
 
@@ -343,7 +342,7 @@ namespace orbiter_SE
 
         internal static void I_terms_handler(sync_helper.message_types message_type, object entity, byte[] argument, int length)
         {
-            if (length != 18 || MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+            if (length != 18 || sync_helper.running_on_server)
                 return;
 
             var instance = entity as grid_logic;
@@ -450,7 +449,7 @@ namespace orbiter_SE
                             if (controlling_player != null)
                             {
                                 handle_user_input(controlling_player.Controller.ControlledEntity);
-                                if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
+                                if (sync_helper.running_on_server)
                                     send_I_terms_message(controlling_player.SteamUserId);
                             }
                             else
@@ -482,7 +481,7 @@ namespace orbiter_SE
                             }
                         }
                         _ECU.linear_dampers_on = _ID_on;
-                        _ECU.handle_60Hz();
+                        _ECU.handle_60Hz(_jump_drive_engaged);
                     }
                 }
             }
@@ -497,6 +496,15 @@ namespace orbiter_SE
             if (!_is_secondary)
                 session_handler.get_secondary_grids(_grid, ref _secondary_grids);
 
+            _jump_drive_engaged = false;
+            foreach (PB.IMyJumpDrive jump_drive in _jump_drives)
+            {
+                if (jump_drive.Status == PB.MyJumpDriveStatus.Jumping)
+                {
+                    _jump_drive_engaged = true;
+                    break;
+                }
+            }
             lock (_ECU)
             { 
                 if (_grid.IsStatic || (_num_thrusters == 0 && _secondary_grids == null))
@@ -513,7 +521,7 @@ namespace orbiter_SE
                         _ECU.check_autopilot(cur_RC_block);
                     screen_info.set_displayed_vertical_speed(_grid, _ECU.vertical_speed, !_is_secondary);
 
-                    if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+                    if (sync_helper.running_on_server)
                         send_thrust_reduction_message(controlling_player);
                     _prev_player = controlling_player;
                 }
@@ -541,7 +549,7 @@ namespace orbiter_SE
                 lock (_ECU)
                 { 
                     _ECU.handle_2s_period_foreground();
-                    if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
+                    if (sync_helper.running_on_server)
                         send_I_terms_message(null);
                 }
             }
@@ -573,27 +581,19 @@ namespace orbiter_SE
             sync_helper.register_entity(sync_helper.message_types.I_TERMS    , this, _grid.EntityId);
             sync_helper.register_entity(sync_helper.message_types.THRUST_LOSS, this, _grid.EntityId);
 
+            initialise_ECU_and_physics();
             var block_list = new List<IMySlimBlock>();
             _grid.GetBlocks(block_list,
                 delegate (IMySlimBlock block)
                 {
-                    return block.FatBlock is IMyCockpit || block.FatBlock is IMyRemoteControl;
+                    IMyCubeBlock full_block = block.FatBlock;
+                    return full_block is IMyCockpit || full_block is IMyRemoteControl || full_block is IMyThrust || full_block is IMyGyro 
+                        || full_block is IMyJumpDrive;
                 }
             );
             foreach (IMySlimBlock cur_block in block_list)
                 on_block_added(cur_block);
 
-            block_list.Clear();
-            _grid.GetBlocks(block_list,
-                delegate (IMySlimBlock block)
-                {
-                    return block.FatBlock is IMyThrust || block.FatBlock is IMyGyro;
-                }
-            );
-            foreach (IMySlimBlock cur_block in block_list)
-                on_block_added(cur_block);
-            if (_ECU == null)
-                initialise_ECU_and_physics();
             thruster_and_grid_tagger.load_grid_settings(_grid, this);
         }
 
@@ -612,7 +612,9 @@ namespace orbiter_SE
                 _grid.GetBlocks(block_list,
                     delegate (IMySlimBlock block)
                     {
-                        return block.FatBlock is IMyThrust || block.FatBlock is IMyGyro || block.FatBlock is IMyCockpit || block.FatBlock is IMyRemoteControl;
+                        IMyCubeBlock full_block = block.FatBlock;
+                        return full_block is IMyThrust || full_block is IMyGyro || full_block is IMyCockpit || full_block is IMyRemoteControl
+                            || full_block is IMyJumpDrive || full_block is IMyProgrammableBlock;
                     }
                 );
                 foreach (IMySlimBlock cur_block in block_list)
