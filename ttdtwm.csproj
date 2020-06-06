@@ -136,7 +136,6 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="gravity_and_physics.cs" />
     <Compile Include="rect_matrix.cs" />
     <Compile Include="screen_info.cs" />
     <Compile Include="sparse_matrix.cs" />
