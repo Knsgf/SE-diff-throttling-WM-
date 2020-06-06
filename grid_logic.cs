@@ -36,71 +36,8 @@ namespace ttdtwm
 
         #region Properties
 
-        public bool is_CoT_mode_available => _num_thrusters > 0 && !_grid.IsStatic && _grid.Physics != null && _grid.Physics.Enabled;
-
-        public bool CoT_mode_on
-        {
-            get
-            {
-                return is_CoT_mode_available && _ECU.CoT_mode_on;
-            }
-            set
-            {
-                IMyTerminalBlock controller_terminal;
-
-                _ECU.CoT_mode_on = value && is_CoT_mode_available;
-                foreach (IMyControllableEntity cur_controller in _ship_controllers)
-                {
-                    controller_terminal = (IMyTerminalBlock) cur_controller;
-                    controller_terminal.CustomData = value ? controller_terminal.CustomData.AddCOTTag() : controller_terminal.CustomData.RemoveCOTTag();
-                }
-            }
-        }
-
-        public bool rotational_damping_on
-        {
-            get
-            {
-                return !is_CoT_mode_available || _ECU.rotational_damping_on;
-            }
-            set
-            {
-                set_rotational_damping(value);
-            }
-        }
-
-        public bool is_landing_mode_available => is_CoT_mode_available && _grid.Physics.Gravity.LengthSquared() > 0.01f;
-
-        public bool landing_mode_on
-        {
-            get
-            {
-                return is_landing_mode_available && _ECU.landing_mode_on;
-            }
-            set
-            {
-                set_landing_mode(value);
-            }
-        }
-
-        public bool use_individual_calibration
-        {
-            get
-            {
-                return is_CoT_mode_available && _ECU.use_individual_calibration;
-            }
-            set
-            {
-                IMyTerminalBlock controller_terminal;
-
-                _ECU.use_individual_calibration = value && is_CoT_mode_available;
-                foreach (IMyControllableEntity cur_controller in _ship_controllers)
-                {
-                    controller_terminal = (IMyTerminalBlock) cur_controller;
-                    controller_terminal.CustomData = value ? controller_terminal.CustomData.AddICTag() : controller_terminal.CustomData.RemoveICTag();
-                }
-            }
-        }
+        public bool is_thrust_control_available => _num_thrusters > 0 && !_grid.IsStatic && _grid.Physics != null && _grid.Physics.Enabled;
+        public bool is_landing_mode_available   => is_thrust_control_available && _grid.Physics.Gravity.LengthSquared() > 0.01f;
 
         public bool is_secondary
         {
@@ -114,9 +51,66 @@ namespace ttdtwm
             }
         }
 
+        public Vector3 dampers_axes_enabled => _ECU.dampers_axes_enabled;
+        public engine_control_unit ECU => _ECU;
+
         #endregion
 
-        #region ID overrides and manoeuvres
+        #region Grid modes and ID overrides
+
+        public void set_CoT_mode(bool CoT_mode_on)
+        {
+            //log_grid_action("set_CoT_mode", CoT_mode_on.ToString());
+            _ECU.CoT_mode_on = CoT_mode_on && is_thrust_control_available;
+        }
+
+        public void set_individual_calibration_use(bool use_individual_calibration)
+        {
+            //log_grid_action("set_individual_calibration_use", use_individual_calibration.ToString());
+            _ECU.use_individual_calibration = use_individual_calibration && is_thrust_control_available;
+        }
+
+        public void set_touchdown_mode(bool touchdown_mode_on, bool set_secondary = false)
+        {
+            //log_grid_action("set_touchdown_mode", touchdown_mode_on.ToString());
+            if (!set_secondary)
+            {
+                if (_is_secondary)
+                    return;
+                touchdown_mode_on &= is_landing_mode_available;
+            }
+            _ECU.touchdown_mode_on = touchdown_mode_on;
+            
+            if (!set_secondary && !_is_secondary && _secondary_grids != null)
+            {
+                foreach (grid_logic cur_secondary in _secondary_grids)
+                    cur_secondary.set_touchdown_mode(touchdown_mode_on, true);
+            }
+        }
+
+        public void set_rotational_damping(bool rotational_damping_on, bool set_secondary = false)
+        {
+            //log_grid_action("set_rotational_damping", rotational_damping_on.ToString());
+            if (!set_secondary)
+            {
+                if (_is_secondary)
+                    return;
+                rotational_damping_on |= !is_thrust_control_available;
+            }
+            _ECU.rotational_damping_on = rotational_damping_on;
+
+            if (!set_secondary && !_is_secondary && _secondary_grids != null)
+            {
+                foreach (grid_logic cur_secondary in _secondary_grids)
+                    cur_secondary.set_rotational_damping(rotational_damping_on, true);
+            }
+        }
+
+        public void set_damper_enabled_axes(bool fore_aft_enable, bool port_starboard_enable, bool dorsal_ventral_enable)
+        {
+            //log_grid_action("set_damper_enabled_axes", $"Z={fore_aft_enable} X={port_starboard_enable} Y={dorsal_ventral_enable}");
+            _ECU.set_damper_enabled_axes(fore_aft_enable, port_starboard_enable, dorsal_ventral_enable);
+        }
 
         public bool is_ID_axis_overriden(IMyTerminalBlock controller, int axis)
         {
@@ -137,9 +131,9 @@ namespace ttdtwm
             }
         }
 
-        public void set_ID_override(IMyTerminalBlock controller, int axis = -1, bool new_state_enabled = false)
+        public void set_ID_override(IMyTerminalBlock controller, int axis, bool new_state_enabled)
         {
-            Vector3 new_override = controller.CustomData.IDOverrides();
+            Vector3 new_override = _ECU.get_damper_override_for_cockpit(controller);
             switch (axis)
             {
                 case 0:
@@ -155,13 +149,6 @@ namespace ttdtwm
                     break;
             }
             _ECU.translate_damper_override(new_override, controller);
-
-            IMyTerminalBlock controller_terminal;
-            foreach (IMyControllableEntity cur_controller in _ship_controllers)
-            {
-                controller_terminal = (IMyTerminalBlock) cur_controller;
-                controller_terminal.CustomData = controller_terminal.CustomData.SetIDOvveride(_ECU.get_damper_override_for_cockpit(controller_terminal));
-            }
         }
 
         #endregion
@@ -186,7 +173,7 @@ namespace ttdtwm
             return !_ECU.is_under_control_of(screen_info.local_controller) ? null : screen_info.local_player;
         }
 
-        private void update_ECU_cockpit_controls()
+        public void update_ECU_cockpit_controls()
         {
             bool CoT_mode_on = false, landing_mode_on = false, rotational_damping_on = true, use_individual_calibration = false, circularise_on = false;
             engine_control_unit ECU = _ECU;
@@ -205,7 +192,7 @@ namespace ttdtwm
             }
             ECU.CoT_mode_on                = CoT_mode_on;
             ECU.use_individual_calibration = use_individual_calibration;
-            ECU.landing_mode_on            = landing_mode_on;
+            ECU.touchdown_mode_on          = landing_mode_on;
             ECU.rotational_damping_on      = rotational_damping_on;
             ECU.linear_dampers_on          = _ID_on;
             ECU.secondary_ECU              = _is_secondary;
@@ -216,48 +203,6 @@ namespace ttdtwm
             var grid_movement = new thruster_physics(_grid);
             _ECU              = new engine_control_unit(_grid, grid_movement);
             _grid_physics     = grid_movement;
-
-            update_ECU_cockpit_controls();
-        }
-
-        private void set_rotational_damping(bool new_state, bool set_secondary = false)
-        {
-            IMyTerminalBlock controller_terminal;
-
-            if (!set_secondary && _is_secondary)
-                return;
-            _ECU.rotational_damping_on = new_state;
-            foreach (IMyControllableEntity cur_controller in _ship_controllers)
-            {
-                controller_terminal = (IMyTerminalBlock) cur_controller;
-                controller_terminal.CustomData = new_state ? controller_terminal.CustomData.AddDAMPINGTag() : controller_terminal.CustomData.RemoveDAMPINGTag();
-            }
-
-            if (!set_secondary && !_is_secondary && _secondary_grids != null)
-            {
-                foreach (grid_logic cur_secondary in _secondary_grids)
-                    cur_secondary.set_rotational_damping(new_state, true);
-            }
-        }
-
-        private void set_landing_mode(bool new_state, bool set_secondary = false)
-        {
-            IMyTerminalBlock controller_terminal;
-
-            if (!set_secondary && _is_secondary)
-                return;
-            _ECU.landing_mode_on = new_state;
-            foreach (IMyControllableEntity cur_controller in _ship_controllers)
-            {
-                controller_terminal = (IMyTerminalBlock) cur_controller;
-                controller_terminal.CustomData = new_state ? controller_terminal.CustomData.AddLANDINGTag() : controller_terminal.CustomData.RemoveLANDINGTag();
-            }
-
-            if (!set_secondary && !_is_secondary && _secondary_grids != null)
-            {
-                foreach (grid_logic cur_secondary in _secondary_grids)
-                    cur_secondary.set_landing_mode(new_state, true);
-            }
         }
 
         #endregion
@@ -278,18 +223,6 @@ namespace ttdtwm
 
                     _ship_controllers.Add(controller);
                     session_handler.sample_controller(ship_controller);
-                    if (_ECU != null)
-                    {
-                        if (_ECU.CoT_mode_on)
-                            controller_terminal.CustomData = controller_terminal.CustomData.AddCOTTag();
-                        if (_ECU.landing_mode_on)
-                            controller_terminal.CustomData = controller_terminal.CustomData.AddLANDINGTag();
-                        if (!_ECU.rotational_damping_on)
-                            controller_terminal.CustomData = controller_terminal.CustomData.RemoveDAMPINGTag();
-                        if (_ECU.use_individual_calibration)
-                            controller_terminal.CustomData = controller_terminal.CustomData.AddICTag();
-                        controller_terminal.CustomData = controller_terminal.CustomData.SetIDOvveride(_ECU.get_damper_override_for_cockpit(controller_terminal));
-                    }
 
                     var RC_block = entity as IMyRemoteControl;
                     if (RC_block != null)
@@ -300,11 +233,9 @@ namespace ttdtwm
                 var thruster = entity as IMyThrust;
                 if (thruster != null)
                 {
-                    if (_ECU == null)
-                        initialise_ECU_and_physics();
                     _ECU.assign_thruster(thruster);
                     session_handler.sample_thruster(thruster);
-                    thruster.AppendingCustomInfo += thruster_tagger.show_thrust_limit;
+                    thruster.AppendingCustomInfo += thruster_and_grid_tagger.show_thrust_limit;
                     ++_num_thrusters;
                     return;
                 }
@@ -312,9 +243,8 @@ namespace ttdtwm
                 var gyro = entity as IMyGyro;
                 if (gyro != null)
                 {
-                    if (_ECU == null)
-                        initialise_ECU_and_physics();
                     _ECU.assign_gyroscope(gyro);
+                    return;
                 }
             }
         }
@@ -339,7 +269,7 @@ namespace ttdtwm
                 var thruster = entity as IMyThrust;
                 if (thruster != null)
                 {
-                    thruster.AppendingCustomInfo -= thruster_tagger.show_thrust_limit;
+                    thruster.AppendingCustomInfo -= thruster_and_grid_tagger.show_thrust_limit;
                     _ECU.dispose_thruster(thruster);
                     --_num_thrusters;
                     return;
@@ -354,7 +284,7 @@ namespace ttdtwm
             }
         }
 
-        internal static void thrust_reduction_handler(object entity, byte[] argument, int length)
+        internal static void thrust_reduction_handler(sync_helper.message_types message_type, object entity, byte[] argument, int length)
         {
             var instance = entity as grid_logic;
             if (length != 1 || instance == null || instance._disposed)
@@ -373,9 +303,9 @@ namespace ttdtwm
             return result;
         }
 
-        internal static void I_terms_handler(object entity, byte[] argument, int length)
+        internal static void I_terms_handler(sync_helper.message_types message_type, object entity, byte[] argument, int length)
         {
-            if (length != 18 || MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+            if (length != 18 || sync_helper.running_on_server)
                 return;
 
             var instance = entity as grid_logic;
@@ -434,7 +364,7 @@ namespace ttdtwm
                 serialise_vector(       aux_trim, __message, 6);
                 serialise_vector(linear_integral, __message, 12);
                 if (recipient != null)
-                    sync_helper.send_message_to((ulong) recipient, sync_helper.message_types.I_TERMS, this, __message, 18);
+                    sync_helper.send_message_to((ulong) recipient, sync_helper.message_types.I_TERMS, this, __message, 18, reliable: false);
                 else
                     sync_helper.send_message_to_others(sync_helper.message_types.I_TERMS, this, __message, 18);
             }
@@ -482,7 +412,7 @@ namespace ttdtwm
                             if (controlling_player != null)
                             {
                                 handle_user_input(controlling_player.Controller.ControlledEntity);
-                                if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
+                                if (sync_helper.running_on_server)
                                     send_I_terms_message(controlling_player.SteamUserId);
                             }
                             else
@@ -499,15 +429,15 @@ namespace ttdtwm
                             {
                                 Vector3D world_linear_velocity, world_angular_velocity;
                                 Vector3  target_linear_velocity, linear_control, rotation_control, gyro_override;
-                                bool     gyro_override_active, circularisation_on;
+                                bool     gyro_override_active;
 
                                 _ECU.get_primary_control_parameters(out world_linear_velocity, out target_linear_velocity, out world_angular_velocity, 
-                                    out linear_control, out rotation_control, out gyro_override_active, out gyro_override, out circularisation_on);
+                                    out linear_control, out rotation_control, out gyro_override_active, out gyro_override);
                                 foreach (grid_logic cur_secondary in _secondary_grids)
                                 {
                                     cur_secondary._ID_on = _ID_on;
                                     cur_secondary._ECU.set_secondary_control_parameters(world_linear_velocity, target_linear_velocity, world_angular_velocity, 
-                                        linear_control, rotation_control, gyro_override_active, gyro_override, circularisation_on);
+                                        linear_control, rotation_control, gyro_override_active, gyro_override);
                                 }
                             }
                         }
@@ -531,7 +461,6 @@ namespace ttdtwm
                     _ECU.reset_ECU();
                 else
                 {
-                    update_ECU_cockpit_controls();
                     _ECU.handle_4Hz_foreground();
 
                     IMyPlayer controlling_player = get_controlling_player();
@@ -541,7 +470,7 @@ namespace ttdtwm
                         _ECU.check_autopilot(cur_RC_block);
                     screen_info.set_displayed_vertical_speed(_grid, _ECU.vertical_speed, !_is_secondary);
 
-                    if (MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer)
+                    if (sync_helper.running_on_server)
                         send_thrust_reduction_message(controlling_player);
                     _prev_player = controlling_player;
                 }
@@ -569,7 +498,7 @@ namespace ttdtwm
                 lock (_ECU)
                 { 
                     _ECU.handle_2s_period_foreground();
-                    if (MyAPIGateway.Multiplayer != null && MyAPIGateway.Multiplayer.IsServer)
+                    if (sync_helper.running_on_server)
                         send_I_terms_message(null);
                 }
             }
@@ -597,29 +526,22 @@ namespace ttdtwm
             _grid                 = new_grid;
             _grid.OnBlockAdded   += on_block_added;
             _grid.OnBlockRemoved += on_block_removed;
-            sync_helper.register_entity(this, _grid.EntityId);
+            sync_helper.register_entity(sync_helper.message_types.I_TERMS    , this, _grid.EntityId);
+            sync_helper.register_entity(sync_helper.message_types.THRUST_LOSS, this, _grid.EntityId);
 
+            initialise_ECU_and_physics();
             var block_list = new List<IMySlimBlock>();
             _grid.GetBlocks(block_list,
                 delegate (IMySlimBlock block)
                 {
-                    return block.FatBlock is IMyCockpit || block.FatBlock is IMyRemoteControl;
+                    IMyCubeBlock full_block = block.FatBlock;
+                    return full_block is IMyCockpit || full_block is IMyRemoteControl || full_block is IMyThrust || full_block is IMyGyro;
                 }
             );
             foreach (IMySlimBlock cur_block in block_list)
                 on_block_added(cur_block);
 
-            block_list.Clear();
-            _grid.GetBlocks(block_list,
-                delegate (IMySlimBlock block)
-                {
-                    return block.FatBlock is IMyThrust || block.FatBlock is IMyGyro;
-                }
-            );
-            foreach (IMySlimBlock cur_block in block_list)
-                on_block_added(cur_block);
-            if (_ECU == null)
-                initialise_ECU_and_physics();
+            thruster_and_grid_tagger.load_grid_settings(_grid, this);
         }
 
         public void Dispose()
@@ -628,13 +550,16 @@ namespace ttdtwm
             {
                 _grid.OnBlockAdded   -= on_block_added;
                 _grid.OnBlockRemoved -= on_block_removed;
-                sync_helper.deregister_entity(_grid.EntityId);
+                sync_helper.deregister_entity(sync_helper.message_types.I_TERMS    , _grid.EntityId);
+                sync_helper.deregister_entity(sync_helper.message_types.THRUST_LOSS, _grid.EntityId);
+                thruster_and_grid_tagger.dispose_grid(_grid);
 
                 var block_list = new List<IMySlimBlock>();
                 _grid.GetBlocks(block_list,
                     delegate (IMySlimBlock block)
                     {
-                        return block.FatBlock is IMyThrust || block.FatBlock is IMyGyro || block.FatBlock is IMyCockpit || block.FatBlock is IMyRemoteControl;
+                        IMyCubeBlock full_block = block.FatBlock;
+                        return full_block is IMyThrust || full_block is IMyGyro || full_block is IMyCockpit || full_block is IMyRemoteControl;
                     }
                 );
                 foreach (IMySlimBlock cur_block in block_list)

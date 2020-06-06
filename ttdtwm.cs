@@ -89,83 +89,6 @@ namespace ttdtwm
             }
         }
 
-        private bool is_grid_CoT_mode_on(IMyTerminalBlock controller)
-        {
-            return _grids[controller.CubeGrid].CoT_mode_on;
-        }
-
-        private bool is_grid_control_available(IMyTerminalBlock controller)
-        {
-            if (!((PB.IMyShipController) controller).ControlThrusters)
-                return false;
-
-            IMyCubeGrid grid = controller.CubeGrid;
-            if (((MyCubeGrid) grid).HasMainCockpit() && !((PB.IMyShipController) controller).IsMainCockpit)
-                return false;
-            if (grid != _last_grid)
-            {
-                controller.RefreshCustomInfo();
-                _last_grid = grid;
-            }
-            return _grids[grid].is_CoT_mode_available;
-        }
-
-        private void set_grid_CoT_mode(IMyTerminalBlock controller, bool new_state)
-        {
-            _grids[controller.CubeGrid].CoT_mode_on = new_state;
-        }
-
-        private bool use_individual_calibration(IMyTerminalBlock controller)
-        {
-            return _grids[controller.CubeGrid].use_individual_calibration;
-        }
-
-        private void choose_calibration_method(IMyTerminalBlock controller, bool use_individual_calibration)
-        {
-            _grids[controller.CubeGrid].use_individual_calibration = use_individual_calibration;
-        }
-
-        private bool is_grid_rotational_damping_on(IMyTerminalBlock controller)
-        {
-            return _grids[controller.CubeGrid].rotational_damping_on;
-        }
-
-        private void set_grid_rotational_damping(IMyTerminalBlock controller, bool new_state)
-        {
-            _grids[controller.CubeGrid].rotational_damping_on = new_state;
-        }
-
-        private bool is_grid_landing_mode_on(IMyTerminalBlock controller)
-        {
-            return _grids[controller.CubeGrid].landing_mode_on;
-        }
-
-        private bool is_grid_landing_mode_available(IMyTerminalBlock controller)
-        {
-            return is_grid_control_available(controller) && _grids[controller.CubeGrid].is_landing_mode_available;
-        }
-
-        private void set_grid_landing_mode(IMyTerminalBlock controller, bool new_state)
-        {
-            _grids[controller.CubeGrid].landing_mode_on = new_state;
-        }
-
-        private Func<IMyTerminalBlock, bool> create_damper_override_reader(int axis)
-        {
-            return delegate(IMyTerminalBlock controller)
-            {
-                return _grids[controller.CubeGrid].is_ID_axis_overriden(controller, axis);
-            };
-        }
-
-        private Action<IMyTerminalBlock, bool> create_damper_override_setter(int axis)
-        {
-            return delegate(IMyTerminalBlock controller, bool new_state)
-            {
-                _grids[controller.CubeGrid].set_ID_override(controller, axis, new_state);
-            };
-        }
-
         #endregion
 
         #region UI helpers
@@ -357,26 +280,26 @@ namespace ttdtwm
         {
             IMyTerminalControlSeparator controller_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE1");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line);
-            create_checkbox<_controller_type_>(    "RotationalDamping",        "Rotational Damping", null,                   "On",    "Off", is_grid_rotational_damping_on, set_grid_rotational_damping,      is_grid_control_available);
-            create_switch  <_controller_type_>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM",           is_grid_CoT_mode_on,           set_grid_CoT_mode,      is_grid_control_available);
-            create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad",    use_individual_calibration,   choose_calibration_method,      is_grid_control_available);
-            create_switch  <_controller_type_>(          "LandingMode",            "Touchdown Mode", null,   "On",  "Off", "Land", "Flight",       is_grid_landing_mode_on,       set_grid_landing_mode, is_grid_landing_mode_available);
+            create_checkbox<_controller_type_>(    "RotationalDamping",        "Rotational Damping", null,                   "On",    "Off", thruster_and_grid_tagger.is_grid_rotational_damping_on, thruster_and_grid_tagger.set_grid_rotational_damping, thruster_and_grid_tagger.is_grid_control_available       );
+            create_switch  <_controller_type_>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM", thruster_and_grid_tagger.is_grid_CoT_mode_on          , thruster_and_grid_tagger.set_grid_CoT_mode          , thruster_and_grid_tagger.is_grid_control_available       );
+            create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad", thruster_and_grid_tagger.use_individual_calibration   , thruster_and_grid_tagger.choose_calibration_method  , thruster_and_grid_tagger.is_grid_control_available       );
+            create_switch  <_controller_type_>(          "LandingMode",            "Touchdown Mode", null,   "On",  "Off", "Land", "Flight", thruster_and_grid_tagger.is_grid_touchdown_mode_on    , thruster_and_grid_tagger.set_grid_touchdown_mode    , thruster_and_grid_tagger.is_grid_touchdown_mode_available);
 
             IMyTerminalControlSeparator controller_line2 = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE2");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line2);
             IMyTerminalControlLabel controller_line_ID_override_label = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_ID_OVR");
             controller_line_ID_override_label.Label = MyStringId.GetOrCompute("Inertia Damper Overrides");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line_ID_override_label);
-            create_checkbox<_controller_type_>(      "ForeAftIDDisable", "Disable fore/aft"      , null, "On", "Off", create_damper_override_reader(2), create_damper_override_setter(2), is_grid_control_available);
-            create_checkbox<_controller_type_>("PortStarboardIDDisable", "Disable port/starboard", null, "On", "Off", create_damper_override_reader(0), create_damper_override_setter(0), is_grid_control_available);
-            create_checkbox<_controller_type_>("DorsalVentralIDDisable", "Disable dorsal/ventral", null, "On", "Off", create_damper_override_reader(1), create_damper_override_setter(1), is_grid_control_available);
+            create_checkbox<_controller_type_>(      "ForeAftIDDisable", "Disable fore/aft"      , null, "On", "Off", thruster_and_grid_tagger.create_damper_override_reader(2), thruster_and_grid_tagger.create_damper_override_setter(2), thruster_and_grid_tagger.is_grid_control_available);
+            create_checkbox<_controller_type_>("PortStarboardIDDisable", "Disable port/starboard", null, "On", "Off", thruster_and_grid_tagger.create_damper_override_reader(0), thruster_and_grid_tagger.create_damper_override_setter(0), thruster_and_grid_tagger.is_grid_control_available);
+            create_checkbox<_controller_type_>("DorsalVentralIDDisable", "Disable dorsal/ventral", null, "On", "Off", thruster_and_grid_tagger.create_damper_override_reader(1), thruster_and_grid_tagger.create_damper_override_setter(1), thruster_and_grid_tagger.is_grid_control_available);
         }
 
         private void try_register_handlers()
         {
             sync_helper.try_register_handlers();
             screen_info.try_register_handlers();
-            if (!_entity_events_set && MyAPIGateway.Entities != null)
+            if (!_entity_events_set && screen_info.settings_loaded && MyAPIGateway.Entities != null)
             {
                 var existing_entities = new HashSet<IMyEntity>();
                 MyAPIGateway.Entities.GetEntities(existing_entities);
@@ -407,32 +330,32 @@ namespace ttdtwm
 
                 IMyTerminalControlSeparator thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(thruster_line);
-                create_switch  <IMyThrust>(     "ActiveControl",             "Steering", null, "On", "Off", "On", "Off", thruster_tagger.is_under_active_control, thruster_tagger.set_active_control , thruster_tagger.is_active_control_available);
-                create_switch  <IMyThrust>(          "AntiSlip",      "Thrust Trimming", null, "On", "Off", "On", "Off", thruster_tagger.is_anti_slip           , thruster_tagger.set_anti_slip      , thruster_tagger.is_anti_slip_available     );
-                create_checkbox<IMyThrust>("DisableLinearInput", "Disable linear input", null, "On", "Off",              thruster_tagger.is_rotational_only     , thruster_tagger.toggle_linear_input, thruster_tagger.is_active_control_available);
-                create_switch  <IMyThrust>(       "StaticLimit",       "Thrust Limiter", null, "On", "Off", "On", "Off", thruster_tagger.is_thrust_limiter_on   , thruster_tagger.set_thrust_limiter , thruster_tagger.is_thrust_limiter_available);
+                create_switch  <IMyThrust>(     "ActiveControl",             "Steering", null, "On", "Off", "On", "Off", thruster_and_grid_tagger.is_under_active_control, thruster_and_grid_tagger.set_active_control , thruster_and_grid_tagger.is_active_control_available);
+                create_switch  <IMyThrust>(          "AntiSlip",      "Thrust Trimming", null, "On", "Off", "On", "Off", thruster_and_grid_tagger.is_anti_slip           , thruster_and_grid_tagger.set_anti_slip      , thruster_and_grid_tagger.is_anti_slip_available     );
+                create_checkbox<IMyThrust>("DisableLinearInput", "Disable linear input", null, "On", "Off",              thruster_and_grid_tagger.is_rotational_only     , thruster_and_grid_tagger.toggle_linear_input, thruster_and_grid_tagger.is_active_control_available);
+                create_switch  <IMyThrust>(       "StaticLimit",       "Thrust Limiter", null, "On", "Off", "On", "Off", thruster_and_grid_tagger.is_thrust_limiter_on   , thruster_and_grid_tagger.set_thrust_limiter , thruster_and_grid_tagger.is_thrust_limiter_available);
 
                 IMyTerminalControlSlider manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
-                manual_throttle.Getter  = thruster_tagger.get_manual_throttle;
-                manual_throttle.Setter  = thruster_tagger.set_manual_throttle;
+                manual_throttle.Getter  = thruster_and_grid_tagger.get_manual_throttle;
+                manual_throttle.Setter  = thruster_and_grid_tagger.set_manual_throttle;
                 manual_throttle.SupportsMultipleBlocks = true;
                 manual_throttle.Title  = MyStringId.GetOrCompute("Manual throttle");
-                manual_throttle.Writer = thruster_tagger.throttle_status;
+                manual_throttle.Writer = thruster_and_grid_tagger.throttle_status;
                 manual_throttle.SetLimits(0.0f, 100.0f);
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(manual_throttle);
                 create_slider_action<IMyThrust>("IncreaseThrottle", "Increase Manual Throttle",
                     delegate (IMyTerminalBlock thruster)
                     {
-                        thruster_tagger.set_manual_throttle(thruster, thruster_tagger.get_manual_throttle(thruster) + 5.0f);
+                        thruster_and_grid_tagger.set_manual_throttle(thruster, thruster_and_grid_tagger.get_manual_throttle(thruster) + 5.0f);
                     },
-                    thruster_tagger.throttle_status, "Increase");
+                    thruster_and_grid_tagger.throttle_status, "Increase");
                 create_slider_action<IMyThrust>("DecreaseThrottle", "Decrease Manual Throttle",
                     delegate (IMyTerminalBlock thruster)
                     {
-                        thruster_tagger.set_manual_throttle(thruster, thruster_tagger.get_manual_throttle(thruster) - 5.0f);
+                        thruster_and_grid_tagger.set_manual_throttle(thruster, thruster_and_grid_tagger.get_manual_throttle(thruster) - 5.0f);
                     },
-                    thruster_tagger.throttle_status, "Decrease");
-                create_PB_property<float, IMyThrust>("BalancedLevel", thruster_tagger.get_thrust_limit);
+                    thruster_and_grid_tagger.throttle_status, "Decrease");
+                create_PB_property<float, IMyThrust>("BalancedLevel", thruster_and_grid_tagger.get_thrust_limit);
             }
         }
 
@@ -497,6 +420,7 @@ namespace ttdtwm
                     _count8_foreground = 8;
                     _grids_handle_2s_period_foreground();
                 }
+                thruster_and_grid_tagger.handle_4Hz();
                 _grids_handle_4Hz_foreground();
             }
             _grids_handle_60Hz();
@@ -512,13 +436,11 @@ namespace ttdtwm
         public session_handler()
         {
             _session_ref = this;
-            sync_helper.register_entity(this, 0);
         }
 
         protected override void UnloadData()
         {
             base.UnloadData();
-            sync_helper.deregister_entity(0);
             sync_helper.deregister_handlers();
             screen_info.deregister_handlers();
             foreach (IMyCubeGrid leftover_grid in _grids.Keys.ToList())
