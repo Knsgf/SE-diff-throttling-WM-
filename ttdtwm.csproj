@@ -140,7 +140,6 @@
     <Compile Include="rect_matrix.cs" />
     <Compile Include="screen_info.cs" />
     <Compile Include="sparse_matrix.cs" />
-    <Compile Include="thruster_physics.cs" />
     <Compile Include="thruster_and_grid_tagger.cs" />
     <Compile Include="engine_control_unit.cs" />
     <Compile Include="grid_logic.cs" />
