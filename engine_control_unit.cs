@@ -1463,7 +1463,7 @@ namespace orbiter_SE
             Vector3 residual_torque_vector = _torque / _spherical_moment_of_inertia;
             if (residual_torque_vector.LengthSquared() > 1.0f)
                 residual_torque_vector.Normalize();
-            //residual_torque_vector *= 0.01f;
+            residual_torque_vector *= 0.01f;
             decompose_vector(residual_torque_vector, residual_torque);
             decompose_vector(is_gyro_override_active ? _gyro_override : Vector3.Zero, gyro_override);
 
@@ -2032,7 +2032,6 @@ namespace orbiter_SE
                 _prev_air_density = float.MinValue;
             }
             thruster_and_grid_tagger.attach_ECU(thruster, this);
-            //sync_helper.register_entity(new_thruster, thruster.EntityId);
         }
 
         public void dispose_thruster(IMyThrust thruster)
@@ -2042,7 +2041,6 @@ namespace orbiter_SE
             thruster_and_grid_tagger.detach_ECU(thruster);
             lock (_uncontrolled_thrusters)
             { 
-                //sync_helper.deregister_entity(thruster.EntityId);
                 _all_thrusters.Remove(thruster.EntityId);
 
                 if (_uncontrolled_thrusters.Contains(removed_thruster_info))
@@ -2514,7 +2512,7 @@ namespace orbiter_SE
             {
                 handle_thrust_control(_world_linear_velocity, _target_velocity, _world_angular_velocity, sleep_mode_on: true);
                 //if (autopilot_on)
-                    calculate_and_apply_torque();
+                //    calculate_and_apply_torque();
             }
             else
             {

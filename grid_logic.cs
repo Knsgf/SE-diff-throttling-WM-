@@ -511,7 +511,6 @@ namespace orbiter_SE
                     _ECU.reset_ECU();
                 else
                 {
-                    //update_ECU_cockpit_controls();
                     _ECU.handle_4Hz_foreground();
 
                     IMyPlayer controlling_player = get_controlling_player();

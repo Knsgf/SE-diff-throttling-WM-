@@ -71,7 +71,7 @@ namespace orbiter_SE
 
         #endregion
 
-        static private int[] __index_array = null;
+        static private int[] __index_array = new int[1];
 
         private int                       _width, _initial_width, _height;
         private Dictionary<int, double>[] _contents;
@@ -121,7 +121,7 @@ namespace orbiter_SE
                 }
             }
 
-            if (__index_array == null || __index_array.Length < initial_width)
+            if (__index_array.Length < initial_width)
                 __index_array = new int[_initial_width];
         }
 

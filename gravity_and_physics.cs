@@ -879,7 +879,6 @@ namespace orbiter_SE
             _grid_forward = new_forward;
             _grid_right   = new_right;
             _grid_up      = new_up;
-            //_absolute_angular_velocity = _grid.Physics.AngularVelocity;
         }
 
         public void apply_torque(Vector3 absolute_torque)

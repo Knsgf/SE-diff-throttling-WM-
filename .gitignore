@@ -1,6 +1,5 @@
 Properties/
 bin/
 obj/
-*.csproj
 *.TMP
 *.config
