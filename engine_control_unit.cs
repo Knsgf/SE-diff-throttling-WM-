@@ -1791,7 +1791,7 @@ namespace orbiter_SE
 
         private void check_changed_thrusters()
         {
-            bool                   is_controlled, is_steering, is_limited, currently_uncontrolled, currently_steering, thrusters_moved = false;
+            bool                   is_controlled, is_steering, is_limited, currently_uncontrolled, currently_steering, thrusters_moved = false, no_torque = screen_info.torque_disabled;
             int                    dir_index;
             HashSet<thruster_info> steering_thrusters, collective_thrusters, uncontrolled_thrusters = _uncontrolled_thrusters;
             bool[]                 is_solution_good = _is_solution_good;
@@ -1802,7 +1802,7 @@ namespace orbiter_SE
                 collective_thrusters = _collective_thrusters[dir_index];
                 is_steering          = cur_thruster_info.steering_on || cur_thruster_info.enable_rotation;
                 is_limited           = cur_thruster_info.enable_limit;
-                is_controlled        = (is_steering || is_limited) && cur_thruster_info.operational && cur_thruster_info.actual_max_force > 1.0f;
+                is_controlled        = !no_torque && (is_steering || is_limited) && cur_thruster_info.operational && cur_thruster_info.actual_max_force > 1.0f;
                 is_steering         &= is_controlled;
 
                 currently_uncontrolled = uncontrolled_thrusters.Contains(cur_thruster_info);
@@ -2523,7 +2523,7 @@ namespace orbiter_SE
 
         public void handle_4Hz_foreground()
         {
-            if (!_grid_is_movable)
+            if (!_grid_is_movable || screen_info.torque_disabled)
                 reset_ECU();
             else
             {
@@ -2540,7 +2540,7 @@ namespace orbiter_SE
 
         public void handle_4Hz_background()
         {
-            if (!_grid_is_movable)
+            if (!_grid_is_movable || screen_info.torque_disabled)
                 return;
 
             if (_calibration_in_progress)
