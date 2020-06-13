@@ -267,10 +267,7 @@ namespace orbiter_SE
 
                 var jump_drive = entity as IMyJumpDrive;
                 if (jump_drive != null)
-                {
-                    log_grid_action("on_block_added", jump_drive.EntityId.ToString());
                     _jump_drives.Add(jump_drive);
-                }
             }
         }
 

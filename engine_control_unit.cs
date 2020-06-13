@@ -34,6 +34,7 @@ namespace orbiter_SE
         {
             public IMyThrust     host_thruster;
             public float         max_force, actual_max_force;
+            public Vector3I      grid_cells;
             public Vector3       torque_factor, grid_centre_pos, static_moment, actual_static_moment, CoM_offset, reference_vector;
             public thrust_dir    nozzle_direction;
             public float         current_setting, thrust_limit, prev_setting, manual_throttle;
@@ -1593,7 +1594,7 @@ namespace orbiter_SE
                 adjust_thrust_for_steering(dir_index, (dir_index < 3) ? (dir_index + 3) : (dir_index - 3), desired_angular_velocity);
             };
 
-            lock (_uncontrolled_thrusters)
+            lock (_changed_thrusters)
             {
                 if (!session_handler.SINGLE_THREADED_EXEC)
                     MyAPIGateway.Parallel.For(0, 6, set_up_thrusters);
@@ -1699,13 +1700,13 @@ namespace orbiter_SE
             throw new ArgumentException(string.Format("Thruster {0}  is not grid-aligned (direction = {1})", thruster.CustomName, dir_vector));
         }
 
-        private void find_tandem_and_opposite_thrusters(IMyThrust thruster, thruster_info examined_thruster_info)
+        private void find_tandem_and_opposite_thrusters(thruster_info examined_thruster_info)
         {
             Dictionary<Vector3I, List<thruster_info>> cur_direction =       _tandem_thrusters[(int) examined_thruster_info.nozzle_direction];
             Vector3I                                  filter_vector = _thrust_forward_vectors[(int) examined_thruster_info.nozzle_direction], filtered_location;
 
             filter_vector     = Vector3I.One - filter_vector / (filter_vector.X + filter_vector.Y + filter_vector.Z);
-            filtered_location = (thruster.Min + thruster.Max) * filter_vector;
+            filtered_location = examined_thruster_info.grid_cells * filter_vector;
             if (!cur_direction.ContainsKey(filtered_location))
             {
                 cur_direction.Add(filtered_location, new List<thruster_info>());
@@ -1746,7 +1747,7 @@ namespace orbiter_SE
             }
         }
 
-        private void remove_thruster_from_lists(IMyThrust thruster, thruster_info removed_thruster_info)
+        private void remove_thruster_from_lists(thruster_info removed_thruster_info)
         {
             if (removed_thruster_info.opposing_thruster != null)
             {
@@ -1782,7 +1783,7 @@ namespace orbiter_SE
             Vector3I                                  filter_vector = _thrust_forward_vectors[(int) removed_thruster_info.nozzle_direction], filtered_location;
 
             filter_vector     = Vector3I.One - filter_vector / (filter_vector.X + filter_vector.Y + filter_vector.Z);
-            filtered_location = (thruster.Min + thruster.Max) * filter_vector;
+            filtered_location = removed_thruster_info.grid_cells * filter_vector;
             List<thruster_info> tandem_thrusters = cur_direction[filtered_location];
             tandem_thrusters.Remove(removed_thruster_info);
             if (tandem_thrusters.Count == 0)
@@ -1795,51 +1796,57 @@ namespace orbiter_SE
             int                    dir_index;
             HashSet<thruster_info> steering_thrusters, collective_thrusters, uncontrolled_thrusters = _uncontrolled_thrusters;
             bool[]                 is_solution_good = _is_solution_good;
-            foreach (thruster_info cur_thruster_info in _changed_thrusters)
+
+            if (_changed_thrusters.Count == 0)
+                return;
+            lock (_changed_thrusters)
             {
-                dir_index            = (int) cur_thruster_info.nozzle_direction;
-                steering_thrusters   =   _steering_thrusters[dir_index];
-                collective_thrusters = _collective_thrusters[dir_index];
-                is_steering          = cur_thruster_info.steering_on || cur_thruster_info.enable_rotation;
-                is_limited           = cur_thruster_info.enable_limit;
-                is_controlled        = !no_torque && (is_steering || is_limited) && cur_thruster_info.operational && cur_thruster_info.actual_max_force > 1.0f;
-                is_steering         &= is_controlled;
+                foreach (thruster_info cur_thruster_info in _changed_thrusters)
+                {
+                    dir_index            = (int) cur_thruster_info.nozzle_direction;
+                    steering_thrusters   =   _steering_thrusters[dir_index];
+                    collective_thrusters = _collective_thrusters[dir_index];
+                    is_steering          = cur_thruster_info.steering_on || cur_thruster_info.enable_rotation;
+                    is_limited           = cur_thruster_info.enable_limit;
+                    is_controlled        = !no_torque && (is_steering || is_limited) && cur_thruster_info.operational && cur_thruster_info.actual_max_force > 1.0f;
+                    is_steering         &= is_controlled;
 
-                currently_uncontrolled = uncontrolled_thrusters.Contains(cur_thruster_info);
-                currently_steering     =     steering_thrusters.Contains(cur_thruster_info);
-                if (is_controlled && currently_uncontrolled)
-                {
-                    enable_control(cur_thruster_info.host_thruster, cur_thruster_info);
-                    thrusters_moved = true;
-                }
-                else if (!is_controlled && !currently_uncontrolled)
-                {
-                    disable_control(cur_thruster_info.host_thruster, cur_thruster_info);
-                    thrusters_moved = true;
-                }
-                if (is_steering && !currently_steering)
-                    steering_thrusters.Add(cur_thruster_info);
-                else if (!is_steering && currently_steering)
-                    steering_thrusters.Remove(cur_thruster_info);
-
-                if (is_limited)
-                {
-                    if (!is_steering && is_solution_good[dir_index])
+                    currently_uncontrolled = uncontrolled_thrusters.Contains(cur_thruster_info);
+                    currently_steering     =     steering_thrusters.Contains(cur_thruster_info);
+                    if (is_controlled && currently_uncontrolled)
                     {
-                        if (!cur_thruster_info.collective_control_on)
+                        enable_control(cur_thruster_info);
+                        thrusters_moved = true;
+                    }
+                    else if (!is_controlled && !currently_uncontrolled)
+                    {
+                        disable_control(cur_thruster_info);
+                        thrusters_moved = true;
+                    }
+                    if (is_steering && !currently_steering)
+                        steering_thrusters.Add(cur_thruster_info);
+                    else if (!is_steering && currently_steering)
+                        steering_thrusters.Remove(cur_thruster_info);
+
+                    if (is_limited)
+                    {
+                        if (!is_steering && is_solution_good[dir_index])
                         {
-                            collective_thrusters.Add(cur_thruster_info);
-                            cur_thruster_info.collective_control_on = true;
+                            if (!cur_thruster_info.collective_control_on)
+                            {
+                                collective_thrusters.Add(cur_thruster_info);
+                                cur_thruster_info.collective_control_on = true;
+                            }
+                        }
+                        else if (cur_thruster_info.collective_control_on)
+                        {
+                            collective_thrusters.Remove(cur_thruster_info);
+                            cur_thruster_info.collective_control_on = false;
                         }
                     }
-                    else if (cur_thruster_info.collective_control_on)
-                    {
-                        collective_thrusters.Remove(cur_thruster_info);
-                        cur_thruster_info.collective_control_on = false;
-                    }
                 }
+                _changed_thrusters.Clear();
             }
-            _changed_thrusters.Clear();
 
             if (thrusters_moved)
             {
@@ -1903,30 +1910,30 @@ namespace orbiter_SE
             _thrusters_reset_override.Clear();
         }
 
-        private void enable_control(IMyThrust cur_thruster, thruster_info cur_thruster_info)
+        private void enable_control(thruster_info cur_thruster_info)
         {
             int dir_index = (int) cur_thruster_info.nozzle_direction;
 
             _controlled_thrusters[dir_index].Add(cur_thruster_info);
             _uncontrolled_thrusters.Remove(cur_thruster_info);
             _max_force[dir_index] += cur_thruster_info.max_force;
-            find_tandem_and_opposite_thrusters(cur_thruster, cur_thruster_info);
+            find_tandem_and_opposite_thrusters(cur_thruster_info);
             cur_thruster_info.thrust_limit    = 1.0f;
             _calibration_scheduled[dir_index] = true;
             _thrusters_reset_override.Add(cur_thruster_info);
         }
 
-        private void disable_control(IMyThrust cur_thruster, thruster_info cur_thruster_info)
+        private void disable_control(thruster_info cur_thruster_info)
         {
             int dir_index = (int) cur_thruster_info.nozzle_direction;
 
-            remove_thruster_from_lists(cur_thruster, cur_thruster_info);
             cur_thruster_info.thrust_limit = 1.0f;
             _max_force[dir_index]         -= cur_thruster_info.max_force;
             _uncontrolled_thrusters.Add(cur_thruster_info);
             _controlled_thrusters[dir_index].Remove(cur_thruster_info);
             _calibration_scheduled[dir_index] = true;
             _thrusters_reset_override.Add(cur_thruster_info);
+            remove_thruster_from_lists(cur_thruster_info);
         }
 
         private float refresh_real_max_forces_for_single_direction(HashSet<thruster_info> thrusters/*, bool atmosphere_present, float air_density*/)
@@ -1940,7 +1947,10 @@ namespace orbiter_SE
                 actual_max_force                      += cur_thruster_info.actual_max_force;
 
                 if (cur_thruster_info.actual_max_force < 1.0f)
-                    _changed_thrusters.Add(cur_thruster_info);
+                {
+                    lock (_changed_thrusters)
+                        _changed_thrusters.Add(cur_thruster_info);
+                }
             }
             return actual_max_force;
         }
@@ -1956,7 +1966,10 @@ namespace orbiter_SE
                 uncontrolled_max_force[(int) cur_thruster_info.nozzle_direction] += cur_thruster_info.actual_max_force;
 
                 if ((cur_thruster_info.steering_on || cur_thruster_info.enable_limit) && cur_thruster_info.operational && cur_thruster_info.actual_max_force > 1.0f)
-                    _changed_thrusters.Add(cur_thruster_info);
+                {
+                    lock (_changed_thrusters)
+                        _changed_thrusters.Add(cur_thruster_info);
+                }
             }
         }
 
@@ -2001,14 +2014,19 @@ namespace orbiter_SE
         {
             thruster_info thruster_info = _all_thrusters[thruster.EntityId];
             thruster_info.operational   = thruster.IsWorking;
-            _changed_thrusters.Add(thruster_info);
+            if (!screen_info.torque_disabled)
+            {
+                lock (_changed_thrusters)
+                    _changed_thrusters.Add(thruster_info);
+            }
         }
 
         public void assign_thruster(IMyThrust thruster)
         {
             var new_thruster = new thruster_info();
             new_thruster.host_thruster        = thruster;
-            new_thruster.grid_centre_pos      = (thruster.Min + thruster.Max) * (_grid.GridSize / 2.0f);
+            new_thruster.grid_cells           = thruster.Min + thruster.Max;
+            new_thruster.grid_centre_pos      = new_thruster.grid_cells * (_grid.GridSize / 2.0f);
             new_thruster.max_force            = new_thruster.actual_max_force = thruster.MaxThrust;
             new_thruster.CoM_offset           = new_thruster.grid_centre_pos - _grid_CoM_location;
             new_thruster.static_moment        = new_thruster.actual_static_moment = new_thruster.grid_centre_pos * new_thruster.max_force;
@@ -2024,11 +2042,11 @@ namespace orbiter_SE
 
             if (sync_helper.running_on_server)
                 thruster.ThrustOverride = 0.0f;
-            thruster.IsWorkingChanged += check_thruster_status;
-            lock (_uncontrolled_thrusters)
+            lock (_changed_thrusters)
             {
                 _uncontrolled_thrusters.Add(new_thruster);
                 _all_thrusters.Add(thruster.EntityId, new_thruster);
+                thruster.IsWorkingChanged += check_thruster_status;
                 _prev_air_density = float.MinValue;
             }
             thruster_and_grid_tagger.attach_ECU(thruster, this);
@@ -2036,12 +2054,13 @@ namespace orbiter_SE
 
         public void dispose_thruster(IMyThrust thruster)
         {
-            thruster.IsWorkingChanged -= check_thruster_status;
             thruster_info removed_thruster_info = _all_thrusters[thruster.EntityId];
             thruster_and_grid_tagger.detach_ECU(thruster);
-            lock (_uncontrolled_thrusters)
-            { 
+            lock (_changed_thrusters)
+            {
+                thruster.IsWorkingChanged -= check_thruster_status;
                 _all_thrusters.Remove(thruster.EntityId);
+                _changed_thrusters.Remove(removed_thruster_info);
 
                 if (_uncontrolled_thrusters.Contains(removed_thruster_info))
                 {
@@ -2054,7 +2073,7 @@ namespace orbiter_SE
                 {
                     _calibration_interrupted = _calibration_in_progress;
                     _calibration_scheduled[dir_index] = true;
-                    remove_thruster_from_lists(thruster, removed_thruster_info);
+                    remove_thruster_from_lists(removed_thruster_info);
                     _max_force[dir_index] -= removed_thruster_info.max_force;
                     _controlled_thrusters[dir_index].Remove(removed_thruster_info);
                     return;
@@ -2181,8 +2200,11 @@ namespace orbiter_SE
             if (_all_thrusters.TryGetValue(thruster_entity_id, out thruster_info))
             {
                 invoke_setter(thruster_info, new_switch);
-                if (!_changed_thrusters.Contains(thruster_info))
-                    _changed_thrusters.Add(thruster_info);
+                lock (_changed_thrusters)
+                {
+                    if (!_changed_thrusters.Contains(thruster_info))
+                        _changed_thrusters.Add(thruster_info);
+                }
             }
         }
 
@@ -2527,10 +2549,10 @@ namespace orbiter_SE
                 reset_ECU();
             else
             {
+                reset_overrides();
                 Vector3D current_grid_CoM = Vector3D.Transform(get_world_combined_CoM(), _grid.PositionComp.WorldMatrixNormalizedInv);
-                lock (_uncontrolled_thrusters)
+                lock (_all_thrusters)
                 {
-                    reset_overrides();
                     _CoM_shifted |= (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
                     if (_CoM_shifted)
                         _grid_CoM_location = current_grid_CoM;
@@ -2552,12 +2574,12 @@ namespace orbiter_SE
             {
                 bool CoM_shifted;
 
-                lock (_uncontrolled_thrusters)
+                lock (_all_thrusters)
                 {
                     CoM_shifted  = _CoM_shifted;
                     _CoM_shifted = false;
-                    check_changed_thrusters();
                 }
+                check_changed_thrusters();
                 refresh_reference_vectors(CoM_shifted);
                 if (use_individual_calibration != _individual_calibration_on)
                 {
