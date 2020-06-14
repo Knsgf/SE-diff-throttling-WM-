@@ -2562,8 +2562,13 @@ namespace orbiter_SE
 
         public void handle_4Hz_background()
         {
-            if (!_grid_is_movable || screen_info.torque_disabled)
+            if (!_grid_is_movable)
                 return;
+            if (screen_info.torque_disabled)
+            {
+                refresh_real_max_forces();
+                return;
+            }
 
             if (_calibration_in_progress)
             {
