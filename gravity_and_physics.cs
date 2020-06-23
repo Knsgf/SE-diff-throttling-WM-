@@ -323,6 +323,8 @@ namespace orbiter_SE
 
     interface torque_and_orbit_control
     {
+        bool suppress_stabilisation { get; set; }
+        
         void     apply_torque(Vector3 absolute_torque);
         void     get_linear_and_angular_velocities(out Vector3D world_linear_velocity, out Vector3D world_angular_velocity);
         void     refresh_orbit_plane(bool no_plane_change);
@@ -365,13 +367,30 @@ namespace orbiter_SE
         private static readonly Dictionary<IMyCharacter, gravity_source> _PC_current_source = new Dictionary<IMyCharacter, gravity_source>();
         private static readonly Dictionary<IMyCharacter, gravity_source> _PC_new_source     = new Dictionary<IMyCharacter, gravity_source>();
 
+        double _reference_energy = 0.0;
+        bool   _energy_changed   = false, _suppress_stabilisation = true, _energy_received = false;
+
+        private static byte[] _message = new byte[9];
+
         public static bool world_has_gravity => _gravity_sources.Count > 0;
+        
+        public bool suppress_stabilisation 
+        { 
+            get
+            {
+                return _suppress_stabilisation || _current_reference == null || _absolute_linear_velocity.LengthSquared() < 1.0;
+            }
+            set
+            {
+                _suppress_stabilisation = value;
+            }
+        }
 
         #region Auxiliaries
 
-        private static void log_physics_action(string method_name, string message)
+        private void log_physics_action(string method_name, string message)
         {
-            MyLog.Default.WriteLine(string.Format("TTDTWM\tgravity_and_physics.{0}(): {1}", method_name, message));
+            MyLog.Default.WriteLine($"OSE\t{method_name}(\"{_grid.DisplayName}\"): {message}");
         }
 
 
@@ -403,6 +422,8 @@ namespace orbiter_SE
             new_gravity_source.standard_gravitational_parameter = new_gravity_source.surface_gravity * new_gravity_source.radius2;
             new_gravity_source.centre_position                  = new_planetoid.PositionComp.WorldAABB.Center;
             _gravity_sources[new_planetoid] = _gravity_source_names[new_planetoid.Name] = new_gravity_source;
+            foreach (gravity_and_physics cur_physics_object in _grid_list.Values)
+                cur_physics_object.update_current_reference();
         }
 
         public static void deregister_gravity_source(MyPlanet removed_planetoid)
@@ -412,8 +433,10 @@ namespace orbiter_SE
                 _gravity_sources.Remove(removed_planetoid);
                 _gravity_source_names.Remove(removed_planetoid.Name);
             }
+            foreach (gravity_and_physics cur_physics_object in _grid_list.Values)
+                cur_physics_object.update_current_reference();
         }
-        
+
         private static double floor_mod(double dividend, double divisor)
         {
             return dividend - divisor * Math.Floor(dividend / divisor);
@@ -460,8 +483,52 @@ namespace orbiter_SE
             return radius_vector * ((-gravity_magnitude) / Math.Sqrt(radius_vector_length2));
         }
 
+        public static void orbit_energy_handler(sync_helper.message_types message, object entity, byte[] argument, int length)
+        {
+            var instance = entity as gravity_and_physics;
+            if (instance == null)
+                return;
+
+            if (sync_helper.running_on_server)
+            {
+                if (length == 8)
+                {
+                    ulong recipient = sync_helper.decode_unsigned(8, argument, 0);
+                    instance.sync_orbit_energy(recipient);
+                }
+            }
+            else if (length == 9)
+            {
+                instance._reference_energy = sync_helper.decode_double(argument, 0);
+                instance._energy_received = true;
+            }
+        }
+
+        public void sync_orbit_energy(ulong? recipient = null)
+        {
+            if (!sync_helper.running_on_server)
+            {
+                if (!_energy_received)
+                {
+                    sync_helper.encode_unsigned(screen_info.local_player.SteamUserId, 8, _message, 0);
+                    sync_helper.send_message_to_server(sync_helper.message_types.ORBIT_ENERGY, this, _message, 8);
+                }
+                _energy_changed = false;
+            }
+            else if (_energy_changed && !suppress_stabilisation || recipient != null)
+            {
+                sync_helper.encode_double(_reference_energy, _message, 0);
+                if (recipient != null)
+                    sync_helper.send_message_to((ulong) recipient, sync_helper.message_types.ORBIT_ENERGY, this, _message, 9);
+                else
+                    sync_helper.send_message_to_others(sync_helper.message_types.ORBIT_ENERGY, this, _message, 9);
+                _energy_changed = false;
+            }
+        }
+
         public void Dispose()
         {
+            sync_helper.deregister_entity(sync_helper.message_types.ORBIT_ENERGY, _grid.EntityId);
             if (_grid_list.ContainsKey(_grid))
             {
                 _grid_list.Remove(_grid);
@@ -864,8 +931,14 @@ namespace orbiter_SE
         private void update_grid_position_and_velocity()
         {
             Vector3D new_position = _grid.Physics.CenterOfMassWorld;
-            _absolute_linear_velocity = sync_helper.running_on_server ? ((new_position - _grid_position) * MyEngineConstants.UPDATE_STEPS_PER_SECOND) 
-                : ((Vector3D) _grid.Physics.LinearVelocity);
+            if (!sync_helper.running_on_server)
+                _absolute_linear_velocity = _grid.Physics.LinearVelocity;
+            else
+            {
+                _absolute_linear_velocity = (new_position - _grid_position) * MyEngineConstants.UPDATE_STEPS_PER_SECOND;
+                if ((_absolute_linear_velocity - _grid.Physics.LinearVelocity).LengthSquared() > 0.5 * 0.5)
+                    _absolute_linear_velocity = _grid.Physics.LinearVelocity;
+            }
             _grid_position = new_position;
 
             MatrixD  grid_matrix = _grid.WorldMatrix.GetOrientation();
@@ -888,7 +961,7 @@ namespace orbiter_SE
 
         public void simulate_gravity_and_torque()
         {
-            const double step2 = (double) MyEngineConstants.PHYSICS_STEP_SIZE_IN_SECONDS * (double) MyEngineConstants.PHYSICS_STEP_SIZE_IN_SECONDS;
+            const double step = MyEngineConstants.PHYSICS_STEP_SIZE_IN_SECONDS, MAX_ENERGY_DRIFT = 100.0, MAX_STABILISATION_ACC = 0.05;
 
             if (_grid.IsStatic || _grid.Physics == null || !_grid.Physics.Enabled)
             {
@@ -897,10 +970,57 @@ namespace orbiter_SE
             }
 
             update_grid_position_and_velocity();
-            Vector3D grid_position      = _grid_position;
-            Vector3D gravity_vector     = calculate_gravity_vector(_current_reference, grid_position);
-            Vector3D previous_position  = grid_position - _absolute_linear_velocity * MyEngineConstants.PHYSICS_STEP_SIZE_IN_SECONDS - gravity_vector * step2 / 2.0;
-            gravity_vector              = calculate_gravity_vector(_current_reference, previous_position);
+            gravity_source current_reference = _current_reference;
+            Vector3D       grid_position     = _grid_position;
+            Vector3D       grid_velocity     = _absolute_linear_velocity;
+            Vector3D       gravity_vector    = calculate_gravity_vector(current_reference, grid_position);
+
+            if (current_reference == null)
+            {
+                if (sync_helper.running_on_server)
+                {
+                    _reference_energy = 0.0;
+                    _energy_changed   = true;
+                }
+            }
+            else
+            {
+                double speed2 = grid_velocity.LengthSquared();
+                double orbital_energy = speed2 / 2.0 - current_reference.standard_gravitational_parameter / (grid_position - current_reference.centre_position).Length();
+                if (suppress_stabilisation)
+                {
+                    if (sync_helper.running_on_server)
+                    {
+                        _reference_energy = orbital_energy;
+                        _energy_changed   = true;
+                    }
+                }
+                else
+                {
+                    double energy_drift = orbital_energy - _reference_energy;
+                    if (energy_drift < -MAX_ENERGY_DRIFT)
+                    {
+                        energy_drift = -MAX_ENERGY_DRIFT;
+                        if (sync_helper.running_on_server)
+                        {
+                            _reference_energy = orbital_energy - energy_drift;
+                            _energy_changed   = true;
+                        }
+                    }
+                    else if (energy_drift > MAX_ENERGY_DRIFT)
+                    {
+                        energy_drift = MAX_ENERGY_DRIFT;
+                        if (sync_helper.running_on_server)
+                        {
+                            _reference_energy = orbital_energy - energy_drift;
+                            _energy_changed   = true;
+                        }
+                    }
+                    double stabilisation_acc = energy_drift * (-MAX_STABILISATION_ACC / MAX_ENERGY_DRIFT);
+                    gravity_vector += Vector3D.Normalize(grid_velocity) * stabilisation_acc;
+                }
+            }
+
             Vector3 stock_gravity_force = _grid.Physics.Gravity;
             double  gravity_magnitude   = gravity_vector.Length(), stock_gravity_magnitude = stock_gravity_force.Length();
             if (gravity_magnitude < stock_gravity_magnitude)
@@ -908,7 +1028,7 @@ namespace orbiter_SE
             Vector3D gravity_correction_force = _grid.Physics.Mass * (gravity_vector - stock_gravity_force) + _accumulated_gravity;
             if (gravity_correction_force.LengthSquared() >= 1.0 || _current_torque.LengthSquared() >= 1.0f)
             {
-                Vector3 gravity_correction_impulse = GRAVITY_ON ? ((Vector3) (gravity_correction_force * MyEngineConstants.PHYSICS_STEP_SIZE_IN_SECONDS)) : Vector3.Zero;
+                Vector3 gravity_correction_impulse = GRAVITY_ON ? ((Vector3) (gravity_correction_force * step)) : Vector3.Zero;
                 _grid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, gravity_correction_impulse, grid_position, _current_torque);
             }
             _current_torque = Vector3.Zero;
@@ -921,7 +1041,19 @@ namespace orbiter_SE
 
         public void update_current_reference()
         {
+            gravity_source prev_reference = _current_reference;
+
             _current_reference = get_reference_body(_grid_position);
+            if (_current_reference != null)
+            {
+                if (sync_helper.running_on_server && _current_reference != prev_reference)
+                {
+                    _reference_energy = _grid.Physics.LinearVelocity.LengthSquared() / 2.0
+                        - _current_reference.standard_gravitational_parameter / (_grid_position - _current_reference.centre_position).Length();
+                    _energy_changed = true;
+                }
+                sync_orbit_energy();
+            }
             //log_physics_action("update_current_reference", $"{(_grid_position - _current_reference.centre_position).Length()} {_absolute_linear_velocity.Length()}");
         }
 
@@ -944,8 +1076,7 @@ namespace orbiter_SE
         {
             IMyCharacter   player;
             gravity_source current_source;
-            Vector3D       player_positon, gravity_vector, stock_gravity_vector;
-            double         gravity_magnitude, stock_gravity_magnitude;
+            Vector3D       player_position, gravity_vector, stock_gravity_vector;
 
             foreach (KeyValuePair<IMyCharacter, gravity_source> player_entry in _PC_current_source)
             {
@@ -954,14 +1085,10 @@ namespace orbiter_SE
                 if (current_source == null || !player.EnabledThrusts || player.EnabledDamping || player.Physics == null || !player.Physics.Enabled)
                     continue;
 
-                player_positon          = player.PositionComp.GetPosition();
-                gravity_vector          = calculate_gravity_vector(current_source, player_positon);
-                stock_gravity_vector    = player.Physics.Gravity;
-                gravity_magnitude       = gravity_vector.Length();
-                stock_gravity_magnitude = stock_gravity_vector.Length();
-                if (gravity_magnitude < stock_gravity_magnitude)
-                    gravity_vector *= stock_gravity_magnitude / gravity_magnitude;
-                player.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, (gravity_vector - stock_gravity_vector) * player.Physics.Mass / MyEngineConstants.UPDATE_STEPS_PER_SECOND, player_positon, Vector3.Zero);
+                player_position      = player.PositionComp.GetPosition();
+                gravity_vector       = calculate_gravity_vector(current_source, player_position);
+                stock_gravity_vector = player.Physics.Gravity;
+                player.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, (gravity_vector - stock_gravity_vector) * player.Physics.Mass / MyEngineConstants.UPDATE_STEPS_PER_SECOND, player_position, Vector3.Zero);
             }
         }
 
@@ -987,6 +1114,7 @@ namespace orbiter_SE
         public gravity_and_physics(IMyCubeGrid grid_ref)
         {
             _grid = (MyCubeGrid) grid_ref;
+            sync_helper.register_entity(sync_helper.message_types.ORBIT_ENERGY, this, _grid.EntityId);
             if (_grid.Physics != null)
             {
                 _grid_position      = _grid.Physics.CenterOfMassWorld;
@@ -994,6 +1122,7 @@ namespace orbiter_SE
                 _grid_forward       = grid_matrix.Forward;
                 _grid_right         = grid_matrix.Right;
                 _grid_up            = grid_matrix.Up;
+                update_current_reference();
             }
             _grid_list[grid_ref] = _grid_names[grid_ref.DisplayName] = this;
         }

@@ -179,7 +179,7 @@ namespace orbiter_SE
         private readonly  bool[] _enable_linear_integral = { true, true, true, true, true, true };
         private readonly float[] _linear_integral        = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
-        private float     _prev_air_density = float.MinValue, _counter_thrust_limit = 1.0f;
+        private float     _air_density = float.MinValue, _counter_thrust_limit = 1.0f;
         private Vector3   _manual_thrust, _thrust_override = Vector3.Zero, _linear_control = Vector3.Zero;
 
         private readonly Vector3[] _rotation_samples = new Vector3[NUM_ROTATION_SAMPLES];
@@ -1850,7 +1850,7 @@ namespace orbiter_SE
 
             if (thrusters_moved)
             {
-                _prev_air_density = float.MinValue;
+                _air_density = float.MinValue;
                 if (_current_mode_is_CoT)
                     update_reference_vectors_for_CoT_mode();
                 else
@@ -1977,10 +1977,10 @@ namespace orbiter_SE
         {
             BoundingBoxD grid_bounding_box = _grid.PositionComp.WorldAABB;
             MyPlanet     closest_planetoid = MyGamePruningStructure.GetClosestPlanet(ref grid_bounding_box);
-            float        air_density       = (closest_planetoid == null) ? 0.0f : closest_planetoid.GetAirDensity(grid_bounding_box.Center);
+            float        new_air_density   = (closest_planetoid == null) ? 0.0f : closest_planetoid.GetAirDensity(grid_bounding_box.Center);
 
-            float prev_air_density = _prev_air_density;
-            if (Math.Abs(air_density - prev_air_density) < 0.005f)
+            float prev_air_density = _air_density;
+            if (Math.Abs(new_air_density - prev_air_density) < 0.005f && (new_air_density == 0.0) == (prev_air_density == 0.0))
                 return;
             
             bool[]  calibration_scheduled = _calibration_scheduled;
@@ -2005,7 +2005,7 @@ namespace orbiter_SE
                 _actual_max_force[(int) thrust_dir.ventral  ] / 1000.0f));
             */
 
-            _prev_air_density = air_density;
+            _air_density = new_air_density;
             if (_current_mode_is_CoT)
                 update_reference_vectors_for_CoT_mode();
         }
@@ -2047,7 +2047,7 @@ namespace orbiter_SE
                 _uncontrolled_thrusters.Add(new_thruster);
                 _all_thrusters.Add(thruster.EntityId, new_thruster);
                 thruster.IsWorkingChanged += check_thruster_status;
-                _prev_air_density = float.MinValue;
+                _air_density = float.MinValue;
             }
             thruster_and_grid_tagger.attach_ECU(thruster, this);
         }
@@ -2476,7 +2476,7 @@ namespace orbiter_SE
                 return;
             }
 
-            bool is_secondary = secondary_ECU;
+            bool is_secondary = secondary_ECU, linear_controls_active = _linear_control.LengthSquared() >= 0.0001f, manoeuvre_active = current_manoeuvre != ID_manoeuvres.manoeuvre_off;
             torque_and_orbit_control grid_movement = _grid_movement;
             if (is_secondary)
             {
@@ -2493,20 +2493,24 @@ namespace orbiter_SE
                     _current_index = 0;
                 _manual_rotation = _sample_sum / NUM_ROTATION_SAMPLES;
 
-                if (current_manoeuvre != ID_manoeuvres.manoeuvre_off && _linear_control.LengthSquared() >= 0.0001f)
+                if (manoeuvre_active && linear_controls_active)
+                {
                     thruster_and_grid_tagger.start_manoeuvre(_grid, ID_manoeuvres.manoeuvre_off);
+                    manoeuvre_active = false;
+                }
                 grid_movement.get_linear_and_angular_velocities(out _world_linear_velocity, out _world_angular_velocity);
                 current_speed    = (float) _world_linear_velocity.Length();
                 if (_match_velocity_with?.Physics != null)
                     _target_velocity = _match_velocity_with.Physics.LinearVelocity;
-                else if (current_manoeuvre != ID_manoeuvres.manoeuvre_off)
+                else if (manoeuvre_active)
                     _target_velocity = _world_linear_velocity + grid_movement.get_manoeuvre_direction(current_manoeuvre) * current_speed;
                 else if (_circularise_on)
                     _target_velocity = grid_movement.get_circular_orbit_velocity();
                 else
                     _target_velocity = Vector3.Zero;
             }
-            grid_movement.refresh_orbit_plane(!_dry_run && !jump_drive_engaged && _circularise_on && linear_dampers_on && _linear_control.LengthSquared() < 0.0001f 
+            grid_movement.suppress_stabilisation = linear_controls_active || manoeuvre_active || linear_dampers_on || _air_density > 0.0f;
+            grid_movement.refresh_orbit_plane(!_dry_run && !jump_drive_engaged && _circularise_on && linear_dampers_on && !linear_controls_active 
                 && current_manoeuvre != ID_manoeuvres.burn_normal && current_manoeuvre != ID_manoeuvres.burn_antinormal);
 
             _grid_mass = _grid.Physics.Mass;
@@ -2528,7 +2532,7 @@ namespace orbiter_SE
             }
 
             if (  autopilot_on || !_is_thrust_override_active && !_is_gyro_override_active 
-                && _manual_rotation.LengthSquared() < 0.0001f && _manual_thrust.LengthSquared() < 0.0001f && current_manoeuvre == ID_manoeuvres.manoeuvre_off
+                && _manual_rotation.LengthSquared() < 0.0001f && _manual_thrust.LengthSquared() < 0.0001f && !manoeuvre_active
                 && (!rotational_damping_on || _world_angular_velocity.LengthSquared() < 0.0001f)
                 && (!linear_dampers_on && !secondary_ECU || _grid.Physics.Gravity.LengthSquared() < 0.01f && current_speed < 0.1f))
             {

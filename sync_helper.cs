@@ -13,7 +13,7 @@ namespace orbiter_SE
         const ushort SYNC_MESSAGE_ID = 17370;
 
         internal const int MAX_MESSAGE_LENGTH = 200;
-        internal enum message_types: byte { I_TERMS, THRUSTER_MODES, MANUAL_THROTTLE, GRID_MODES, MANOEUVRE, THRUST_LOSS, REMOTE_SCREEN_TEXT, GLOBAL_MODES };
+        internal enum message_types: byte { I_TERMS, THRUSTER_MODES, MANUAL_THROTTLE, GRID_MODES, MANOEUVRE, THRUST_LOSS, REMOTE_SCREEN_TEXT, GLOBAL_MODES, ORBIT_ENERGY };
         private static readonly int _num_messages;
 
         const int SIGNATURE_LENGTH = 6;
@@ -25,6 +25,8 @@ namespace orbiter_SE
         private static readonly Dictionary<object,   long>[] _entity_ids;
 
         private static readonly Action<message_types, object, byte[], int>[] _message_handlers;
+
+        private static readonly double log2 = Math.Log(2.0);
 
         public static bool network_handlers_registered { get; private set; } = false;
         public static bool running_on_server           { get; private set; } = true;
@@ -41,6 +43,7 @@ namespace orbiter_SE
             _message_handlers[(int) message_types.MANUAL_THROTTLE   ] = thruster_and_grid_tagger.remote_thrust_settings;
             _message_handlers[(int) message_types.REMOTE_SCREEN_TEXT] = screen_info.show_remote_text;
             _message_handlers[(int) message_types.GLOBAL_MODES      ] = screen_info.handle_remote_settings;
+            _message_handlers[(int) message_types.ORBIT_ENERGY      ] = gravity_and_physics.orbit_energy_handler;
 
             _entities   = new Dictionary<long, object>[_num_messages];
             _entity_ids = new Dictionary<object, long>[_num_messages];
@@ -102,6 +105,37 @@ namespace orbiter_SE
             for (int cur_byte = end_offset; cur_byte >= message_offset; --cur_byte)
                 result = (result << 8) | message[cur_byte];
             return result;
+        }
+
+        #endregion
+
+        #region Floating-point number serialisers
+
+        public static void encode_double(double value, byte[] message, int message_offset)
+        {
+            if (value == 0.0)
+            {
+                encode_signed(0, 7, message, message_offset    );
+                encode_signed(0, 2, message, message_offset + 7);
+            }
+            else
+            {
+                int power2 = (int) (Math.Log(Math.Abs(value)) / log2);
+                double normalised_value = value / Math.Pow(2.0, power2);
+                encode_signed((long) (normalised_value * (1L << 54)), 7, message, message_offset);
+                encode_signed(power2, 2, message, message_offset + 7);
+            }
+        }
+
+        public static double decode_double(byte[] message, int message_offset)
+        {
+            long premultiplied_value = decode_signed(7, message, message_offset);
+            if (premultiplied_value == 0)
+                return 0.0;
+            
+            double normalised_value = ((double) premultiplied_value) / (1L << 54);
+            int power2 = (int) decode_signed(2, message, message_offset + 7);
+            return normalised_value * Math.Pow(2.0, power2);
         }
 
         #endregion
