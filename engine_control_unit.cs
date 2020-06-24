@@ -155,7 +155,7 @@ namespace orbiter_SE
         private bool     _calibration_in_progress = false;
         private Vector3D _grid_CoM_location = Vector3D.Zero, _world_linear_velocity;
         private Vector3D _world_angular_velocity;
-        private float    _spherical_moment_of_inertia = 1.0f, _grid_mass = 1.0f, _total_mass = 1.0f;
+        private float    _spherical_moment_of_inertia = 1.0f, _grid_mass = 1.0f;
 
         private readonly  bool[]    _uncontrolled_override_checked = new bool[6];
         private readonly  bool[]    _is_solution_good = { false, false, false, false, false, false };
@@ -198,6 +198,12 @@ namespace orbiter_SE
         public bool use_individual_calibration { get; set; }
         public bool secondary_ECU              { get; set; }
 
+        public bool internal_suppress_stabilisation { get; private set; }
+        public bool external_suppress_stabilisation { get;         set; }
+        
+        public Vector3D new_grid_CoM      { get; set; }
+        public float    average_grid_mass { get; set; } = 1.0f;
+        
         public int  thrust_reduction      { get; private set; }
 
         public bool active_control_enabled
@@ -360,31 +366,6 @@ namespace orbiter_SE
                     update_reference_vectors_for_CoM_mode();
                 _current_mode_is_CoT = _new_mode_is_CoT;
             }
-        }
-
-        private Vector3D get_world_combined_CoM()
-        {
-            List<IMyCubeGrid>      grid_list     = MyAPIGateway.GridGroups.GetGroup(_grid, GridLinkTypeEnum.Physical);
-            Vector3D               static_moment = Vector3D.Zero;
-            float                  cur_mass;
-            MyPhysicsComponentBase grid_body;
-
-            _total_mass   = 0.0f;
-            _num_subgrids = grid_list.Count;
-            foreach (IMyCubeGrid cur_grid in grid_list)
-            {
-                grid_body      = cur_grid.Physics;
-                cur_mass       = grid_body.Mass;
-                static_moment += cur_mass * grid_body.CenterOfMassWorld;
-                _total_mass   += cur_mass;
-            }
-            if (_total_mass < 1.0f)
-            {
-                _total_mass   = _grid_mass;
-                _num_subgrids = 1;
-                return _grid.Physics.CenterOfMassWorld;
-            }
-            return static_moment / _total_mass;
         }
 
         private void calculate_and_apply_torque()
@@ -978,7 +959,7 @@ namespace orbiter_SE
                         _trim_fadeout = vertical_speed / (-DESCENDING_SPEED * 0.5f);
                 }
                 Vector3 linear_damping    = local_linear_velocity_vector * DAMPING_CONSTANT - local_gravity_vector * _counter_thrust_limit;
-                float   average_grid_mass = _total_mass / _num_subgrids;
+                float   average_grid_mass = this.average_grid_mass;
                 linear_damping           *= (average_grid_mass >= _grid_mass) ? average_grid_mass : _grid_mass;
                 decompose_vector(               linear_damping,          __braking_vector);
                 decompose_vector(        -local_gravity_vector,         local_gravity_inv);
@@ -1074,7 +1055,7 @@ namespace orbiter_SE
 
             if (__manual_control_vector[opposite_dir] < MIN_THROTTLE && total_force[dir_index] >= 1.0f)
             {
-                float braking_force = __braking_vector[dir_index], mass, average_grid_mass = _total_mass / _num_subgrids;
+                float braking_force = __braking_vector[dir_index], mass, average_grid_mass = this.average_grid_mass;
 
                 mass = (average_grid_mass >= _grid_mass) ? average_grid_mass : _grid_mass;
                 if (enable_linear_integral[dir_index])
@@ -1133,7 +1114,7 @@ namespace orbiter_SE
                 return;
             }
 
-            float average_grid_mass = _total_mass / _num_subgrids;
+            float average_grid_mass = this.average_grid_mass;
 
             Vector3 angular_velocity_diff = desired_angular_velocity - _local_angular_velocity, total_static_moment = Vector3.Zero;
             float   max_linear_opposition, damping = DAMPING_CONSTANT * ((average_grid_mass >= _grid_mass) ? average_grid_mass : _grid_mass) / _actual_max_force[cur_dir],
@@ -2457,7 +2438,7 @@ namespace orbiter_SE
         {
             const float SENSITIVITY_MULT = 0.5f;
             Vector3 ship_size         = (_grid.Max - _grid.Min) * _grid.GridSize;
-            float   average_grid_mass = _total_mass / _num_subgrids;
+            float   average_grid_mass = this.average_grid_mass;
 
             if (average_grid_mass > _grid_mass)
                 ship_size *= average_grid_mass / _grid_mass;
@@ -2509,7 +2490,6 @@ namespace orbiter_SE
                 else
                     _target_velocity = Vector3.Zero;
             }
-            grid_movement.suppress_stabilisation = linear_controls_active || manoeuvre_active || linear_dampers_on || _air_density > 0.0f;
             grid_movement.refresh_orbit_plane(!_dry_run && !jump_drive_engaged && _circularise_on && linear_dampers_on && !linear_controls_active 
                 && current_manoeuvre != ID_manoeuvres.burn_normal && current_manoeuvre != ID_manoeuvres.burn_antinormal);
 
@@ -2521,7 +2501,7 @@ namespace orbiter_SE
                 refresh_gyro_info();
             else
             {
-                Vector3D current_grid_CoM = Vector3D.Transform(get_world_combined_CoM(), _grid.PositionComp.WorldMatrixNormalizedInv);
+                Vector3D current_grid_CoM = new_grid_CoM;
                 bool     CoM_shifted      = (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
 
                 if (CoM_shifted)
@@ -2549,12 +2529,13 @@ namespace orbiter_SE
 
         public void handle_4Hz_foreground()
         {
-            if (!_grid_is_movable || screen_info.torque_disabled)
+            if (!_grid_is_movable)
                 reset_ECU();
-            else
+
+            if (!screen_info.torque_disabled)
             {
                 reset_overrides();
-                Vector3D current_grid_CoM = Vector3D.Transform(get_world_combined_CoM(), _grid.PositionComp.WorldMatrixNormalizedInv);
+                Vector3D current_grid_CoM = new_grid_CoM;
                 lock (_all_thrusters)
                 {
                     _CoM_shifted |= (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
@@ -2568,6 +2549,10 @@ namespace orbiter_SE
         {
             if (!_grid_is_movable)
                 return;
+
+            internal_suppress_stabilisation = _linear_control.LengthSquared() >= 0.0001f || current_manoeuvre != ID_manoeuvres.manoeuvre_off || linear_dampers_on || _air_density > 0.0f;
+            _grid_movement.suppress_stabilisation = internal_suppress_stabilisation || external_suppress_stabilisation;
+
             if (screen_info.torque_disabled)
             {
                 refresh_real_max_forces();

@@ -25,14 +25,14 @@ namespace orbiter_SE
         #region fields
 
         private readonly Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
+        private readonly HashSet<IMyCubeGrid> _examined_grids = new HashSet<IMyCubeGrid>();
+
         private Action _grids_handle_60Hz = null, _grids_handle_4Hz_foreground = null, _grids_handle_2s_period_foreground = null;
         private Action _grids_handle_4Hz_background = null, _grids_handle_2s_period_background = null, _grids_perform_calibration = null;
         private Task _manager_task, _calibration_task;
 
         private static IMyThrust         _sample_thruster   = null;
         private static IMyShipController _sample_controller = null;
-
-        private IMyCubeGrid _last_grid;
 
         private int  _count15 = 15, _count8_foreground = 8, _count8_background = 8;
         private bool _entity_events_set = false;
@@ -371,6 +371,71 @@ namespace orbiter_SE
             }
         }
 
+        private void refresh_grid_centre_of_mass_and_orbit_stabilisation()
+        {
+            HashSet<IMyCubeGrid> examined_grids = _examined_grids;
+
+            examined_grids.Clear();
+            foreach (IMyCubeGrid grid in _grids.Keys)
+            {
+                if (examined_grids.Contains(grid) || grid.IsStatic)
+                    continue;
+                MyPhysicsComponentBase grid_body = grid.Physics;
+                if (grid_body == null || !grid_body.Enabled)
+                    continue;
+
+                List<IMyCubeGrid> grid_list     = MyAPIGateway.GridGroups.GetGroup(grid, GridLinkTypeEnum.Physical);
+                Vector3D          static_moment = Vector3D.Zero;
+                float             cur_mass;
+                
+                float total_mass                   = 0.0f;
+                bool  group_suppress_stabilisation = false;
+                foreach (IMyCubeGrid cur_grid in grid_list)
+                {
+                    if (cur_grid.IsStatic)
+                    {
+                        examined_grids.Add(cur_grid);
+                        continue;
+                    }
+                    grid_body = cur_grid.Physics;
+                    if (grid_body == null || !grid_body.Enabled)
+                    {
+                        examined_grids.Add(cur_grid);
+                        continue;
+                    }
+                    cur_mass       = grid_body.Mass;
+                    static_moment += cur_mass * grid_body.CenterOfMassWorld;
+                    total_mass    += cur_mass;
+                    group_suppress_stabilisation |= _grids[cur_grid].internal_suppress_stabilisation;
+                    examined_grids.Add(cur_grid);
+                }
+                if (total_mass < 1.0f)
+                {
+                    foreach (IMyCubeGrid cur_grid in grid_list)
+                    {
+                        if (cur_grid.IsStatic || cur_grid.Physics == null || !cur_grid.Physics.Enabled)
+                            continue;
+                        grid_logic grid_object = _grids[cur_grid];
+                        grid_object.set_grid_CoM(cur_grid.Physics.CenterOfMassWorld);
+                        grid_object.set_average_connected_grid_mass(cur_grid.Physics.Mass);
+                        grid_object.external_suppress_stabilisation = group_suppress_stabilisation;
+                    }
+                }
+                else
+                {
+                    Vector3D world_combined_CoM = static_moment / total_mass;
+                    float    average_mass       = total_mass    / grid_list.Count;
+                    foreach (IMyCubeGrid cur_grid in grid_list)
+                    {
+                        grid_logic grid_object = _grids[cur_grid];
+                        grid_object.set_grid_CoM(world_combined_CoM);
+                        grid_object.set_average_connected_grid_mass(average_mass);
+                        grid_object.external_suppress_stabilisation = group_suppress_stabilisation;
+                    }
+                }
+            }
+        }
+
         internal static void sample_thruster(IMyThrust thruster)
         {
             if (!_panel_controls_set && _sample_thruster == null)
@@ -548,8 +613,6 @@ namespace orbiter_SE
             if (--_count15 <= 0)
             {
                 _count15 = 15;
-                screen_info.refresh_local_player_HUD();
-                _last_grid = null;
                 if (SINGLE_THREADED_EXEC)
                     manager_thread();
                 else
@@ -563,6 +626,8 @@ namespace orbiter_SE
                     _count8_foreground = 8;
                     _grids_handle_2s_period_foreground();
                 }
+                screen_info.refresh_local_player_HUD();
+                refresh_grid_centre_of_mass_and_orbit_stabilisation();
                 thruster_and_grid_tagger.handle_4Hz();
                 _grids_handle_4Hz_foreground();
             }

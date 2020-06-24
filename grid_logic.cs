@@ -58,6 +58,19 @@ namespace orbiter_SE
         public engine_control_unit.ID_manoeuvres current_manoeuvre => is_circularisation_avaiable ? _ECU.current_manoeuvre : engine_control_unit.ID_manoeuvres.manoeuvre_off;
         public engine_control_unit ECU => _ECU;
 
+        public bool internal_suppress_stabilisation => _ECU.internal_suppress_stabilisation;
+        public bool external_suppress_stabilisation
+        {   
+            get
+            { 
+                return _ECU.external_suppress_stabilisation;
+            }
+            set
+            {
+                _ECU.external_suppress_stabilisation = value;
+            }
+        }
+
         #endregion
 
         #region Grid modes, ID overrides and manoeuvres
@@ -220,6 +233,16 @@ namespace orbiter_SE
             var grid_movement = new gravity_and_physics(_grid);
             _ECU              = new engine_control_unit(_grid, grid_movement);
             _grid_physics     = grid_movement;
+        }
+
+        public void set_grid_CoM(Vector3D new_world_CoM)
+        {
+            _ECU.new_grid_CoM = Vector3D.Transform(new_world_CoM, _grid.PositionComp.WorldMatrixNormalizedInv);
+        }
+
+        public void set_average_connected_grid_mass(float average_mass)
+        {
+            _ECU.average_grid_mass = average_mass;
         }
 
         #endregion
