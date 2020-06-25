@@ -26,6 +26,8 @@ namespace orbiter_SE
 
         private readonly Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
         private readonly HashSet<IMyCubeGrid> _examined_grids = new HashSet<IMyCubeGrid>();
+        private readonly List<List<grid_logic>> _connected_grid_lists = new List<List<grid_logic>>();
+        private int _num_connected_grid_lists = 0;
 
         private Action _grids_handle_60Hz = null, _grids_handle_4Hz_foreground = null, _grids_handle_2s_period_foreground = null;
         private Action _grids_handle_4Hz_background = null, _grids_handle_2s_period_background = null, _grids_perform_calibration = null;
@@ -371,11 +373,13 @@ namespace orbiter_SE
             }
         }
 
-        private void refresh_grid_centre_of_mass_and_orbit_stabilisation()
+        private void refresh_connected_grids()
         {
             HashSet<IMyCubeGrid> examined_grids = _examined_grids;
+            List<List<grid_logic>> connected_grid_lists = _connected_grid_lists;
 
             examined_grids.Clear();
+            _num_connected_grid_lists = 0;
             foreach (IMyCubeGrid grid in _grids.Keys)
             {
                 if (examined_grids.Contains(grid) || grid.IsStatic)
@@ -388,27 +392,33 @@ namespace orbiter_SE
                 Vector3D          static_moment = Vector3D.Zero;
                 float             cur_mass;
                 
-                float total_mass                   = 0.0f;
-                bool  group_suppress_stabilisation = false;
+                float total_mass = 0.0f;
                 foreach (IMyCubeGrid cur_grid in grid_list)
                 {
+                    examined_grids.Add(cur_grid);
                     if (cur_grid.IsStatic)
-                    {
-                        examined_grids.Add(cur_grid);
                         continue;
-                    }
                     grid_body = cur_grid.Physics;
                     if (grid_body == null || !grid_body.Enabled)
-                    {
-                        examined_grids.Add(cur_grid);
                         continue;
-                    }
                     cur_mass       = grid_body.Mass;
                     static_moment += cur_mass * grid_body.CenterOfMassWorld;
                     total_mass    += cur_mass;
-                    group_suppress_stabilisation |= _grids[cur_grid].internal_suppress_stabilisation;
-                    examined_grids.Add(cur_grid);
                 }
+
+                List<grid_logic> connected_grids;
+                if (connected_grid_lists.Count > _num_connected_grid_lists)
+                {
+                    connected_grids = connected_grid_lists[_num_connected_grid_lists];
+                    connected_grids.Clear();
+                }
+                else
+                {
+                    connected_grids = new List<grid_logic>();
+                    connected_grid_lists.Add(connected_grids);
+                }
+                ++_num_connected_grid_lists;
+
                 if (total_mass < 1.0f)
                 {
                     foreach (IMyCubeGrid cur_grid in grid_list)
@@ -418,7 +428,7 @@ namespace orbiter_SE
                         grid_logic grid_object = _grids[cur_grid];
                         grid_object.set_grid_CoM(cur_grid.Physics.CenterOfMassWorld);
                         grid_object.set_average_connected_grid_mass(cur_grid.Physics.Mass);
-                        grid_object.external_suppress_stabilisation = group_suppress_stabilisation;
+                        connected_grids.Add(grid_object);
                     }
                 }
                 else
@@ -430,9 +440,26 @@ namespace orbiter_SE
                         grid_logic grid_object = _grids[cur_grid];
                         grid_object.set_grid_CoM(world_combined_CoM);
                         grid_object.set_average_connected_grid_mass(average_mass);
-                        grid_object.external_suppress_stabilisation = group_suppress_stabilisation;
+                        connected_grids.Add(grid_object);
                     }
                 }
+            }
+        }
+
+        private void process_orbit_stabilisation_for_connected_grids()
+        {
+            List<List<grid_logic>> connected_grid_lists = _connected_grid_lists;
+            int num_connected_grid_lists = _num_connected_grid_lists;
+
+            for (int index = 0; index < num_connected_grid_lists; ++index)
+            {
+                List<grid_logic> connected_grids = connected_grid_lists[index];
+                bool suppress_stabilisation = false;
+
+                foreach (grid_logic cur_grid in connected_grids)
+                    suppress_stabilisation |= cur_grid.internal_suppress_stabilisation;
+                foreach (grid_logic cur_grid in connected_grids)
+                    cur_grid.external_suppress_stabilisation = suppress_stabilisation;
             }
         }
 
@@ -627,10 +654,11 @@ namespace orbiter_SE
                     _grids_handle_2s_period_foreground();
                 }
                 screen_info.refresh_local_player_HUD();
-                refresh_grid_centre_of_mass_and_orbit_stabilisation();
+                refresh_connected_grids();
                 thruster_and_grid_tagger.handle_4Hz();
                 _grids_handle_4Hz_foreground();
             }
+            process_orbit_stabilisation_for_connected_grids();
             _grids_handle_60Hz();
             gravity_and_physics.apply_gravity_to_players();
         }

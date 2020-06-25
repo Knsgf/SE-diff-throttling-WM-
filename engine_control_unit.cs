@@ -2457,6 +2457,7 @@ namespace orbiter_SE
                 return;
             }
 
+            ID_manoeuvres current_manoeuvre = this.current_manoeuvre;
             bool is_secondary = secondary_ECU, linear_controls_active = _linear_control.LengthSquared() >= 0.0001f, manoeuvre_active = current_manoeuvre != ID_manoeuvres.manoeuvre_off;
             torque_and_orbit_control grid_movement = _grid_movement;
             if (is_secondary)
@@ -2490,6 +2491,10 @@ namespace orbiter_SE
                 else
                     _target_velocity = Vector3.Zero;
             }
+
+            bool linear_dampers_on               = this.linear_dampers_on;
+            internal_suppress_stabilisation      = linear_controls_active || manoeuvre_active || linear_dampers_on || _air_density > 0.0f;
+            grid_movement.suppress_stabilisation = internal_suppress_stabilisation || external_suppress_stabilisation;
             grid_movement.refresh_orbit_plane(!_dry_run && !jump_drive_engaged && _circularise_on && linear_dampers_on && !linear_controls_active 
                 && current_manoeuvre != ID_manoeuvres.burn_normal && current_manoeuvre != ID_manoeuvres.burn_antinormal);
 
@@ -2514,7 +2519,7 @@ namespace orbiter_SE
             if (  autopilot_on || !_is_thrust_override_active && !_is_gyro_override_active 
                 && _manual_rotation.LengthSquared() < 0.0001f && _manual_thrust.LengthSquared() < 0.0001f && !manoeuvre_active
                 && (!rotational_damping_on || _world_angular_velocity.LengthSquared() < 0.0001f)
-                && (!linear_dampers_on && !secondary_ECU || _grid.Physics.Gravity.LengthSquared() < 0.01f && current_speed < 0.1f))
+                && (!linear_dampers_on && !is_secondary || _grid.Physics.Gravity.LengthSquared() < 0.01f && current_speed < 0.1f))
             {
                 handle_thrust_control(_world_linear_velocity, _target_velocity, _world_angular_velocity, sleep_mode_on: true);
                 //if (autopilot_on)
@@ -2549,9 +2554,6 @@ namespace orbiter_SE
         {
             if (!_grid_is_movable)
                 return;
-
-            internal_suppress_stabilisation = _linear_control.LengthSquared() >= 0.0001f || current_manoeuvre != ID_manoeuvres.manoeuvre_off || linear_dampers_on || _air_density > 0.0f;
-            _grid_movement.suppress_stabilisation = internal_suppress_stabilisation || external_suppress_stabilisation;
 
             if (screen_info.torque_disabled)
             {
