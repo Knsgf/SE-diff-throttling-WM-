@@ -1033,7 +1033,10 @@ namespace orbiter_SE
             }
             _current_torque = Vector3.Zero;
             if (GRAVITY_ON && _grid.Physics.LinearVelocity.LengthSquared() <= 0.01f && stock_gravity_force.LengthSquared() < 0.0001f)
-                _accumulated_gravity += gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND;
+            {
+                if (_accumulated_gravity.LengthSquared() < 1.0)
+                    _accumulated_gravity += gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND;
+            }
             else
                 _accumulated_gravity = Vector3D.Zero;
             _current_gravity_vector = gravity_vector;
