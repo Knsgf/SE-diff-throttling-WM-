@@ -205,6 +205,16 @@ namespace ttdtwm
             _grid_physics     = grid_movement;
         }
 
+        public void set_grid_CoM(Vector3D new_world_CoM)
+        {
+            _ECU.new_grid_CoM = Vector3D.Transform(new_world_CoM, _grid.PositionComp.WorldMatrixNormalizedInv);
+        }
+
+        public void set_average_connected_grid_mass(float average_mass)
+        {
+            _ECU.average_grid_mass = average_mass;
+        }
+
         #endregion
 
         #region event handlers

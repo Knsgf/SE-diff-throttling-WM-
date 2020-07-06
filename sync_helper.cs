@@ -26,6 +26,8 @@ namespace ttdtwm
 
         private static readonly Action<message_types, object, byte[], int>[] _message_handlers;
 
+        private static readonly double log2 = Math.Log(2.0);
+
         public static bool network_handlers_registered { get; private set; } = false;
         public static bool running_on_server           { get; private set; } = true;
 
@@ -100,6 +102,37 @@ namespace ttdtwm
             for (int cur_byte = end_offset; cur_byte >= message_offset; --cur_byte)
                 result = (result << 8) | message[cur_byte];
             return result;
+        }
+
+        #endregion
+
+        #region Floating-point number serialisers
+
+        public static void encode_double(double value, byte[] message, int message_offset)
+        {
+            if (value == 0.0)
+            {
+                encode_signed(0, 7, message, message_offset    );
+                encode_signed(0, 2, message, message_offset + 7);
+            }
+            else
+            {
+                int power2 = (int) (Math.Log(Math.Abs(value)) / log2);
+                double normalised_value = value / Math.Pow(2.0, power2);
+                encode_signed((long) (normalised_value * (1L << 54)), 7, message, message_offset);
+                encode_signed(power2, 2, message, message_offset + 7);
+            }
+        }
+
+        public static double decode_double(byte[] message, int message_offset)
+        {
+            long premultiplied_value = decode_signed(7, message, message_offset);
+            if (premultiplied_value == 0)
+                return 0.0;
+            
+            double normalised_value = ((double) premultiplied_value) / (1L << 54);
+            int power2 = (int) decode_signed(2, message, message_offset + 7);
+            return normalised_value * Math.Pow(2.0, power2);
         }
 
         #endregion

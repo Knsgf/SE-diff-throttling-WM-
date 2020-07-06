@@ -145,7 +145,7 @@ namespace ttdtwm
         private bool     _calibration_in_progress = false;
         private Vector3D _grid_CoM_location = Vector3D.Zero, _world_linear_velocity;
         private Vector3D _world_angular_velocity;
-        private float    _spherical_moment_of_inertia = 1.0f, _grid_mass = 1.0f, _total_mass = 1.0f;
+        private float    _spherical_moment_of_inertia = 1.0f, _grid_mass = 1.0f;
 
         private readonly  bool[]    _uncontrolled_override_checked = new bool[6];
         private readonly  bool[]    _is_solution_good = { false, false, false, false, false, false };
@@ -169,7 +169,7 @@ namespace ttdtwm
         private readonly  bool[] _enable_linear_integral = { true, true, true, true, true, true };
         private readonly float[] _linear_integral        = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
-        private float     _prev_air_density = float.MinValue, _counter_thrust_limit = 1.0f;
+        private float     _air_density = float.MinValue, _counter_thrust_limit = 1.0f;
         private Vector3   _manual_thrust, _thrust_override = Vector3.Zero, _linear_control = Vector3.Zero;
 
         private readonly Vector3[] _rotation_samples = new Vector3[NUM_ROTATION_SAMPLES];
@@ -188,6 +188,9 @@ namespace ttdtwm
         public bool use_individual_calibration { get; set; }
         public bool secondary_ECU              { get; set; }
 
+        public Vector3D new_grid_CoM      { get; set; }
+        public float    average_grid_mass { get; set; } = 1.0f;
+        
         public int  thrust_reduction      { get; private set; }
 
         public bool active_control_enabled
@@ -338,31 +341,6 @@ namespace ttdtwm
             }
         }
 
-        private Vector3D get_world_combined_CoM()
-        {
-            List<IMyCubeGrid>      grid_list     = MyAPIGateway.GridGroups.GetGroup(_grid, GridLinkTypeEnum.Physical);
-            Vector3D               static_moment = Vector3D.Zero;
-            float                  cur_mass;
-            MyPhysicsComponentBase grid_body;
-
-            _total_mass   = 0.0f;
-            _num_subgrids = grid_list.Count;
-            foreach (IMyCubeGrid cur_grid in grid_list)
-            {
-                grid_body      = cur_grid.Physics;
-                cur_mass       = grid_body.Mass;
-                static_moment += cur_mass * grid_body.CenterOfMassWorld;
-                _total_mass   += cur_mass;
-            }
-            if (_total_mass < 1.0f)
-            {
-                _total_mass   = _grid_mass;
-                _num_subgrids = 1;
-                return _grid.Physics.CenterOfMassWorld;
-            }
-            return static_moment / _total_mass;
-        }
-
         private void calculate_and_apply_torque()
         {
             //if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
@@ -504,8 +482,6 @@ namespace ttdtwm
                             log_ECU_action("set_up_thrust_limits", string.Format("{0}/{1} kN ({2})", items[index].result / 1000.0f, items[index].max_value / 1000.0f, cur_direction));
                     }
                 }
-                foreach (thruster_info cur_thruster_info in _controlled_thrusters[(int) cur_direction])
-                    cur_thruster_info.host_thruster.RefreshCustomInfo();
 
                 if (CALIBRATION_DEBUG)
                 {
@@ -646,7 +622,6 @@ namespace ttdtwm
                     {
                         cur_thruster_info.thrust_limit    = 1.0f;
                         cur_thruster_info.enable_rotation = true;
-                        cur_thruster_info.host_thruster.RefreshCustomInfo();
                     }
                 }
                 else
@@ -680,7 +655,6 @@ namespace ttdtwm
                         }
                         cur_thruster_info.thrust_limit    = control_sectors[cur_thruster_info.control_sector].result;
                         cur_thruster_info.enable_rotation = cur_thruster_info.steering_on;
-                        cur_thruster_info.host_thruster.RefreshCustomInfo();
                     }
                 }
                 _calibration_scheduled[(int) cur_direction] = false;
@@ -884,7 +858,7 @@ namespace ttdtwm
                         _trim_fadeout = vertical_speed / (-DESCENDING_SPEED * 0.5f);
                 }
                 Vector3 linear_damping    = local_linear_velocity_vector * DAMPING_CONSTANT - local_gravity_vector * _counter_thrust_limit;
-                float   average_grid_mass = _total_mass / _num_subgrids;
+                float   average_grid_mass = this.average_grid_mass;
                 linear_damping           *= (average_grid_mass >= _grid_mass) ? average_grid_mass : _grid_mass;
                 decompose_vector(               linear_damping,          __braking_vector);
                 decompose_vector(        -local_gravity_vector,         local_gravity_inv);
@@ -980,7 +954,7 @@ namespace ttdtwm
 
             if (__manual_control_vector[opposite_dir] < MIN_THROTTLE && total_force[dir_index] >= 1.0f)
             {
-                float braking_force = __braking_vector[dir_index], mass, average_grid_mass = _total_mass / _num_subgrids;
+                float braking_force = __braking_vector[dir_index], mass, average_grid_mass = this.average_grid_mass;
 
                 mass = (average_grid_mass >= _grid_mass) ? average_grid_mass : _grid_mass;
                 if (enable_linear_integral[dir_index])
@@ -1026,7 +1000,7 @@ namespace ttdtwm
                 return;
             }
 
-            float average_grid_mass = _total_mass / _num_subgrids;
+            float average_grid_mass = this.average_grid_mass;
 
             Vector3 angular_velocity_diff = desired_angular_velocity - _local_angular_velocity, total_static_moment = Vector3.Zero;
             float   max_linear_opposition, damping = DAMPING_CONSTANT * ((average_grid_mass >= _grid_mass) ? average_grid_mass : _grid_mass) / _actual_max_force[cur_dir],
@@ -1743,7 +1717,7 @@ namespace ttdtwm
 
             if (thrusters_moved)
             {
-                _prev_air_density = float.MinValue;
+                _air_density = float.MinValue;
                 if (_current_mode_is_CoT)
                     update_reference_vectors_for_CoT_mode();
                 else
@@ -1796,10 +1770,7 @@ namespace ttdtwm
         private void reset_overrides()
         {
             foreach (thruster_info cur_thruster_info in _thrusters_reset_override)
-            {
                 cur_thruster_info.host_thruster.ThrustOverride = 0.0f;
-                cur_thruster_info.host_thruster.RefreshCustomInfo();
-            }
             _thrusters_reset_override.Clear();
         }
 
@@ -1870,10 +1841,10 @@ namespace ttdtwm
         {
             BoundingBoxD grid_bounding_box = _grid.PositionComp.WorldAABB;
             MyPlanet     closest_planetoid = MyGamePruningStructure.GetClosestPlanet(ref grid_bounding_box);
-            float        air_density       = (closest_planetoid == null) ? 0.0f : closest_planetoid.GetAirDensity(grid_bounding_box.Center);
+            float        new_air_density   = (closest_planetoid == null) ? 0.0f : closest_planetoid.GetAirDensity(grid_bounding_box.Center);
 
-            float prev_air_density = _prev_air_density;
-            if (Math.Abs(air_density - prev_air_density) < 0.005f)
+            float prev_air_density = _air_density;
+            if (Math.Abs(new_air_density - prev_air_density) < 0.005f && (new_air_density == 0.0) == (prev_air_density == 0.0))
                 return;
             
             bool[]  calibration_scheduled = _calibration_scheduled;
@@ -1898,7 +1869,7 @@ namespace ttdtwm
                 _actual_max_force[(int) thrust_dir.ventral  ] / 1000.0f));
             */
 
-            _prev_air_density = air_density;
+            _air_density = new_air_density;
             if (_current_mode_is_CoT)
                 update_reference_vectors_for_CoT_mode();
         }
@@ -1937,7 +1908,7 @@ namespace ttdtwm
                 _uncontrolled_thrusters.Add(new_thruster);
                 _all_thrusters.Add(thruster.EntityId, new_thruster);
                 thruster.IsWorkingChanged += check_thruster_status;
-                _prev_air_density = float.MinValue;
+                _air_density = float.MinValue;
             }
             thruster_and_grid_tagger.attach_ECU(thruster, this);
         }
@@ -2341,7 +2312,7 @@ namespace ttdtwm
         {
             const float SENSITIVITY_MULT = 0.5f;
             Vector3 ship_size         = (_grid.Max - _grid.Min) * _grid.GridSize;
-            float   average_grid_mass = _total_mass / _num_subgrids;
+            float   average_grid_mass = this.average_grid_mass;
 
             if (average_grid_mass > _grid_mass)
                 ship_size *= average_grid_mass / _grid_mass;
@@ -2392,7 +2363,7 @@ namespace ttdtwm
                 refresh_gyro_info();
             else
             {
-                Vector3D current_grid_CoM = Vector3D.Transform(get_world_combined_CoM(), _grid.PositionComp.WorldMatrixNormalizedInv);
+                Vector3D current_grid_CoM = new_grid_CoM;
                 bool     CoM_shifted      = (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
 
                 if (CoM_shifted)
@@ -2405,7 +2376,7 @@ namespace ttdtwm
             if (  autopilot_on || !_is_thrust_override_active && !_is_gyro_override_active 
                 && _manual_rotation.LengthSquared() < 0.0001f && _manual_thrust.LengthSquared() < 0.0001f
                 && (!rotational_damping_on || _world_angular_velocity.LengthSquared() < 0.0001f)
-                && (!linear_dampers_on && !secondary_ECU || _grid.Physics.Gravity.LengthSquared() < 0.01f && current_speed < 0.1f))
+                && (!linear_dampers_on && !is_secondary || _grid.Physics.Gravity.LengthSquared() < 0.01f && current_speed < 0.1f))
             {
                 handle_thrust_control(_world_linear_velocity, _target_velocity, _world_angular_velocity, sleep_mode_on: true);
                 //if (autopilot_on)
@@ -2422,16 +2393,14 @@ namespace ttdtwm
         {
             if (!_grid_is_movable)
                 reset_ECU();
-            else
+
+            reset_overrides();
+            Vector3D current_grid_CoM = new_grid_CoM;
+            lock (_all_thrusters)
             {
-                reset_overrides();
-                Vector3D current_grid_CoM = Vector3D.Transform(get_world_combined_CoM(), _grid.PositionComp.WorldMatrixNormalizedInv);
-                lock (_all_thrusters)
-                {
-                    _CoM_shifted |= (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
-                    if (_CoM_shifted)
-                        _grid_CoM_location = current_grid_CoM;
-                }
+                _CoM_shifted |= (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
+                if (_CoM_shifted)
+                    _grid_CoM_location = current_grid_CoM;
             }
         }
 

@@ -100,7 +100,10 @@ namespace ttdtwm
                 if (recipient != null)
                 {
                     message = display_time_ms.ToString() + " " + message_id + " " + message;
-                    sync_helper.send_message_to(recipient.SteamUserId, sync_helper.message_types.REMOTE_SCREEN_TEXT, null, Encoding.UTF8.GetBytes(message), Encoding.UTF8.GetByteCount(message));
+                    if (local_player == recipient)
+                        show_remote_text(sync_helper.message_types.REMOTE_SCREEN_TEXT, null, Encoding.UTF8.GetBytes(message), Encoding.UTF8.GetByteCount(message));
+                    else
+                        sync_helper.send_message_to(recipient.SteamUserId, sync_helper.message_types.REMOTE_SCREEN_TEXT, null, Encoding.UTF8.GetBytes(message), Encoding.UTF8.GetByteCount(message));
                 }
             }
         }
