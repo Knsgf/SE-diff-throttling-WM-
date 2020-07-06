@@ -511,8 +511,6 @@ namespace orbiter_SE
                             log_ECU_action("set_up_thrust_limits", string.Format("{0}/{1} kN ({2})", items[index].result / 1000.0f, items[index].max_value / 1000.0f, cur_direction));
                     }
                 }
-                foreach (thruster_info cur_thruster_info in _controlled_thrusters[(int) cur_direction])
-                    cur_thruster_info.host_thruster.RefreshCustomInfo();
 
                 if (CALIBRATION_DEBUG)
                 {
@@ -653,7 +651,6 @@ namespace orbiter_SE
                     {
                         cur_thruster_info.thrust_limit    = 1.0f;
                         cur_thruster_info.enable_rotation = true;
-                        cur_thruster_info.host_thruster.RefreshCustomInfo();
                     }
                 }
                 else
@@ -687,7 +684,6 @@ namespace orbiter_SE
                         }
                         cur_thruster_info.thrust_limit    = control_sectors[cur_thruster_info.control_sector].result;
                         cur_thruster_info.enable_rotation = cur_thruster_info.steering_on;
-                        cur_thruster_info.host_thruster.RefreshCustomInfo();
                     }
                 }
                 _calibration_scheduled[(int) cur_direction] = false;
@@ -1884,10 +1880,7 @@ namespace orbiter_SE
         private void reset_overrides()
         {
             foreach (thruster_info cur_thruster_info in _thrusters_reset_override)
-            {
                 cur_thruster_info.host_thruster.ThrustOverride = 0.0f;
-                cur_thruster_info.host_thruster.RefreshCustomInfo();
-            }
             _thrusters_reset_override.Clear();
         }
 

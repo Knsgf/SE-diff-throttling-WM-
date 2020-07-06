@@ -150,6 +150,7 @@ namespace orbiter_SE
 
             _current_thruster          = thruster;
             _current_thruster_settings = _thruster_settings[thruster];
+            thruster.RefreshCustomInfo();
             if (!use_remote_switches)
                 _thruster_switches = parse_number(_current_thruster_settings, THRUSTER_MODE_FIELD_START, THRUSTER_MODE_FIELD_END);
             else
@@ -324,9 +325,6 @@ namespace orbiter_SE
 
         public static void show_thrust_limit(IMyTerminalBlock thruster, StringBuilder info_text)
         {
-            if (_current_thruster != thruster)
-                return;
-
             int displayed_thrust_limit = (int) get_thrust_limit(thruster);
             if (displayed_thrust_limit >= -1)
             {
@@ -358,21 +356,12 @@ namespace orbiter_SE
             if (!is_active_control_available(thruster))
                 return;
             
-            if (new_state_on)
-            {
-                thruster.CustomData        = _current_anti_slip_on ? thruster.CustomData.RemoveRCSTag().AddTHRTag() : thruster.CustomData.RemoveTHRTag().AddRCSTag();
-                _current_active_control_on = true;
-            }
-            else
-            {
-                thruster.CustomData        = thruster.CustomData.RemoveTHRTag().RemoveRCSTag();
-                _current_active_control_on = false;
-            }
-
             _thruster_hosts[thruster].set_thruster_steering(thruster.EntityId, new_state_on);
             set_switch(thruster, _current_thruster_settings, ref _thruster_switches, sync_helper.message_types.THRUSTER_MODES, STEERING, new_state_on, 
                 THRUSTER_MODE_FIELD_START, THRUSTER_MODE_FIELD_END);
             _current_active_control_on = new_state_on;
+            if (new_state_on && is_thrust_limiter_on(thruster))
+                set_anti_slip(thruster, true);
         }
 
         public static bool is_anti_slip_available(IMyTerminalBlock thruster)
@@ -393,19 +382,8 @@ namespace orbiter_SE
             if (!is_active_control_available(thruster))
                 return;
 
-            if (is_under_active_control(thruster) && !is_thrust_limiter_on(thruster))
+            if (is_under_active_control(thruster) && (new_state_on || !is_thrust_limiter_on(thruster)))
             {
-                if (!new_state_on)
-                {
-                    thruster.CustomData   = thruster.CustomData.RemoveTHRTag().AddRCSTag();
-                    _current_anti_slip_on = false;
-                }
-                else
-                {
-                    thruster.CustomData   = thruster.CustomData.RemoveRCSTag().AddTHRTag();
-                    _current_anti_slip_on = true;
-                }
-
                 _thruster_hosts[thruster].set_thruster_trim(thruster.EntityId, new_state_on);
                 set_switch(thruster, _current_thruster_settings, ref _thruster_switches, sync_helper.message_types.THRUSTER_MODES, THRUST_TRIM, new_state_on,
                     THRUSTER_MODE_FIELD_START, THRUSTER_MODE_FIELD_END);
@@ -424,9 +402,6 @@ namespace orbiter_SE
             update_thruster_flags(thruster);
             if (!is_active_control_available(thruster))
                 return;
-
-            thruster.CustomData = new_state_on ? thruster.CustomData.AddNLTag() : thruster.CustomData.RemoveNLTag();
-            _current_disable_linear = new_state_on;
 
             _thruster_hosts[thruster].set_thruster_linear_input(thruster.EntityId, new_state_on);
             set_switch(thruster, _current_thruster_settings, ref _thruster_switches, sync_helper.message_types.THRUSTER_MODES, LINEAR_OFF, new_state_on, 
@@ -451,17 +426,6 @@ namespace orbiter_SE
             update_thruster_flags(thruster);
             if (!is_active_control_available(thruster))
                 return;
-
-            if (!new_state_on)
-            {
-                thruster.CustomData        = thruster.CustomData.RemoveSTATTag();
-                _current_thrust_limiter_on = false;
-            }
-            else if (is_thrust_limiter_available(thruster))
-            {
-                thruster.CustomData        = thruster.CustomData.AddSTATTag();
-                _current_thrust_limiter_on = true;
-            }
 
             new_state_on &= is_thrust_limiter_available(thruster);
             _thruster_hosts[thruster].set_thruster_limiter(thruster.EntityId, new_state_on);
