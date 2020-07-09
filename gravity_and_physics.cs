@@ -38,7 +38,9 @@ namespace orbiter_SE
         public Vector3D ascending_node_vector     => _AN_vector;
         public Vector3D eccentricity_vector       => _eccentricity_vector;
 
-        public Vector3D local_gravity { get; private set; }
+        public Vector3D local_gravity   { get; private set; }
+        public Vector3D radius_vector   { get; private set; }
+        public Vector3D linear_velocity { get; private set; }
 
         // Size and shape elements
         public double reference_radius { get; private set; }
@@ -81,13 +83,15 @@ namespace orbiter_SE
 
         public void calculate_primary_elements(double SGP, Vector3D radius_vector, Vector3D linear_velocity, Vector3D local_gravity, string body_name, double body_radius, bool minor_body)
         {
-            const double EPSILON = 1.0E-4;
+            const double EPSILON = 1.0E-4, MAX_SEMI_MAJOR_AXIS = double.MaxValue / 1024.0;
             
-            _current_SGP       = SGP;
-            name               = body_name;
-            foreign_reference  = minor_body;
-            this.local_gravity = local_gravity;
-            reference_radius   = body_radius;
+            _current_SGP         = SGP;
+            name                 = body_name;
+            foreign_reference    = minor_body;
+            this.local_gravity   = local_gravity;
+            this.radius_vector   = radius_vector;
+            this.linear_velocity = linear_velocity;
+            reference_radius     = body_radius;
 
             Vector3D specific_angular_momentum;
             specific_angular_momentum = _specific_angular_momentum = Vector3D.Cross(radius_vector, linear_velocity);
@@ -111,12 +115,16 @@ namespace orbiter_SE
             else
                 eccentricity_vector = 0.99 * eccentricity_vector + 0.01 * new_eccentricity_vector;
 
-            semi_major_axis     = SGP / ((escape_speed - speed) * (escape_speed + speed));
+            double divider = (escape_speed - speed) * (escape_speed + speed);
+            if (divider >= 0.0)
+                semi_major_axis = (MAX_SEMI_MAJOR_AXIS * divider <= SGP) ? MAX_SEMI_MAJOR_AXIS : (SGP / divider);
+            else
+                semi_major_axis = (-MAX_SEMI_MAJOR_AXIS * divider <= SGP) ? (-MAX_SEMI_MAJOR_AXIS) : (SGP / divider);
             double eccentricity = eccentricity_vector.Length();
             if (semi_major_axis >= 0.0)
             {
-                if (eccentricity >= 0.9999)
-                    eccentricity = 0.9999;
+                if (eccentricity >= 1.0)
+                    eccentricity = 1.0;
             }
             else if (eccentricity <= 1.0001)
                 eccentricity = 1.0001;
@@ -172,9 +180,17 @@ namespace orbiter_SE
             double divider      = 1.0 + eccentricity * Math.Cos(true_anomaly);
 
             double predicted_distance;
-            predicted_distance = this.predicted_distance = semi_latus_rectum / divider;
-            predicted_speed    = Math.Sqrt(_current_SGP * (2.0 / predicted_distance - 1.0 / semi_major_axis));
-            angle_of_velocity  = Math.Atan(eccentricity * Math.Sin(true_anomaly) / divider);
+            if (divider == 0.0)
+            {
+                predicted_distance = this.predicted_distance = apoapsis_radius;
+                angle_of_velocity  = 0.0;
+            }
+            else
+            {
+                predicted_distance = this.predicted_distance = semi_latus_rectum / divider;
+                angle_of_velocity  = Math.Atan(eccentricity * Math.Sin(true_anomaly) / divider);
+            }
+            predicted_speed = Math.Sqrt(_current_SGP * (2.0 / predicted_distance - 1.0 / semi_major_axis));
 
             mean_anomaly        = convert_true_anomaly_to_mean(eccentricity, true_anomaly);
             time_from_periapsis = mean_anomaly * mean_motion;
@@ -546,7 +562,8 @@ namespace orbiter_SE
                 elements_to_clear = new orbit_elements();
         }
 
-        private void calculate_elements(gravity_source selected_reference, ref orbit_elements new_elements, bool primary_only)
+        private void calculate_elements(gravity_source selected_reference, ref orbit_elements new_elements, bool primary_only, 
+            Vector3D? custom_radius = null, Vector3D? custom_velocity = null)
         {
             if (selected_reference == null)
             {
@@ -557,10 +574,11 @@ namespace orbiter_SE
                 }
                 selected_reference = _current_reference;
             }
-            Vector3D grid_vector   = _grid_position - selected_reference.centre_position;
+            Vector3D grid_vector   = custom_radius ?? (_grid_position - selected_reference.centre_position);
             double   SGP           = GRAVITY_ON ? selected_reference.standard_gravitational_parameter : (_grid.Physics.Gravity.Length() * grid_vector.LengthSquared());
             Vector3D local_gravity = calculate_gravity_vector(selected_reference, _grid_position);
-            new_elements.calculate_primary_elements(SGP, grid_vector, _absolute_linear_velocity, local_gravity, selected_reference.name, selected_reference.radius, selected_reference != _current_reference);
+            new_elements.calculate_primary_elements(SGP, grid_vector, custom_velocity ?? _absolute_linear_velocity, 
+                local_gravity, selected_reference.name, selected_reference.radius, selected_reference != _current_reference);
 
             if (!primary_only)
             {
@@ -646,6 +664,32 @@ namespace orbiter_SE
             return true;
         }
 
+        public static bool calculate_elements_for_PB_from_vectors(IMyTerminalBlock PB, string reference_name, Vector3D radius, Vector3D velocity)
+        {
+            if (!world_has_gravity)
+                return false;
+
+            gravity_and_physics instance = _grid_list[PB.CubeGrid];
+
+            gravity_source selected_reference;
+            if (reference_name == null)
+            {
+                if (instance._current_reference == null)
+                    return false;
+                selected_reference = instance._current_reference;
+            }
+            else if (!_gravity_source_names.TryGetValue(reference_name, out selected_reference))
+                return false;
+
+            orbit_elements PB_elements;
+            if (!_PB_elements.TryGetValue(PB, out PB_elements))
+                PB_elements = new orbit_elements();
+
+            instance.calculate_elements(selected_reference, ref PB_elements, primary_only: true, custom_radius: radius, custom_velocity: velocity);
+            _PB_elements[PB] = PB_elements;
+            return true;
+        }
+
         public static string retrieve_reference_name(IMyTerminalBlock PB)
         {
             orbit_elements PB_elements;
@@ -664,6 +708,8 @@ namespace orbiter_SE
             output["ANV"] = PB_elements.ascending_node_vector;
             output["EcV"] = PB_elements.eccentricity_vector;
             output["LGV"] = PB_elements.local_gravity;
+            output["Rad"] = PB_elements.radius_vector;
+            output["Vel"] = PB_elements.linear_velocity;
         }
 
         public static void retrieve_primary_scalars(IMyTerminalBlock PB, Dictionary<string, double> output)
