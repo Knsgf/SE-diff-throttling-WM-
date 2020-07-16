@@ -223,46 +223,51 @@ namespace orbiter_SE
                 orbit_elements elements = element_getter();
 
                 _orbital_elements_text.Clear();
-                _orbital_elements_text.AppendFormat("Ref: {0}; R = {1:F1} km", elements.name, elements.predicted_distance / 1000.0);
-                if (_display_local_gravity)
+                if (elements == null)
+                    _orbital_elements_text.Append("Orbit information unavaiable");
+                else
                 {
-                    _orbital_elements_text.AppendFormat("\n(1) g = {0:F2} m/s^2; v1 = {1:F0} m/s; v2 = {2:F0} m/s",
-                        elements.local_gravity.Length(), elements.circular_speed, elements.escape_speed);
-                }
-                if (_display_apside_info)
-                {
-                    char  approaching_apside_name;
-                    float time_to_apside;
+                    _orbital_elements_text.AppendFormat("Ref: {0}; R = {1:F1} km", elements.name, elements.predicted_distance / 1000.0);
+                    if (_display_local_gravity)
+                    {
+                        _orbital_elements_text.AppendFormat("\n(1) g = {0:F2} m/s^2; v1 = {1:F0} m/s; v2 = {2:F0} m/s",
+                            elements.local_gravity.Length(), elements.circular_speed, elements.escape_speed);
+                    }
+                    if (_display_apside_info)
+                    {
+                        char  approaching_apside_name;
+                        float time_to_apside;
 
-                    if (elements.eccentricity > 1.0)
-                    {
-                        approaching_apside_name = 'P';
-                        time_to_apside          = (float) (-elements.time_from_periapsis);
-                    }
-                    else if (elements.time_from_periapsis > elements.orbit_period / 2.0)
-                    {
-                        approaching_apside_name = 'P';
-                        time_to_apside          = (float) (elements.orbit_period - elements.time_from_periapsis);
-                    }
-                    else
-                    {
-                        approaching_apside_name = 'A';
-                        time_to_apside          = (float) (elements.orbit_period / 2.0 - elements.time_from_periapsis);
-                    }
+                        if (elements.eccentricity > 1.0)
+                        {
+                            approaching_apside_name = 'P';
+                            time_to_apside          = (float) (-elements.time_from_periapsis);
+                        }
+                        else if (elements.time_from_periapsis > elements.orbit_period / 2.0)
+                        {
+                            approaching_apside_name = 'P';
+                            time_to_apside          = (float) (elements.orbit_period - elements.time_from_periapsis);
+                        }
+                        else
+                        {
+                            approaching_apside_name = 'A';
+                            time_to_apside          = (float) (elements.orbit_period / 2.0 - elements.time_from_periapsis);
+                        }
 
-                    _orbital_elements_text.AppendFormat("\n(2) PR = {0:F1} km; AR = {1:F1} km; Tt{2} = {3:F0} s",
-                        elements.periapsis_radius / 1000.0, elements.apoapsis_radius / 1000.0, approaching_apside_name, time_to_apside);
-                }
-                if (_display_orbit_energy)
-                {
-                    _orbital_elements_text.AppendFormat("\n(3) SMA = {0:F1} km; e = {1:F3}; T = {2:F0} s",
-                        elements.semi_major_axis / 1000.0, elements.eccentricity, elements.orbit_period);
-                }
-                if (_display_inclination)
-                {
-                    _orbital_elements_text.AppendFormat("\n(4) i = {0:F0} deg; LAN = {1:F0} deg; TL = {2:F0} deg",
-                        elements.inclination * 180.0 / Math.PI, elements.longitude_of_ascending_node * 180.0 / Math.PI,
-                        ((elements.longitude_of_ascending_node + elements.argument_of_periapsis + elements.true_anomaly) * 180.0 / Math.PI) % 360);
+                        _orbital_elements_text.AppendFormat("\n(2) PR = {0:F1} km; AR = {1:F1} km; Tt{2} = {3:F0} s",
+                            elements.periapsis_radius / 1000.0, elements.apoapsis_radius / 1000.0, approaching_apside_name, time_to_apside);
+                    }
+                    if (_display_orbit_energy)
+                    {
+                        _orbital_elements_text.AppendFormat("\n(3) SMA = {0:F1} km; e = {1:F3}; T = {2:F0} s",
+                            elements.semi_major_axis / 1000.0, elements.eccentricity, elements.orbit_period);
+                    }
+                    if (_display_inclination)
+                    {
+                        _orbital_elements_text.AppendFormat("\n(4) i = {0:F0} deg; LAN = {1:F0} deg; TL = {2:F0} deg",
+                            elements.inclination * 180.0 / Math.PI, elements.longitude_of_ascending_node * 180.0 / Math.PI,
+                            ((elements.longitude_of_ascending_node + elements.argument_of_periapsis + elements.true_anomaly) * 180.0 / Math.PI) % 360);
+                    }
                 }
 
                 _HUD_messages[ORBITAL_ELEMENTS].contents.Text = _orbital_elements_text.ToString();
@@ -282,7 +287,12 @@ namespace orbiter_SE
             {
                 orbit_plane_intersection target_plane = plane_getter();
 
-                if (target_plane.target_normal.LengthSquared() < 0.25)
+                if (target_plane == null)
+                {
+                    _HUD_messages[PLANE_ALIGNMENT].contents.Text = "Orbit information unavailable";
+                    _HUD_messages[PLANE_ALIGNMENT].contents.Font = MyFontEnum.White;
+                }
+                else if (target_plane.target_normal.LengthSquared() < 0.25)
                 {
                     _HUD_messages[PLANE_ALIGNMENT].contents.Text = "Target plane not set";
                     _HUD_messages[PLANE_ALIGNMENT].contents.Font = MyFontEnum.Red;

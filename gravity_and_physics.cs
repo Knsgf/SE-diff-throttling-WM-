@@ -368,7 +368,7 @@ namespace orbiter_SE
         private static readonly Dictionary<IMyTerminalBlock, orbit_elements> _PB_elements = new Dictionary<IMyTerminalBlock, orbit_elements>();
 
         private readonly MyCubeGrid _grid;
-        private gravity_source _current_reference, _display_reference = null;
+        private gravity_source _current_reference = null, _display_reference = null;
 
         private Vector3D _grid_position, _absolute_linear_velocity, _absolute_angular_velocity;
         private Vector3D  _current_gravity_vector = Vector3D.Zero, _accumulated_gravity = Vector3D.Zero;
@@ -383,7 +383,7 @@ namespace orbiter_SE
         private static readonly Dictionary<IMyCharacter, gravity_source> _PC_current_source = new Dictionary<IMyCharacter, gravity_source>();
         private static readonly Dictionary<IMyCharacter, gravity_source> _PC_new_source     = new Dictionary<IMyCharacter, gravity_source>();
 
-        double _reference_energy = 0.0;
+        double _reference_energy = 0.0, _grid_mass = 1.0;
         bool   _energy_changed   = false, _suppress_stabilisation = true, _energy_received = false;
 
         private static byte[] _message = new byte[9];
@@ -412,6 +412,8 @@ namespace orbiter_SE
 
         public orbit_elements current_elements_reader()
         {
+            if (_current_reference == null)
+                return null;
             if (_displayed_elements == null)
                 _displayed_elements = new orbit_elements();
             calculate_elements(_display_reference, ref _displayed_elements, primary_only: false);
@@ -420,6 +422,8 @@ namespace orbiter_SE
 
         public orbit_plane_intersection plane_alignment_reader()
         {
+            if (_current_reference == null)
+                return null;
             calculate_elements(_current_reference, ref _current_elements, primary_only: false);
             calculate_plane_intersection();
             return _alignment_info;
@@ -805,7 +809,7 @@ namespace orbiter_SE
         public static void list_current_elements(IMyTerminalBlock controller, StringBuilder info_text)
         {
             gravity_and_physics instance;
-            if (!_grid_list.TryGetValue(controller.CubeGrid, out instance))
+            if (!_grid_list.TryGetValue(controller.CubeGrid, out instance) || instance._current_reference == null)
                 return;
 
             instance.calculate_elements(instance._current_reference, ref instance._current_elements, primary_only: false);
@@ -1025,8 +1029,8 @@ namespace orbiter_SE
             {
                 if (sync_helper.running_on_server)
                 {
+                    _energy_changed  |= _reference_energy != 0.0;
                     _reference_energy = 0.0;
-                    _energy_changed   = true;
                 }
             }
             else
@@ -1071,7 +1075,8 @@ namespace orbiter_SE
             double  gravity_magnitude   = gravity_vector.Length(), stock_gravity_magnitude = stock_gravity_force.Length();
             if (gravity_magnitude < stock_gravity_magnitude)
                 gravity_vector *= stock_gravity_magnitude / gravity_magnitude;
-            Vector3D gravity_correction_force = _grid.Physics.Mass * (gravity_vector - stock_gravity_force) + _accumulated_gravity;
+            double grid_mass = _grid_mass;
+            Vector3D gravity_correction_force = grid_mass * (gravity_vector - stock_gravity_force) + _accumulated_gravity;
             if (gravity_correction_force.LengthSquared() >= 1.0 || _current_torque.LengthSquared() >= 1.0f)
             {
                 Vector3 gravity_correction_impulse = GRAVITY_ON ? ((Vector3) (gravity_correction_force * step)) : Vector3.Zero;
@@ -1080,7 +1085,7 @@ namespace orbiter_SE
             _current_torque = Vector3.Zero;
             if (GRAVITY_ON && _grid.Physics.LinearVelocity.LengthSquared() <= 0.01f && stock_gravity_force.LengthSquared() < 0.0001f)
             {
-                if (_accumulated_gravity.LengthSquared() < 1.0)
+                if (_accumulated_gravity.LengthSquared() < grid_mass * grid_mass)
                     _accumulated_gravity += gravity_correction_force / MyEngineConstants.UPDATE_STEPS_PER_SECOND;
             }
             else
@@ -1090,14 +1095,23 @@ namespace orbiter_SE
 
         public void update_current_reference()
         {
-            gravity_source prev_reference = _current_reference;
+            MyCubeGrid grid = _grid;
+            if (grid.IsStatic || grid.Physics == null || !grid.Physics.Enabled)
+            {
+                _current_reference = null;
+                _energy_changed   |= _reference_energy != 0.0;
+                _reference_energy  = 0.0;
+                return;
+            }
 
-            _current_reference = get_reference_body(_grid_position);
+            gravity_source prev_reference = _current_reference;
+            _grid_mass                    = grid.Physics.Mass;
+            _current_reference            = get_reference_body(_grid_position);
             if (_current_reference != null)
             {
                 if (sync_helper.running_on_server && _current_reference != prev_reference)
                 {
-                    _reference_energy = _grid.Physics.LinearVelocity.LengthSquared() / 2.0
+                    _reference_energy = grid.Physics.LinearVelocity.LengthSquared() / 2.0
                         - _current_reference.standard_gravitational_parameter / (_grid_position - _current_reference.centre_position).Length();
                     _energy_changed = true;
                 }
