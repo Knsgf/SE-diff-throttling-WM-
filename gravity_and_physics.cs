@@ -17,9 +17,9 @@ namespace orbiter_SE
     {
         private static readonly double sqrt2 = Math.Sqrt(2.0);
         
-        private double _current_SGP;
-
+        private double   _current_SGP, _last_true_anomaly = double.MaxValue;
         private Vector3D _specific_angular_momentum, _AN_vector = Vector3D.Zero, _eccentricity_vector, _anomaly90;
+        private bool     _primary_elements_computed = false, _derived_elements_computed = false;
 
         private static double acosh(double x)
         {
@@ -160,43 +160,79 @@ namespace orbiter_SE
             _eccentricity_vector = eccentricity * Vector3D.Normalize(Vector3D.Cross(_anomaly90, specific_angular_momentum));
 
             true_anomaly = get_true_anomaly(radius_vector);
+
+            _primary_elements_computed = true;
+            _derived_elements_computed = false;
+            _last_true_anomaly         = double.MaxValue;
         }
 
         public void calculate_derived_elements()
         {
-            double semi_major_axis = this.semi_major_axis, eccentricity = this.eccentricity;
-            
-            periapsis_radius  = semi_major_axis  * (1.0 - eccentricity);
-            apoapsis_radius   = semi_major_axis  * (1.0 + eccentricity);
-            semi_latus_rectum = periapsis_radius * (1.0 + eccentricity);
-            mean_motion       = Math.Sqrt(Math.Abs(semi_major_axis * semi_major_axis * semi_major_axis / _current_SGP));
-            orbit_period      = (semi_major_axis > 0.0) ? (2.0 * Math.PI * mean_motion) : -1.0;
+            if (!_derived_elements_computed && _primary_elements_computed)
+            {
+                double semi_major_axis = this.semi_major_axis, eccentricity = this.eccentricity;
+
+                periapsis_radius  = semi_major_axis  * (1.0 - eccentricity);
+                apoapsis_radius   = semi_major_axis  * (1.0 + eccentricity);
+                semi_latus_rectum = periapsis_radius * (1.0 + eccentricity);
+                mean_motion       = Math.Sqrt(Math.Abs(semi_major_axis * semi_major_axis * semi_major_axis / _current_SGP));
+                orbit_period      = (semi_major_axis > 0.0) ? (2.0 * Math.PI * mean_motion) : -1.0;
+                _derived_elements_computed = true;
+            }
         }
 
         public void calculate_positional_elements(double? specified_true_anomaly = null)
         {
+            if (!_primary_elements_computed)
+                return;
+            if (!_derived_elements_computed)
+                calculate_derived_elements();
+
             double true_anomaly = specified_true_anomaly ?? this.true_anomaly;
-            double eccentricity = this.eccentricity;
-            double divider      = 1.0 + eccentricity * Math.Cos(true_anomaly);
-
-            double predicted_distance;
-            if (divider == 0.0)
+            if (true_anomaly != _last_true_anomaly)
             {
-                predicted_distance = this.predicted_distance = apoapsis_radius;
-                angle_of_velocity  = 0.0;
-            }
-            else
-            {
-                predicted_distance = this.predicted_distance = semi_latus_rectum / divider;
-                angle_of_velocity  = Math.Atan(eccentricity * Math.Sin(true_anomaly) / divider);
-            }
-            predicted_speed = Math.Sqrt(_current_SGP * (2.0 / predicted_distance - 1.0 / semi_major_axis));
+                double eccentricity = this.eccentricity;
+                double divider      = 1.0 + eccentricity * Math.Cos(true_anomaly);
 
-            mean_anomaly        = convert_true_anomaly_to_mean(eccentricity, true_anomaly);
-            time_from_periapsis = mean_anomaly * mean_motion;
+                double predicted_distance;
+                if (divider == 0.0)
+                {
+                    predicted_distance = this.predicted_distance = apoapsis_radius;
+                    angle_of_velocity  = 0.0;
+                }
+                else
+                {
+                    predicted_distance = this.predicted_distance = semi_latus_rectum / divider;
+                    angle_of_velocity  = Math.Atan(eccentricity * Math.Sin(true_anomaly) / divider);
+                }
+                predicted_speed = Math.Sqrt(_current_SGP * (2.0 / predicted_distance - 1.0 / semi_major_axis));
 
-            circular_speed = Math.Sqrt(_current_SGP / predicted_distance);
-            escape_speed   = circular_speed * sqrt2;
+                mean_anomaly        = convert_true_anomaly_to_mean(eccentricity, true_anomaly);
+                time_from_periapsis = mean_anomaly * mean_motion;
+
+                circular_speed = Math.Sqrt(_current_SGP / predicted_distance);
+                escape_speed   = circular_speed * sqrt2;
+
+                _last_true_anomaly = true_anomaly;
+            }
+        }
+
+        public void calculate_state_vectors(double true_anomaly)
+        {
+            if (!_primary_elements_computed)
+                return;
+            if (true_anomaly != _last_true_anomaly)
+                calculate_positional_elements(true_anomaly);
+
+            Vector3D periapsis_direction = (eccentricity > 0.0) ? Vector3D.Normalize(eccentricity_vector) : Vector3D.Right;
+            Vector3D orbit_normal = !Vector3D.IsZero(specific_angular_momentum) ? Vector3D.Normalize(specific_angular_momentum) : Vector3D.Up;
+            
+            Quaternion radius_rotation = Quaternion.CreateFromAxisAngle(orbit_normal, (float) true_anomaly);
+            radius_vector              = predicted_distance * Vector3D.Transform(periapsis_direction, radius_rotation);
+            
+            float total_velocity_angle   = (float) (true_anomaly + Math.PI / 2.0 - angle_of_velocity);
+            Quaternion velocity_rotation = Quaternion.CreateFromAxisAngle(orbit_normal, total_velocity_angle);
+            linear_velocity              = predicted_speed * Vector3D.Transform(periapsis_direction, velocity_rotation);
         }
 
         public static double convert_true_anomaly_to_mean(double eccentricity, double true_anomaly)
@@ -670,7 +706,7 @@ namespace orbiter_SE
 
         public static bool calculate_elements_for_PB_from_vectors(IMyTerminalBlock PB, string reference_name, Vector3D radius, Vector3D velocity)
         {
-            if (!world_has_gravity)
+            if (!world_has_gravity || Vector3D.IsZero(radius))
                 return false;
 
             gravity_and_physics instance = _grid_list[PB.CubeGrid];
@@ -761,6 +797,17 @@ namespace orbiter_SE
             output["Vel"] = PB_elements.predicted_speed;
             output["AoV"] = PB_elements.angle_of_velocity;
             output["Rad"] = PB_elements.predicted_distance;
+        }
+
+        public static void retrieve_positional_vectors(IMyTerminalBlock PB, double true_anomaly, Dictionary<string, Vector3D> output)
+        {
+            orbit_elements PB_elements;
+            if (output == null || !_PB_elements.TryGetValue(PB, out PB_elements))
+                return;
+
+            PB_elements.calculate_state_vectors(floor_mod(true_anomaly, 2.0 * Math.PI));
+            output["Rad"] = PB_elements.radius_vector;
+            output["Vel"] = PB_elements.linear_velocity;
         }
 
         public static double convert_true_anomaly_to_mean(double eccentricity, double true_anomaly)
