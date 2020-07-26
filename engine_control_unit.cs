@@ -2330,13 +2330,12 @@ namespace orbiter_SE
 
         public void translate_player_input(Vector3 input_thrust, Vector3 input_rotation, VRage.Game.ModAPI.Interfaces.IMyControllableEntity current_controller)
         {
-            _match_velocity_with = ((Sandbox.Game.Entities.IMyControllableEntity) current_controller).RelativeDampeningEntity;
-
             if (secondary_ECU)
                 return;
             var controller = current_controller as IMyShipController;
             if (controller == null)
                 return;
+            _match_velocity_with = ((Sandbox.Game.Entities.IMyControllableEntity) current_controller).RelativeDampeningEntity;
             if (controller.CubeGrid != _grid)
             {
                 reset_user_input();
