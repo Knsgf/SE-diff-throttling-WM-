@@ -31,15 +31,16 @@ namespace orbiter_SE
 
         private Action _grids_handle_60Hz = null, _grids_handle_4Hz_foreground = null, _grids_handle_2s_period_foreground = null;
         private Action _grids_handle_4Hz_background = null, _grids_handle_2s_period_background = null, _grids_perform_calibration = null;
-        private Task _manager_task, _calibration_task;
+        private Task   _manager_task, _calibration_task;
 
-        private static IMyThrust         _sample_thruster   = null;
-        private static IMyShipController _sample_controller = null;
+        private static IMyThrust            _sample_thruster   = null;
+        private static IMyShipController    _sample_controller = null;
+        private static IMyProgrammableBlock _sample_PB         = null;
 
         private int  _count15 = 15, _count8_foreground = 8, _count8_background = 8;
-        private bool _entity_events_set = false;
+        private bool _setup_complete = false, _entity_events_set = false, _retry_registration = true;
 
-        private static bool _panel_controls_set = false;
+        private static bool _thruster_controls_set = false, _ship_controller_controls_set = false, _programmable_block_properties_set = false;
 
         private static session_handler _session_ref;
 
@@ -140,6 +141,11 @@ namespace orbiter_SE
         private Func<double, double, Vector3D> get_orbit_normal_calculator(IMyTerminalBlock dummy)
         {
             return orbit_elements.calculate_orbit_normal;
+        }
+
+        private Func<double, double, double, double, double, double, ValueTuple<double, double>?> get_intersection_calculator(IMyTerminalBlock dummy)
+        {
+            return gravity_and_physics.compute_orbit_intersections;
         }
 
         private Func<Vector3D, double> get_radius_to_anomaly_converter(IMyTerminalBlock PB)
@@ -481,14 +487,20 @@ namespace orbiter_SE
 
         internal static void sample_thruster(IMyThrust thruster)
         {
-            if (!_panel_controls_set && _sample_thruster == null)
+            if (!_thruster_controls_set && _sample_thruster == null)
                 _sample_thruster = thruster;
         }
 
         internal static void sample_controller(IMyShipController controller)
         {
-            if (!_panel_controls_set && _sample_controller == null)
+            if (!_ship_controller_controls_set && _sample_controller == null)
                 _sample_controller = controller;
+        }
+
+        internal static void sample_PB(IMyProgrammableBlock PB)
+        {
+            if (!_programmable_block_properties_set && _sample_PB == null)
+                _sample_PB = PB;
         }
 
         private void create_controller_widgets<_controller_type_>()
@@ -545,39 +557,26 @@ namespace orbiter_SE
                 MyAPIGateway.Entities.OnEntityRemove += on_entity_removed;
                 _entity_events_set = true;
             }
-            if (!_panel_controls_set && screen_info.settings_loaded && _sample_thruster != null && _sample_controller != null && MyAPIGateway.TerminalControls != null)
+            
+            if (!screen_info.settings_loaded || MyAPIGateway.TerminalControls == null)
+                return;
+            
+            if (!_ship_controller_controls_set)
             {
-                try
-                {
-                    _sample_thruster.GetValueFloat("Override");
-                    _sample_controller.GetValueBool("DampenersOverride");
-                }
-                catch (NullReferenceException dummy)
-                {
+                if (_sample_controller?.GetProperty("DampenersOverride") == null)
                     return;
-                }
-
                 create_controller_widgets<IMyCockpit>();
                 create_controller_widgets<IMyRemoteControl>();
-
-                create_PB_property<Func<string,             string, bool>, IMyProgrammableBlock>("ComputeOrbitElements"           , get_ship_elements_calculator  );
-                create_PB_property<Func<string, Vector3D, Vector3D, bool>, IMyProgrammableBlock>("ComputeOrbitElementsFromVectors", get_vector_elements_calculator);
-                create_PB_property<Func<string>, IMyProgrammableBlock>("GetReferenceBodyName", get_reference_name_fetcher);
-                create_PB_property<Action<Dictionary<string, Vector3D>>, IMyProgrammableBlock>("GetPrimaryVectors" , get_vector_fetcher );
-                create_PB_property<Action<Dictionary<string,   double>>, IMyProgrammableBlock>("GetPrimaryScalars" , get_scalar_fetcher );
-                create_PB_property<Action<Dictionary<string,   double>>, IMyProgrammableBlock>("GetDerivedElements", get_derived_fetcher);
-                create_PB_property<Action<double?, Dictionary<string,   double>>, IMyProgrammableBlock>("GetPositionalElements", get_positional_fetcher  );
-                create_PB_property<Action<double , Dictionary<string, Vector3D>>, IMyProgrammableBlock>("GetStateVectors"      , get_state_vector_fetcher);
-
-                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>(   "ConvertTrueAnomalyToMean", get_true_to_mean_converter     );
-                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>(   "ConvertMeanAnomalyToTrue", get_mean_to_true_converter     );
-                create_PB_property<Func<double, double, Vector3D>, IMyProgrammableBlock>(         "ComputeOrbitNormal", get_orbit_normal_calculator    );
-                create_PB_property<Func<Vector3D, double>        , IMyProgrammableBlock>("ConvertRadialToTtrueAnomaly", get_radius_to_anomaly_converter);
-
-                _panel_controls_set = true;
-                _sample_thruster    = null;
-                _sample_controller  = null;
-
+                _ship_controller_controls_set = true;
+                _sample_controller            = null;
+            }
+            
+            if (!_thruster_controls_set)
+            {
+                if (!screen_info.torque_disabled && _sample_thruster?.GetProperty("Override") == null)
+                    return;
+                _thruster_controls_set = true;
+                _sample_thruster       = null;
                 if (screen_info.torque_disabled)
                     return;
                 IMyTerminalControlSeparator thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
@@ -588,8 +587,8 @@ namespace orbiter_SE
                 create_switch  <IMyThrust>(       "StaticLimit",       "Thrust Limiter", null, "On", "Off", "On", "Off", thruster_and_grid_tagger.is_thrust_limiter_on   , thruster_and_grid_tagger.set_thrust_limiter , thruster_and_grid_tagger.is_thrust_limiter_available);
 
                 IMyTerminalControlSlider manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
-                manual_throttle.Getter  = thruster_and_grid_tagger.get_manual_throttle;
-                manual_throttle.Setter  = thruster_and_grid_tagger.set_manual_throttle;
+                manual_throttle.Getter = thruster_and_grid_tagger.get_manual_throttle;
+                manual_throttle.Setter = thruster_and_grid_tagger.set_manual_throttle;
                 manual_throttle.SupportsMultipleBlocks = true;
                 manual_throttle.Title  = MyStringId.GetOrCompute("Manual throttle");
                 manual_throttle.Writer = thruster_and_grid_tagger.throttle_status;
@@ -609,6 +608,32 @@ namespace orbiter_SE
                     thruster_and_grid_tagger.throttle_status, "Decrease");
                 create_PB_property<float, IMyThrust>("BalancedLevel", thruster_and_grid_tagger.get_thrust_limit);
             }
+
+            if (!_programmable_block_properties_set)
+            {
+                if (_sample_PB?.GetProperty("ShowInToolbarConfig") == null)
+                    return;
+                create_PB_property<Func<string,             string, bool>, IMyProgrammableBlock>("ComputeOrbitElements"           , get_ship_elements_calculator  );
+                create_PB_property<Func<string, Vector3D, Vector3D, bool>, IMyProgrammableBlock>("ComputeOrbitElementsFromVectors", get_vector_elements_calculator);
+                create_PB_property<Func<string>, IMyProgrammableBlock>("GetReferenceBodyName", get_reference_name_fetcher);
+                create_PB_property<Action<Dictionary<string, Vector3D>>, IMyProgrammableBlock>("GetPrimaryVectors" , get_vector_fetcher );
+                create_PB_property<Action<Dictionary<string,   double>>, IMyProgrammableBlock>("GetPrimaryScalars" , get_scalar_fetcher );
+                create_PB_property<Action<Dictionary<string,   double>>, IMyProgrammableBlock>("GetDerivedElements", get_derived_fetcher);
+                create_PB_property<Action<double?, Dictionary<string,   double>>, IMyProgrammableBlock>("GetPositionalElements", get_positional_fetcher  );
+                create_PB_property<Action<double , Dictionary<string, Vector3D>>, IMyProgrammableBlock>("GetStateVectors"      , get_state_vector_fetcher);
+
+                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>(   "ConvertTrueAnomalyToMean", get_true_to_mean_converter     );
+                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>(   "ConvertMeanAnomalyToTrue", get_mean_to_true_converter     );
+                create_PB_property<Func<double, double, Vector3D>, IMyProgrammableBlock>(         "ComputeOrbitNormal", get_orbit_normal_calculator    );
+                create_PB_property<Func<Vector3D, double>        , IMyProgrammableBlock>("ConvertRadialToTtrueAnomaly", get_radius_to_anomaly_converter);
+                create_PB_property<Func<double, double, double, double, double, double, ValueTuple<double, double>?>, IMyProgrammableBlock>
+                    ("ComputeOrbitIntersections", get_intersection_calculator);
+                _programmable_block_properties_set = true;
+                _sample_PB                         = null;
+            }
+
+            _setup_complete = _ship_controller_controls_set && _thruster_controls_set && _programmable_block_properties_set && _entity_events_set
+                && screen_info.settings_loaded && sync_helper.network_handlers_registered;
         }
 
         private void calibration_thread()
@@ -668,7 +693,8 @@ namespace orbiter_SE
                 }
                 if (--_count8_foreground <= 0)
                 {
-                    _count8_foreground = 8;
+                    _count8_foreground  = 8;
+                    _retry_registration = true;
                     _grids_handle_2s_period_foreground();
                 }
                 screen_info.refresh_local_player_HUD();
@@ -684,8 +710,11 @@ namespace orbiter_SE
         public override void UpdateAfterSimulation()
         {
             base.UpdateAfterSimulation();
-            if (!_entity_events_set || !_panel_controls_set || !sync_helper.network_handlers_registered || !screen_info.settings_loaded)
+            if (!_setup_complete && _retry_registration)
+            {
                 try_register_handlers();
+                _retry_registration = false;
+            }
         }
 
         public session_handler()
@@ -696,15 +725,16 @@ namespace orbiter_SE
         protected override void UnloadData()
         {
             base.UnloadData();
+            MyAPIGateway.Entities.OnEntityAdd    -= on_entity_added;
+            MyAPIGateway.Entities.OnEntityRemove -= on_entity_removed;
             sync_helper.deregister_handlers();
             screen_info.deregister_handlers();
             foreach (IMyCubeGrid leftover_grid in _grids.Keys.ToList())
                 on_entity_removed(leftover_grid);
-            MyAPIGateway.Entities.OnEntityAdd    -= on_entity_added;
-            MyAPIGateway.Entities.OnEntityRemove -= on_entity_removed;
             _sample_controller  = null;
             _sample_thruster    = null;
-            _panel_controls_set = false;
+            _sample_PB          = null;
+            _setup_complete     = _entity_events_set = _ship_controller_controls_set = _thruster_controls_set = _programmable_block_properties_set = false;
             _session_ref        = null;
         }
     }

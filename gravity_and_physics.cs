@@ -422,7 +422,7 @@ namespace orbiter_SE
         double _reference_energy = 0.0, _grid_mass = 1.0;
         bool   _energy_changed   = false, _suppress_stabilisation = true, _energy_received = false;
 
-        private static byte[] _message = new byte[9];
+        private static readonly byte[] _message = new byte[9];
 
         public static bool world_has_gravity => _gravity_sources.Count > 0;
         
@@ -851,6 +851,24 @@ namespace orbiter_SE
                 return -1.0;
             direction = Vector3D.Cross(Vector3D.Normalize(aux_vector), PB_elements.specific_angular_momentum);
             return PB_elements.get_true_anomaly(direction);
+        }
+
+        public static ValueTuple<double, double>? compute_orbit_intersections(double ship_ecc, double target_ecc, double ship_SLR, double target_SLR, 
+            double ship_LoP, double target_LoP)
+        {
+            if (ship_ecc < 0.0 || target_ecc < 0.0 || ship_SLR < 0.0 || target_SLR < 0.0)
+                return null;
+
+            ship_LoP   = floor_mod(  ship_LoP, 2.0 * Math.PI);
+            target_LoP = floor_mod(target_LoP, 2.0 * Math.PI);
+            // Find L in equation ship_SLR / (1.0 + ship_ecc * Math.Cos(L - ship_LoP)) = target_SLR / (1.0 + target_ecc * Math.Cos(L - target_LoP));
+            double   A = ship_SLR * target_ecc, B = target_SLR * ship_ecc;
+            Vector2D C = new Vector2D(A * Math.Cos(target_LoP) - B * Math.Cos(ship_LoP), B * Math.Sin(ship_LoP) - A * Math.Sin(target_LoP));
+            double   D = (target_SLR - ship_SLR) / C.Length();
+            if (D < -1.0 || D > 1.0)
+                return null;
+            double inv_cos = Math.Acos(D), angle_offset = Math.Atan2(C.Y, C.X);
+            return new ValueTuple<double, double>(inv_cos - angle_offset, 2.0 * Math.PI - inv_cos - angle_offset);
         }
 
         public static void list_current_elements(IMyTerminalBlock controller, StringBuilder info_text)
