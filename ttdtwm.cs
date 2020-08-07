@@ -25,7 +25,8 @@ namespace orbiter_SE
         #region fields
 
         private readonly Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
-        private readonly HashSet<IMyCubeGrid> _examined_grids = new HashSet<IMyCubeGrid>();
+        private readonly HashSet<IMyCubeGrid> _examined_grids = new HashSet<IMyCubeGrid>(), _inactive_grids = new HashSet<IMyCubeGrid>();
+        private readonly List<IMyCubeGrid> _grids_to_move = new List<IMyCubeGrid>();
         private readonly List<List<grid_logic>> _connected_grid_lists = new List<List<grid_logic>>();
         private int _num_connected_grid_lists = 0;
 
@@ -62,14 +63,7 @@ namespace orbiter_SE
             var grid = entity as IMyCubeGrid;
             if (grid != null)
             {
-                var new_grid_logic = new grid_logic(grid);
-                _grids_handle_60Hz                 += new_grid_logic.handle_60Hz;
-                _grids_handle_4Hz_foreground       += new_grid_logic.handle_4Hz_foreground;
-                _grids_handle_2s_period_foreground += new_grid_logic.handle_2s_period_foreground;
-                _grids_handle_4Hz_background       += new_grid_logic.handle_4Hz_background;
-                _grids_handle_2s_period_background += new_grid_logic.handle_2s_period_background;
-                _grids_perform_calibration         += new_grid_logic.perform_individual_calibration;
-                _grids.Add(grid, new_grid_logic);
+                _inactive_grids.Add(grid);
                 return;
             }
 
@@ -88,17 +82,10 @@ namespace orbiter_SE
         private void on_entity_removed(IMyEntity entity)
         {
             var grid = entity as IMyCubeGrid;
-            if (grid != null && _grids.ContainsKey(grid))
+            if (grid != null)
             {
-                grid_logic grid_logic_to_remove = _grids[grid];
-                _grids_handle_60Hz                 -= grid_logic_to_remove.handle_60Hz;
-                _grids_handle_4Hz_foreground       -= grid_logic_to_remove.handle_4Hz_foreground;
-                _grids_handle_2s_period_foreground -= grid_logic_to_remove.handle_2s_period_foreground;
-                _grids_handle_4Hz_background       -= grid_logic_to_remove.handle_4Hz_background;
-                _grids_handle_2s_period_background -= grid_logic_to_remove.handle_2s_period_background;
-                _grids_perform_calibration         -= grid_logic_to_remove.perform_individual_calibration;
-                grid_logic_to_remove.Dispose();
-                _grids.Remove(grid);
+                deactivate_grid(grid);
+                _inactive_grids.Remove(grid);
                 return;
             }
 
@@ -348,6 +335,67 @@ namespace orbiter_SE
         }
 
         #endregion
+
+        private void activate_grid(IMyCubeGrid grid)
+        {
+            if (_inactive_grids.Contains(grid))
+            {
+                _inactive_grids.Remove(grid);
+                var new_grid_logic = new grid_logic(grid);
+                _grids_handle_60Hz                 += new_grid_logic.handle_60Hz;
+                _grids_handle_4Hz_foreground       += new_grid_logic.handle_4Hz_foreground;
+                _grids_handle_2s_period_foreground += new_grid_logic.handle_2s_period_foreground;
+                _grids_handle_4Hz_background       += new_grid_logic.handle_4Hz_background;
+                _grids_handle_2s_period_background += new_grid_logic.handle_2s_period_background;
+                _grids_perform_calibration         += new_grid_logic.perform_individual_calibration;
+                _grids.Add(grid, new_grid_logic);
+            }
+        }
+
+        private void deactivate_grid(IMyCubeGrid grid)
+        {
+            if (_grids.ContainsKey(grid))
+            {
+                grid_logic grid_logic_to_remove = _grids[grid];
+                _grids_handle_60Hz                 -= grid_logic_to_remove.handle_60Hz;
+                _grids_handle_4Hz_foreground       -= grid_logic_to_remove.handle_4Hz_foreground;
+                _grids_handle_2s_period_foreground -= grid_logic_to_remove.handle_2s_period_foreground;
+                _grids_handle_4Hz_background       -= grid_logic_to_remove.handle_4Hz_background;
+                _grids_handle_2s_period_background -= grid_logic_to_remove.handle_2s_period_background;
+                _grids_perform_calibration         -= grid_logic_to_remove.perform_individual_calibration;
+                grid_logic_to_remove.Dispose();
+                _grids.Remove(grid);
+                _inactive_grids.Add(grid);
+            }
+        }
+
+        private void disable_inactive_grids()
+        {
+            List<IMyCubeGrid> grids_to_disable = _grids_to_move;
+
+            grids_to_disable.Clear();
+            foreach (IMyCubeGrid grid in _grids.Keys)
+            {
+                if (grid.IsStatic || grid.Physics == null || !grid.Physics.Enabled)
+                    grids_to_disable.Add(grid);
+            }
+            foreach (IMyCubeGrid grid in grids_to_disable)
+                deactivate_grid(grid);
+        }
+
+        private void enable_active_grids()
+        {
+            List<IMyCubeGrid> grids_to_enable = _grids_to_move;
+
+            grids_to_enable.Clear();
+            foreach (IMyCubeGrid grid in _inactive_grids)
+            {
+                if (!grid.IsStatic && grid.Physics != null && grid.Physics.Enabled)
+                    grids_to_enable.Add(grid);
+            }
+            foreach (IMyCubeGrid grid in grids_to_enable)
+                activate_grid(grid);
+        }
 
         private static void clear_grid_secondary_flag(List<grid_logic> secondary_grids)
         {
@@ -678,8 +726,12 @@ namespace orbiter_SE
 
             screen_info.refresh_local_player_info();
             if (_grids_handle_60Hz == null)
+            {
+                enable_active_grids();
                 return;
+            }
 
+            disable_inactive_grids();
             if (--_count15 <= 0)
             {
                 _count15 = 15;
@@ -695,6 +747,7 @@ namespace orbiter_SE
                 {
                     _count8_foreground  = 8;
                     _retry_registration = true;
+                    enable_active_grids();
                     _grids_handle_2s_period_foreground();
                 }
                 screen_info.refresh_local_player_HUD();

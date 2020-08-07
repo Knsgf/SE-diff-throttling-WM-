@@ -174,7 +174,7 @@ namespace orbiter_SE
         private bool    _is_gyro_override_active = false, _individual_calibration_on = false, _calibration_ready = false, _calibration_complete = false, _calibration_interrupted = false;
         private bool    _all_engines_off = false, _force_override_refresh = false, _dry_run = false;
         private float   _trim_fadeout = 1.0f;
-        private bool    _integral_cleared = false, _is_thrust_override_active = false, _grid_is_movable = false;
+        private bool    _integral_cleared = false, _is_thrust_override_active = false;
 
         private readonly  bool[] _enable_linear_integral = { true, true, true, true, true, true };
         private readonly float[] _linear_integral        = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
@@ -2075,6 +2075,8 @@ namespace orbiter_SE
             _control_sectors = new solver_entry[3 * 3];
             for (int index = 0; index < 3 * 3; ++index)
                 _control_sectors[index] = new solver_entry();
+
+            _physics_enable_delay = PHYSICS_ENABLE_DELAY;
         }
 
         #endregion
@@ -2442,13 +2444,6 @@ namespace orbiter_SE
 
         public void handle_60Hz(bool jump_drive_engaged)
         {
-            if (!_grid_is_movable)
-            {
-                _physics_enable_delay = PHYSICS_ENABLE_DELAY;
-                current_speed         = 0.0f;
-                return;
-            }
-
             ID_manoeuvres current_manoeuvre = this.current_manoeuvre;
             bool is_secondary = secondary_ECU, linear_controls_active = _linear_control.LengthSquared() >= 0.0001f, manoeuvre_active = current_manoeuvre != ID_manoeuvres.manoeuvre_off;
             torque_and_orbit_control grid_movement = _grid_movement;
@@ -2526,9 +2521,6 @@ namespace orbiter_SE
 
         public void handle_4Hz_foreground()
         {
-            if (!_grid_is_movable)
-                reset_ECU();
-
             if (!screen_info.torque_disabled)
             {
                 reset_overrides();
@@ -2544,9 +2536,6 @@ namespace orbiter_SE
 
         public void handle_4Hz_background()
         {
-            if (!_grid_is_movable)
-                return;
-
             if (screen_info.torque_disabled)
             {
                 refresh_real_max_forces();
@@ -2585,21 +2574,14 @@ namespace orbiter_SE
 
         public void handle_2s_period_foreground()
         {
-            _grid_is_movable = !_grid.IsStatic && _grid.Physics != null && _grid.Physics.Enabled;
-            if (!_grid_is_movable)
-                return;
-
             _force_override_refresh = !screen_info.torque_disabled;
             refresh_turn_sensitivity();
         }
 
         public void handle_2s_period_background()
         {
-            if (_grid_is_movable && !screen_info.torque_disabled)
-            {
-                if (_individual_calibration_on && !_calibration_in_progress)
-                    prepare_individual_calibration();
-            }
+            if (!screen_info.torque_disabled && _individual_calibration_on && !_calibration_in_progress)
+                prepare_individual_calibration();
         }
 
         public void perform_individual_calibration()

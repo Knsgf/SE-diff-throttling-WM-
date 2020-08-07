@@ -1078,12 +1078,6 @@ namespace orbiter_SE
         {
             const double step = MyEngineConstants.PHYSICS_STEP_SIZE_IN_SECONDS, MAX_ENERGY_DRIFT = 100.0, MAX_STABILISATION_ACC = 0.05;
 
-            if (_grid.IsStatic || _grid.Physics == null || !_grid.Physics.Enabled)
-            {
-                _absolute_linear_velocity = _absolute_angular_velocity = Vector3D.Zero;
-                return;
-            }
-
             update_grid_position_and_velocity();
             gravity_source current_reference = _current_reference;
             Vector3D       grid_position     = _grid_position;
@@ -1160,15 +1154,7 @@ namespace orbiter_SE
 
         public void update_current_reference()
         {
-            MyCubeGrid grid = _grid;
-            if (grid.IsStatic || grid.Physics == null || !grid.Physics.Enabled)
-            {
-                _current_reference = null;
-                _energy_changed   |= _reference_energy != 0.0;
-                _reference_energy  = 0.0;
-                return;
-            }
-
+            MyCubeGrid     grid           = _grid;
             gravity_source prev_reference = _current_reference;
             _grid_mass                    = grid.Physics.Mass;
             _current_reference            = get_reference_body(_grid_position);
@@ -1243,15 +1229,12 @@ namespace orbiter_SE
         {
             _grid = (MyCubeGrid) grid_ref;
             sync_helper.register_entity(sync_helper.message_types.ORBIT_ENERGY, this, _grid.EntityId);
-            if (_grid.Physics != null)
-            {
-                _grid_position      = _grid.Physics.CenterOfMassWorld;
-                MatrixD grid_matrix = _grid.WorldMatrix;
-                _grid_forward       = grid_matrix.Forward;
-                _grid_right         = grid_matrix.Right;
-                _grid_up            = grid_matrix.Up;
-                update_current_reference();
-            }
+            _grid_position      = _grid.Physics.CenterOfMassWorld;
+            MatrixD grid_matrix = _grid.WorldMatrix;
+            _grid_forward       = grid_matrix.Forward;
+            _grid_right         = grid_matrix.Right;
+            _grid_up            = grid_matrix.Up;
+            update_current_reference();
             _grid_list[grid_ref] = _grid_names[grid_ref.DisplayName] = this;
         }
     }

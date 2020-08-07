@@ -37,7 +37,7 @@ namespace orbiter_SE
 
         #region Properties
 
-        public bool is_thrust_control_available => _num_thrusters > 0 && !_grid.IsStatic && _grid.Physics != null && _grid.Physics.Enabled;
+        public bool is_thrust_control_available => _num_thrusters > 0;
         public bool is_landing_mode_available   => is_thrust_control_available && _grid.Physics.Gravity.LengthSquared() > 0.01f;
         public bool is_circularisation_avaiable => gravity_and_physics.world_has_gravity;
         public bool circularise                 => is_circularisation_avaiable && _ECU.circularise_on;
