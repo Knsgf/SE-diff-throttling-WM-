@@ -25,21 +25,22 @@ namespace ttdtwm
         #region fields
 
         private readonly Dictionary<IMyCubeGrid, grid_logic> _grids = new Dictionary<IMyCubeGrid, grid_logic>();
-        private readonly HashSet<IMyCubeGrid> _examined_grids = new HashSet<IMyCubeGrid>();
+        private readonly HashSet<IMyCubeGrid> _examined_grids = new HashSet<IMyCubeGrid>(), _inactive_grids = new HashSet<IMyCubeGrid>();
+        private readonly List<IMyCubeGrid> _grids_to_move = new List<IMyCubeGrid>();
         private readonly List<List<grid_logic>> _connected_grid_lists = new List<List<grid_logic>>();
         private int _num_connected_grid_lists = 0;
 
         private Action _grids_handle_60Hz = null, _grids_handle_4Hz_foreground = null, _grids_handle_2s_period_foreground = null;
         private Action _grids_handle_4Hz_background = null, _grids_handle_2s_period_background = null, _grids_perform_calibration = null;
-        private Task _manager_task, _calibration_task;
+        private Task   _manager_task, _calibration_task;
 
-        private static IMyThrust         _sample_thruster   = null;
-        private static IMyShipController _sample_controller = null;
+        private static IMyThrust            _sample_thruster   = null;
+        private static IMyShipController    _sample_controller = null;
 
         private int  _count15 = 15, _count8_foreground = 8, _count8_background = 8;
-        private bool _entity_events_set = false;
+        private bool _setup_complete = false, _entity_events_set = false, _retry_registration = true;
 
-        private static bool _panel_controls_set = false;
+        private static bool _thruster_controls_set = false, _ship_controller_controls_set = false;
 
         private static session_handler _session_ref;
 
@@ -61,14 +62,7 @@ namespace ttdtwm
             var grid = entity as IMyCubeGrid;
             if (grid != null)
             {
-                var new_grid_logic = new grid_logic(grid);
-                _grids_handle_60Hz                 += new_grid_logic.handle_60Hz;
-                _grids_handle_4Hz_foreground       += new_grid_logic.handle_4Hz_foreground;
-                _grids_handle_2s_period_foreground += new_grid_logic.handle_2s_period_foreground;
-                _grids_handle_4Hz_background       += new_grid_logic.handle_4Hz_background;
-                _grids_handle_2s_period_background += new_grid_logic.handle_2s_period_background;
-                _grids_perform_calibration         += new_grid_logic.perform_individual_calibration;
-                _grids.Add(grid, new_grid_logic);
+                _inactive_grids.Add(grid);
                 return;
             }
         }
@@ -76,17 +70,10 @@ namespace ttdtwm
         private void on_entity_removed(IMyEntity entity)
         {
             var grid = entity as IMyCubeGrid;
-            if (grid != null && _grids.ContainsKey(grid))
+            if (grid != null)
             {
-                grid_logic grid_logic_to_remove = _grids[grid];
-                _grids_handle_60Hz                 -= grid_logic_to_remove.handle_60Hz;
-                _grids_handle_4Hz_foreground       -= grid_logic_to_remove.handle_4Hz_foreground;
-                _grids_handle_2s_period_foreground -= grid_logic_to_remove.handle_2s_period_foreground;
-                _grids_handle_4Hz_background       -= grid_logic_to_remove.handle_4Hz_background;
-                _grids_handle_2s_period_background -= grid_logic_to_remove.handle_2s_period_background;
-                _grids_perform_calibration         -= grid_logic_to_remove.perform_individual_calibration;
-                grid_logic_to_remove.Dispose();
-                _grids.Remove(grid);
+                deactivate_grid(grid);
+                _inactive_grids.Remove(grid);
                 return;
             }
         }
@@ -220,6 +207,67 @@ namespace ttdtwm
 
         #endregion
 
+        private void activate_grid(IMyCubeGrid grid)
+        {
+            if (_inactive_grids.Contains(grid))
+            {
+                _inactive_grids.Remove(grid);
+                var new_grid_logic = new grid_logic(grid);
+                _grids_handle_60Hz                 += new_grid_logic.handle_60Hz;
+                _grids_handle_4Hz_foreground       += new_grid_logic.handle_4Hz_foreground;
+                _grids_handle_2s_period_foreground += new_grid_logic.handle_2s_period_foreground;
+                _grids_handle_4Hz_background       += new_grid_logic.handle_4Hz_background;
+                _grids_handle_2s_period_background += new_grid_logic.handle_2s_period_background;
+                _grids_perform_calibration         += new_grid_logic.perform_individual_calibration;
+                _grids.Add(grid, new_grid_logic);
+            }
+        }
+
+        private void deactivate_grid(IMyCubeGrid grid)
+        {
+            if (_grids.ContainsKey(grid))
+            {
+                grid_logic grid_logic_to_remove = _grids[grid];
+                _grids_handle_60Hz                 -= grid_logic_to_remove.handle_60Hz;
+                _grids_handle_4Hz_foreground       -= grid_logic_to_remove.handle_4Hz_foreground;
+                _grids_handle_2s_period_foreground -= grid_logic_to_remove.handle_2s_period_foreground;
+                _grids_handle_4Hz_background       -= grid_logic_to_remove.handle_4Hz_background;
+                _grids_handle_2s_period_background -= grid_logic_to_remove.handle_2s_period_background;
+                _grids_perform_calibration         -= grid_logic_to_remove.perform_individual_calibration;
+                grid_logic_to_remove.Dispose();
+                _grids.Remove(grid);
+                _inactive_grids.Add(grid);
+            }
+        }
+
+        private void disable_inactive_grids()
+        {
+            List<IMyCubeGrid> grids_to_disable = _grids_to_move;
+
+            grids_to_disable.Clear();
+            foreach (IMyCubeGrid grid in _grids.Keys)
+            {
+                if (grid.IsStatic || grid.Physics == null || !grid.Physics.Enabled)
+                    grids_to_disable.Add(grid);
+            }
+            foreach (IMyCubeGrid grid in grids_to_disable)
+                deactivate_grid(grid);
+        }
+
+        private void enable_active_grids()
+        {
+            List<IMyCubeGrid> grids_to_enable = _grids_to_move;
+
+            grids_to_enable.Clear();
+            foreach (IMyCubeGrid grid in _inactive_grids)
+            {
+                if (!grid.IsStatic && grid.Physics != null && grid.Physics.Enabled)
+                    grids_to_enable.Add(grid);
+            }
+            foreach (IMyCubeGrid grid in grids_to_enable)
+                activate_grid(grid);
+        }
+
         private static void clear_grid_secondary_flag(List<grid_logic> secondary_grids)
         {
             foreach (grid_logic cur_grid_object in secondary_grids)
@@ -341,13 +389,13 @@ namespace ttdtwm
 
         internal static void sample_thruster(IMyThrust thruster)
         {
-            if (!_panel_controls_set && _sample_thruster == null)
+            if (!_thruster_controls_set && _sample_thruster == null)
                 _sample_thruster = thruster;
         }
 
         internal static void sample_controller(IMyShipController controller)
         {
-            if (!_panel_controls_set && _sample_controller == null)
+            if (!_ship_controller_controls_set && _sample_controller == null)
                 _sample_controller = controller;
         }
 
@@ -384,25 +432,26 @@ namespace ttdtwm
                 MyAPIGateway.Entities.OnEntityRemove += on_entity_removed;
                 _entity_events_set = true;
             }
-            if (!_panel_controls_set && screen_info.settings_loaded && _sample_thruster != null && _sample_controller != null && MyAPIGateway.TerminalControls != null)
+            
+            if (!screen_info.settings_loaded || MyAPIGateway.TerminalControls == null)
+                return;
+            
+            if (!_ship_controller_controls_set)
             {
-                try
-                {
-                    _sample_thruster.GetValueFloat("Override");
-                    _sample_controller.GetValueBool("DampenersOverride");
-                }
-                catch (NullReferenceException dummy)
-                {
+                if (_sample_controller?.GetProperty("DampenersOverride") == null)
                     return;
-                }
-
                 create_controller_widgets<IMyCockpit>();
                 create_controller_widgets<IMyRemoteControl>();
-
-                _panel_controls_set = true;
-                _sample_thruster    = null;
-                _sample_controller  = null;
-
+                _ship_controller_controls_set = true;
+                _sample_controller            = null;
+            }
+            
+            if (!_thruster_controls_set)
+            {
+                if (_sample_thruster?.GetProperty("Override") == null)
+                    return;
+                _thruster_controls_set = true;
+                _sample_thruster       = null;
                 IMyTerminalControlSeparator thruster_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyThrust>("TTDTWM_LINE1");
                 MyAPIGateway.TerminalControls.AddControl<IMyThrust>(thruster_line);
                 create_switch  <IMyThrust>(     "ActiveControl",             "Steering", null, "On", "Off", "On", "Off", thruster_and_grid_tagger.is_under_active_control, thruster_and_grid_tagger.set_active_control , thruster_and_grid_tagger.is_active_control_available);
@@ -411,8 +460,8 @@ namespace ttdtwm
                 create_switch  <IMyThrust>(       "StaticLimit",       "Thrust Limiter", null, "On", "Off", "On", "Off", thruster_and_grid_tagger.is_thrust_limiter_on   , thruster_and_grid_tagger.set_thrust_limiter , thruster_and_grid_tagger.is_thrust_limiter_available);
 
                 IMyTerminalControlSlider manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
-                manual_throttle.Getter  = thruster_and_grid_tagger.get_manual_throttle;
-                manual_throttle.Setter  = thruster_and_grid_tagger.set_manual_throttle;
+                manual_throttle.Getter = thruster_and_grid_tagger.get_manual_throttle;
+                manual_throttle.Setter = thruster_and_grid_tagger.set_manual_throttle;
                 manual_throttle.SupportsMultipleBlocks = true;
                 manual_throttle.Title  = MyStringId.GetOrCompute("Manual throttle");
                 manual_throttle.Writer = thruster_and_grid_tagger.throttle_status;
@@ -432,6 +481,9 @@ namespace ttdtwm
                     thruster_and_grid_tagger.throttle_status, "Decrease");
                 create_PB_property<float, IMyThrust>("BalancedLevel", thruster_and_grid_tagger.get_thrust_limit);
             }
+
+            _setup_complete = _ship_controller_controls_set && _thruster_controls_set && _entity_events_set
+                && screen_info.settings_loaded && sync_helper.network_handlers_registered;
         }
 
         private void calibration_thread()
@@ -475,8 +527,12 @@ namespace ttdtwm
 
             screen_info.refresh_local_player_info();
             if (_grids_handle_60Hz == null)
+            {
+                enable_active_grids();
                 return;
+            }
 
+            disable_inactive_grids();
             if (--_count15 <= 0)
             {
                 _count15 = 15;
@@ -490,7 +546,9 @@ namespace ttdtwm
                 }
                 if (--_count8_foreground <= 0)
                 {
-                    _count8_foreground = 8;
+                    _count8_foreground  = 8;
+                    _retry_registration = true;
+                    enable_active_grids();
                     _grids_handle_2s_period_foreground();
                 }
                 screen_info.refresh_local_player_HUD();
@@ -504,8 +562,11 @@ namespace ttdtwm
         public override void UpdateAfterSimulation()
         {
             base.UpdateAfterSimulation();
-            if (!_entity_events_set || !_panel_controls_set || !sync_helper.network_handlers_registered || !screen_info.settings_loaded)
+            if (!_setup_complete && _retry_registration)
+            {
                 try_register_handlers();
+                _retry_registration = false;
+            }
         }
 
         public session_handler()
@@ -516,15 +577,15 @@ namespace ttdtwm
         protected override void UnloadData()
         {
             base.UnloadData();
+            MyAPIGateway.Entities.OnEntityAdd    -= on_entity_added;
+            MyAPIGateway.Entities.OnEntityRemove -= on_entity_removed;
             sync_helper.deregister_handlers();
             screen_info.deregister_handlers();
             foreach (IMyCubeGrid leftover_grid in _grids.Keys.ToList())
                 on_entity_removed(leftover_grid);
-            MyAPIGateway.Entities.OnEntityAdd    -= on_entity_added;
-            MyAPIGateway.Entities.OnEntityRemove -= on_entity_removed;
             _sample_controller  = null;
             _sample_thruster    = null;
-            _panel_controls_set = false;
+            _setup_complete     = _entity_events_set = _ship_controller_controls_set = _thruster_controls_set = false;
             _session_ref        = null;
         }
     }
