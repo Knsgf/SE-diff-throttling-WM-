@@ -323,11 +323,9 @@ namespace ttdtwm
             _num_connected_grid_lists = 0;
             foreach (IMyCubeGrid grid in _grids.Keys)
             {
-                if (examined_grids.Contains(grid) || grid.IsStatic)
+                if (examined_grids.Contains(grid))
                     continue;
                 MyPhysicsComponentBase grid_body = grid.Physics;
-                if (grid_body == null || !grid_body.Enabled)
-                    continue;
 
                 List<IMyCubeGrid> grid_list     = MyAPIGateway.GridGroups.GetGroup(grid, GridLinkTypeEnum.Physical);
                 Vector3D          static_moment = Vector3D.Zero;
@@ -364,9 +362,9 @@ namespace ttdtwm
                 {
                     foreach (IMyCubeGrid cur_grid in grid_list)
                     {
-                        if (cur_grid.IsStatic || cur_grid.Physics == null || !cur_grid.Physics.Enabled)
+                        grid_logic grid_object;
+                        if (!_grids.TryGetValue(cur_grid, out grid_object))
                             continue;
-                        grid_logic grid_object = _grids[cur_grid];
                         grid_object.set_grid_CoM(cur_grid.Physics.CenterOfMassWorld);
                         grid_object.set_average_connected_grid_mass(cur_grid.Physics.Mass);
                         connected_grids.Add(grid_object);
@@ -378,7 +376,9 @@ namespace ttdtwm
                     float    average_mass       = total_mass    / grid_list.Count;
                     foreach (IMyCubeGrid cur_grid in grid_list)
                     {
-                        grid_logic grid_object = _grids[cur_grid];
+                        grid_logic grid_object;
+                        if (!_grids.TryGetValue(cur_grid, out grid_object))
+                            continue;
                         grid_object.set_grid_CoM(world_combined_CoM);
                         grid_object.set_average_connected_grid_mass(average_mass);
                         connected_grids.Add(grid_object);
