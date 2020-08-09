@@ -335,13 +335,6 @@ namespace orbiter_SE
                     return;
                 }
 
-                var PB = entity as IMyProgrammableBlock;
-                if (PB != null)
-                {
-                    gravity_and_physics.dispose_PB(PB);
-                    return;
-                }
-
                 var jump_drive = entity as IMyJumpDrive;
                 if (jump_drive != null)
                     _jump_drives.Remove(jump_drive);
@@ -640,7 +633,7 @@ namespace orbiter_SE
                     {
                         IMyCubeBlock full_block = block.FatBlock;
                         return full_block is IMyThrust || full_block is IMyGyro || full_block is IMyCockpit || full_block is IMyRemoteControl
-                            || full_block is IMyJumpDrive || full_block is IMyProgrammableBlock;
+                            || full_block is IMyJumpDrive;
                     }
                 );
                 foreach (IMySlimBlock cur_block in block_list)

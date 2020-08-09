@@ -89,6 +89,13 @@ namespace orbiter_SE
                 return;
             }
 
+            var PB = entity as IMyProgrammableBlock;
+            if (PB != null)
+            {
+                gravity_and_physics.dispose_PB(PB);
+                return;
+            }
+
             var planetoid = entity as MyPlanet;
             if (planetoid != null)
             {
@@ -452,11 +459,9 @@ namespace orbiter_SE
             _num_connected_grid_lists = 0;
             foreach (IMyCubeGrid grid in _grids.Keys)
             {
-                if (examined_grids.Contains(grid) || grid.IsStatic)
+                if (examined_grids.Contains(grid))
                     continue;
                 MyPhysicsComponentBase grid_body = grid.Physics;
-                if (grid_body == null || !grid_body.Enabled)
-                    continue;
 
                 List<IMyCubeGrid> grid_list     = MyAPIGateway.GridGroups.GetGroup(grid, GridLinkTypeEnum.Physical);
                 Vector3D          static_moment = Vector3D.Zero;
@@ -493,9 +498,9 @@ namespace orbiter_SE
                 {
                     foreach (IMyCubeGrid cur_grid in grid_list)
                     {
-                        if (cur_grid.IsStatic || cur_grid.Physics == null || !cur_grid.Physics.Enabled)
+                        grid_logic grid_object;
+                        if (!_grids.TryGetValue(cur_grid, out grid_object))
                             continue;
-                        grid_logic grid_object = _grids[cur_grid];
                         grid_object.set_grid_CoM(cur_grid.Physics.CenterOfMassWorld);
                         grid_object.set_average_connected_grid_mass(cur_grid.Physics.Mass);
                         connected_grids.Add(grid_object);
@@ -507,7 +512,9 @@ namespace orbiter_SE
                     float    average_mass       = total_mass    / grid_list.Count;
                     foreach (IMyCubeGrid cur_grid in grid_list)
                     {
-                        grid_logic grid_object = _grids[cur_grid];
+                        grid_logic grid_object;
+                        if (!_grids.TryGetValue(cur_grid, out grid_object))
+                            continue;
                         grid_object.set_grid_CoM(world_combined_CoM);
                         grid_object.set_average_connected_grid_mass(average_mass);
                         connected_grids.Add(grid_object);
@@ -782,8 +789,10 @@ namespace orbiter_SE
             MyAPIGateway.Entities.OnEntityRemove -= on_entity_removed;
             sync_helper.deregister_handlers();
             screen_info.deregister_handlers();
+            gravity_and_physics.dispose_all_PBs();
             foreach (IMyCubeGrid leftover_grid in _grids.Keys.ToList())
                 on_entity_removed(leftover_grid);
+            gravity_and_physics.deregister_all_sources();
             _sample_controller  = null;
             _sample_thruster    = null;
             _sample_PB          = null;

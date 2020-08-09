@@ -493,6 +493,14 @@ namespace orbiter_SE
                 cur_physics_object.update_current_reference();
         }
 
+        public static void deregister_all_sources()
+        {
+            _gravity_sources.Clear();
+            _gravity_source_names.Clear();
+            foreach (gravity_and_physics cur_physics_object in _grid_list.Values)
+                cur_physics_object.update_current_reference();
+        }
+
         private static double floor_mod(double dividend, double divisor)
         {
             return dividend - divisor * Math.Floor(dividend / divisor);
@@ -652,7 +660,12 @@ namespace orbiter_SE
             if (_PB_elements.ContainsKey(PB))
                 _PB_elements.Remove(PB);
         }
-        
+
+        public static void dispose_all_PBs()
+        {
+            _PB_elements.Clear();
+        }
+
         public static bool calculate_elements_for_PB(IMyTerminalBlock PB, string reference_name, string grid_name)
         {
             if (!world_has_gravity)
@@ -660,7 +673,10 @@ namespace orbiter_SE
             
             gravity_and_physics instance;
             if (grid_name == null)
-                instance = _grid_list[PB.CubeGrid];
+            {
+                if (!_grid_list.TryGetValue(PB.CubeGrid, out instance))
+                    return false;
+            }
             else if (!_grid_names.TryGetValue(grid_name, out instance))
                 return false;
 
@@ -709,23 +725,19 @@ namespace orbiter_SE
             if (!world_has_gravity || Vector3D.IsZero(radius))
                 return false;
 
-            gravity_and_physics instance = _grid_list[PB.CubeGrid];
-
-            gravity_source selected_reference;
             if (reference_name == null)
-            {
-                if (instance._current_reference == null)
-                    return false;
-                selected_reference = instance._current_reference;
-            }
-            else if (!_gravity_source_names.TryGetValue(reference_name, out selected_reference))
+                return false;
+            gravity_source selected_reference;
+            if (!_gravity_source_names.TryGetValue(reference_name, out selected_reference))
                 return false;
 
             orbit_elements PB_elements;
             if (!_PB_elements.TryGetValue(PB, out PB_elements))
                 PB_elements = new orbit_elements();
 
-            instance.calculate_elements(selected_reference, ref PB_elements, primary_only: true, custom_radius: radius, custom_velocity: velocity);
+            Vector3D gravity = calculate_gravity_vector(selected_reference, radius + selected_reference.centre_position);
+            PB_elements.calculate_primary_elements(selected_reference.standard_gravitational_parameter, radius, velocity, gravity, selected_reference.name, 
+                selected_reference.radius, minor_body: false);
             _PB_elements[PB] = PB_elements;
             return true;
         }
