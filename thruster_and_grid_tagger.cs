@@ -134,19 +134,19 @@ namespace orbiter_SE
 
         #region Thrusters' settings handlers
 
-        private static void update_thruster_flags(IMyTerminalBlock thruster, bool use_remote_switches = false, bool use_remote_manual_throttle = false)
+        private static bool update_thruster_flags(IMyTerminalBlock thruster, bool use_remote_switches = false, bool use_remote_manual_throttle = false)
         {
-            if (!(thruster is IMyThrust))
+            if (!(thruster is IMyThrust) || !_thruster_hosts.ContainsKey(thruster))
             {
                 _current_thruster = null;
                 _throttle_setting = null;
-                _current_thruster_settings    = null;
+                _current_thruster_settings = null;
                 _current_active_control_on = _current_anti_slip_on = _current_disable_linear = _current_thrust_limiter_on = false;
                 _manual_throttle = 0;
-                return;
+                return false;
             }
             if (thruster == _current_thruster && !use_remote_switches && !use_remote_manual_throttle)
-                return;
+                return true;
 
             _current_thruster          = thruster;
             _current_thruster_settings = _thruster_settings[thruster];
@@ -181,6 +181,8 @@ namespace orbiter_SE
             }
             if (use_remote_manual_throttle)
                 _thruster_hosts[thruster].set_manual_throttle(thruster.EntityId, _manual_throttle / MANUAL_THROTTLE_SCALE);
+
+            return true;
             /*
             _thruster_data    = thruster.CustomData;
             bool contains_RCS = _thruster_data.ContainsRCSTag();
@@ -340,19 +342,16 @@ namespace orbiter_SE
 
         public static bool is_active_control_available(IMyTerminalBlock thruster)
         {
-            update_thruster_flags(thruster);
-            return thruster is IMyThrust;
+            return update_thruster_flags(thruster);
         }
 
         public static bool is_under_active_control(IMyTerminalBlock thruster)
         {
-            update_thruster_flags(thruster);
-            return _current_active_control_on;
+            return is_active_control_available(thruster) && _current_active_control_on;
         }
 
         public static void set_active_control(IMyTerminalBlock thruster, bool new_state_on)
         {
-            update_thruster_flags(thruster);
             if (!is_active_control_available(thruster))
                 return;
             
@@ -366,19 +365,16 @@ namespace orbiter_SE
 
         public static bool is_anti_slip_available(IMyTerminalBlock thruster)
         {
-            update_thruster_flags(thruster);
-            return _current_active_control_on && !_current_thrust_limiter_on;
+            return is_active_control_available(thruster) && _current_active_control_on && !_current_thrust_limiter_on;
         }
 
         public static bool is_anti_slip(IMyTerminalBlock thruster)
         {
-            update_thruster_flags(thruster);
-            return _current_anti_slip_on;
+            return is_active_control_available(thruster) && _current_anti_slip_on;
         }
 
         public static void set_anti_slip(IMyTerminalBlock thruster, bool new_state_on)
         {
-            update_thruster_flags(thruster);
             if (!is_active_control_available(thruster))
                 return;
 
@@ -393,13 +389,11 @@ namespace orbiter_SE
 
         public static bool is_rotational_only(IMyTerminalBlock thruster)
         {
-            update_thruster_flags(thruster);
-            return _current_disable_linear;
+            return is_active_control_available(thruster) && _current_disable_linear;
         }
 
         public static void toggle_linear_input(IMyTerminalBlock thruster, bool new_state_on)
         {
-            update_thruster_flags(thruster);
             if (!is_active_control_available(thruster))
                 return;
 
@@ -411,19 +405,16 @@ namespace orbiter_SE
 
         public static bool is_thrust_limiter_available(IMyTerminalBlock thruster)
         {
-            update_thruster_flags(thruster);
             return is_active_control_available(thruster) && !_current_disable_linear && (!_current_active_control_on || _current_anti_slip_on);
         }
 
         public static bool is_thrust_limiter_on(IMyTerminalBlock thruster)
         {
-            update_thruster_flags(thruster);
-            return _current_thrust_limiter_on;
+            return is_active_control_available(thruster) && _current_thrust_limiter_on;
         }
 
         public static void set_thrust_limiter(IMyTerminalBlock thruster, bool new_state_on)
         {
-            update_thruster_flags(thruster);
             if (!is_active_control_available(thruster))
                 return;
 
@@ -436,7 +427,8 @@ namespace orbiter_SE
 
         public static float get_manual_throttle(IMyTerminalBlock thruster)
         {
-            update_thruster_flags(thruster);
+            if (!is_active_control_available(thruster))
+                return 0.0f;
             return _manual_throttle * 100.0f / MANUAL_THROTTLE_SCALE;
         }
 
@@ -581,10 +573,13 @@ namespace orbiter_SE
             sync_helper.deregister_entity(sync_helper.message_types.MANOEUVRE , grid.EntityId);
         }
 
-        private static void update_grid_flags(IMyCubeGrid grid, bool use_remote_switches = false, bool use_remote_manoeuvre = false)
+        private static bool update_grid_flags(IMyCubeGrid grid, bool use_remote_switches = false, bool use_remote_manoeuvre = false)
         {
+            if (!_grid_handlers.ContainsKey(grid))
+                return false;
+            
             if (grid == _current_grid && !use_remote_switches && !use_remote_manoeuvre)
-                return;
+                return true;
 
             _current_grid          = grid;
             _current_grid_settings = _grid_settings[grid];
@@ -623,6 +618,8 @@ namespace orbiter_SE
             }
             if (use_remote_manoeuvre)
                 _grid_handlers[grid].start_manoeuvre(_current_manoeuvre);
+
+            return true;
         }
 
         public static bool is_grid_control_available(IMyTerminalBlock controller)
@@ -639,19 +636,21 @@ namespace orbiter_SE
                 controller.RefreshCustomInfo();
                 _last_controller = controller;
             }
+            if (!update_grid_flags(grid))
+                return false;
             return _grid_handlers[grid].is_thrust_control_available;
         }
 
         public static bool is_grid_CoT_mode_on(IMyTerminalBlock controller)
         {
-            update_grid_flags(controller.CubeGrid);
-            return _CoT_mode_on;
+            return update_grid_flags(controller.CubeGrid) && _CoT_mode_on;
         }
 
         public static void set_grid_CoT_mode(IMyTerminalBlock controller, bool new_state_on)
         {
             IMyCubeGrid grid = controller.CubeGrid;
-            update_grid_flags(grid);
+            if (!update_grid_flags(grid))
+                return;
             set_switch(grid, _current_grid_settings, ref _grid_switches, sync_helper.message_types.GRID_MODES, COT_MODE, new_state_on, 
                 GRID_MODE_FIELD_START, GRID_MODE_FIELD_END);
             _CoT_mode_on = new_state_on;
@@ -660,14 +659,14 @@ namespace orbiter_SE
 
         public static bool use_individual_calibration(IMyTerminalBlock controller)
         {
-            update_grid_flags(controller.CubeGrid);
-            return _individual_calibration_on;
+            return update_grid_flags(controller.CubeGrid) && _individual_calibration_on;
         }
 
         public static void choose_calibration_method(IMyTerminalBlock controller, bool use_individual_calibration)
         {
             IMyCubeGrid grid = controller.CubeGrid;
-            update_grid_flags(grid);
+            if (!update_grid_flags(grid))
+                return;
             set_switch(grid, _current_grid_settings, ref _grid_switches, sync_helper.message_types.GRID_MODES, INDIVIDUAL_CALIBRATION, use_individual_calibration, 
                 GRID_MODE_FIELD_START, GRID_MODE_FIELD_END);
             _individual_calibration_on = use_individual_calibration;
@@ -676,14 +675,14 @@ namespace orbiter_SE
 
         public static bool is_grid_rotational_damping_on(IMyTerminalBlock controller)
         {
-            update_grid_flags(controller.CubeGrid);
-            return _rotational_damping_on;
+            return update_grid_flags(controller.CubeGrid) && _rotational_damping_on;
         }
 
         public static void set_grid_rotational_damping(IMyTerminalBlock controller, bool new_state_on)
         {
             IMyCubeGrid grid = controller.CubeGrid;
-            update_grid_flags(grid);
+            if (!update_grid_flags(grid))
+                return;
             set_switch(grid, _current_grid_settings, ref _grid_switches, sync_helper.message_types.GRID_MODES, ROTATIONAL_DAMNPING_OFF, !new_state_on, 
                 GRID_MODE_FIELD_START, GRID_MODE_FIELD_END);
             _rotational_damping_on = new_state_on;
@@ -692,8 +691,7 @@ namespace orbiter_SE
 
         public static bool is_grid_touchdown_mode_on(IMyTerminalBlock controller)
         {
-            update_grid_flags(controller.CubeGrid);
-            return _touchdown_mode_on;
+            return update_grid_flags(controller.CubeGrid) && _touchdown_mode_on;
         }
 
         public static bool is_grid_touchdown_mode_available(IMyTerminalBlock controller)
@@ -704,7 +702,8 @@ namespace orbiter_SE
         public static void set_grid_touchdown_mode(IMyTerminalBlock controller, bool new_state_on)
         {
             IMyCubeGrid grid = controller.CubeGrid;
-            update_grid_flags(grid);
+            if (!update_grid_flags(grid))
+                return;
             set_switch(grid, _current_grid_settings, ref _grid_switches, sync_helper.message_types.GRID_MODES, TOUCHDOWN_MODE, new_state_on, 
                 GRID_MODE_FIELD_START, GRID_MODE_FIELD_END);
             _touchdown_mode_on = new_state_on;
@@ -715,7 +714,7 @@ namespace orbiter_SE
         {
             return delegate (IMyTerminalBlock controller)
             {
-                return _grid_handlers[controller.CubeGrid].is_ID_axis_overriden(controller, axis);
+                return is_grid_control_available(controller) && _grid_handlers[controller.CubeGrid].is_ID_axis_overriden(controller, axis);
             };
         }
 
@@ -725,7 +724,8 @@ namespace orbiter_SE
             {
                 IMyCubeGrid grid = controller.CubeGrid;
                 _grid_handlers[grid].set_ID_override(controller, axis, new_state);
-                update_grid_flags(grid);
+                if (!update_grid_flags(grid))
+                    return;
                 Vector3 dampers_axis_enabled = _grid_handlers[grid].dampers_axes_enabled;
                 toggle_switch(ref _grid_switches, IDO_FORE_AFT      , dampers_axis_enabled.Z < 0.5f);
                 toggle_switch(ref _grid_switches, IDO_PORT_STARBOARD, dampers_axis_enabled.X < 0.5f);
@@ -748,7 +748,8 @@ namespace orbiter_SE
             return delegate (IMyTerminalBlock controller)
             {
                 IMyCubeGrid grid = controller.CubeGrid;
-                update_grid_flags(grid);
+                if (!update_grid_flags(grid))
+                    return;
                 set_switch(grid, _current_grid_settings, ref _grid_switches, sync_helper.message_types.GRID_MODES, ID_CIRCULARISE, select_circularise, 
                     GRID_MODE_FIELD_START, GRID_MODE_FIELD_END);
                 _circularisation_on = select_circularise;
@@ -761,7 +762,8 @@ namespace orbiter_SE
             return delegate (IMyTerminalBlock controller, StringBuilder status)
             {
                 status.Clear();
-                update_grid_flags(controller.CubeGrid);
+                if (!update_grid_flags(controller.CubeGrid))
+                    return;
                 if (_circularisation_on == circularisation_indicator)
                     status.Append("Select");
             };
@@ -777,7 +779,8 @@ namespace orbiter_SE
 
         public static void start_manoeuvre(IMyCubeGrid grid, engine_control_unit.ID_manoeuvres manoeuvre)
         {
-            update_grid_flags(grid);
+            if (!update_grid_flags(grid))
+                return;
             if (manoeuvre == _current_manoeuvre)
                 manoeuvre = engine_control_unit.ID_manoeuvres.manoeuvre_off;
             _current_manoeuvre = manoeuvre;
@@ -794,7 +797,8 @@ namespace orbiter_SE
             return delegate (IMyTerminalBlock controller, StringBuilder status)
             {
                 status.Clear();
-                update_grid_flags(controller.CubeGrid);
+                if (!update_grid_flags(controller.CubeGrid))
+                    return;
                 if (_current_manoeuvre == manoeuvre)
                     status.Append("Active");
             };

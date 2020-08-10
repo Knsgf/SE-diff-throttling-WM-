@@ -419,8 +419,10 @@ namespace orbiter_SE
         private static readonly Dictionary<IMyCharacter, gravity_source> _PC_current_source = new Dictionary<IMyCharacter, gravity_source>();
         private static readonly Dictionary<IMyCharacter, gravity_source> _PC_new_source     = new Dictionary<IMyCharacter, gravity_source>();
 
-        double _reference_energy = 0.0, _grid_mass = 1.0;
-        bool   _energy_changed   = false, _suppress_stabilisation = true, _energy_received = false;
+        private double _reference_energy = 0.0, _grid_mass = 1.0;
+        private bool   _energy_changed   = false, _suppress_stabilisation = true, _energy_received = false;
+
+        private string _old_name;
 
         private static readonly byte[] _message = new byte[9];
 
@@ -595,8 +597,9 @@ namespace orbiter_SE
             sync_helper.deregister_entity(sync_helper.message_types.ORBIT_ENERGY, _grid.EntityId);
             if (_grid_list.ContainsKey(_grid))
             {
+                _grid.OnNameChanged -= on_grid_name_changed;
                 _grid_list.Remove(_grid);
-                _grid_names.Remove(_grid.DisplayName);
+                _grid_names.Remove(_old_name);
             }
         }
 
@@ -1208,12 +1211,14 @@ namespace orbiter_SE
             {
                 player         = player_entry.Key;
                 current_source = player_entry.Value;
-                if (current_source == null || !player.EnabledThrusts || player.EnabledDamping || player.Physics == null || !player.Physics.Enabled)
-                    continue;
+                if (current_source == null || player.EnabledThrusts && player.EnabledDamping || player.Physics == null || !player.Physics.Enabled)
+                    return;
 
-                player_position      = player.PositionComp.GetPosition();
-                gravity_vector       = calculate_gravity_vector(current_source, player_position);
                 stock_gravity_vector = player.Physics.Gravity;
+                if (player.CurrentMovementState == MyCharacterMovementEnum.Falling && stock_gravity_vector.LengthSquared() >= 0.0001f)
+                    return;
+                player_position = player.PositionComp.GetPosition();
+                gravity_vector  = calculate_gravity_vector(current_source, player_position);
                 player.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, (gravity_vector - stock_gravity_vector) * player.Physics.Mass / MyEngineConstants.UPDATE_STEPS_PER_SECOND, player_position, Vector3.Zero);
             }
         }
@@ -1237,6 +1242,16 @@ namespace orbiter_SE
 
         #endregion
 
+        private static void on_grid_name_changed(MyCubeGrid grid)
+        {
+            gravity_and_physics instance;
+            if (!_grid_list.TryGetValue(grid, out instance))
+                return;
+            _grid_names.Remove(instance._old_name);
+            instance._old_name = grid.DisplayName;
+            _grid_names[instance._old_name] = instance;
+        }
+        
         public gravity_and_physics(IMyCubeGrid grid_ref)
         {
             _grid = (MyCubeGrid) grid_ref;
@@ -1247,7 +1262,9 @@ namespace orbiter_SE
             _grid_right         = grid_matrix.Right;
             _grid_up            = grid_matrix.Up;
             update_current_reference();
-            _grid_list[grid_ref] = _grid_names[grid_ref.DisplayName] = this;
+            _old_name            = grid_ref.DisplayName;
+            _grid_list[grid_ref] = _grid_names[_old_name] = this;
+            _grid.OnNameChanged += on_grid_name_changed;
         }
     }
 }

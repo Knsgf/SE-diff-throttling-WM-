@@ -695,7 +695,7 @@ namespace orbiter_SE
         {
             try
             {
-                _grids_perform_calibration();
+                _grids_perform_calibration?.Invoke();
             }
             catch (Exception err)
             {
@@ -715,10 +715,10 @@ namespace orbiter_SE
                         calibration_thread();
                     else if (!_calibration_task.valid || _calibration_task.IsComplete)
                         _calibration_task = MyAPIGateway.Parallel.Start(calibration_thread);
-                    _grids_handle_2s_period_background();
+                    _grids_handle_2s_period_background?.Invoke();
                     gravity_and_physics.update_player_reference_bodies();
                 }
-                _grids_handle_4Hz_background();
+                _grids_handle_4Hz_background?.Invoke();
             }
             catch (Exception err)
             {
@@ -732,11 +732,6 @@ namespace orbiter_SE
             base.UpdateBeforeSimulation();
 
             screen_info.refresh_local_player_info();
-            if (_grids_handle_60Hz == null)
-            {
-                enable_active_grids();
-                return;
-            }
 
             disable_inactive_grids();
             if (--_count15 <= 0)
@@ -755,15 +750,15 @@ namespace orbiter_SE
                     _count8_foreground  = 8;
                     _retry_registration = true;
                     enable_active_grids();
-                    _grids_handle_2s_period_foreground();
+                    _grids_handle_2s_period_foreground?.Invoke();
                 }
                 screen_info.refresh_local_player_HUD();
                 refresh_connected_grids();
                 thruster_and_grid_tagger.handle_4Hz();
-                _grids_handle_4Hz_foreground();
+                _grids_handle_4Hz_foreground?.Invoke();
             }
             process_orbit_stabilisation_for_connected_grids();
-            _grids_handle_60Hz();
+            _grids_handle_60Hz?.Invoke();
             gravity_and_physics.apply_gravity_to_players();
         }
 
