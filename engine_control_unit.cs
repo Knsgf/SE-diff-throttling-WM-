@@ -821,14 +821,14 @@ namespace orbiter_SE
                 }
             }
 
-            bool manoeuvre_active = linear_dampers_on && circularise_on || current_manoeuvre != ID_manoeuvres.manoeuvre_off;
-            bool manoeuvre_reset = reset_all_thrusters || !manoeuvre_active && _manoeuvre_active;
+            bool manoeuvre_engaged = linear_dampers_on && circularise_on || current_manoeuvre != ID_manoeuvres.manoeuvre_off;
+            bool manoeuvre_reset   = !manoeuvre_engaged && _manoeuvre_active;
             if (manoeuvre_reset)
             {
                 reset_thrusters(_uncontrolled_thrusters);
-                _manoeuvre_active = manoeuvre_active;
+                _manoeuvre_active = manoeuvre_engaged;
             }
-            else if (manoeuvre_active)
+            else if (manoeuvre_engaged)
             {
                 float[] control_vector = __control_vector, actual_force = __actual_force;
 
@@ -880,7 +880,7 @@ namespace orbiter_SE
                         }
                     }
                 }
-                _manoeuvre_active = manoeuvre_active;
+                _manoeuvre_active = manoeuvre_engaged;
             }
 
             _all_engines_off        = reset_all_thrusters;
@@ -2032,8 +2032,6 @@ namespace orbiter_SE
             new_thruster.manual_throttle      = 0.0f;
             new_thruster.operational          = thruster.Enabled && thruster.IsFunctional;
 
-            if (sync_helper.running_on_server)
-                thruster.ThrustOverride = 0.0f;
             lock (_changed_thrusters)
             {
                 _uncontrolled_thrusters.Add(new_thruster);
