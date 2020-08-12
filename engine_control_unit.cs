@@ -84,6 +84,7 @@ namespace ttdtwm
 
         private readonly MyCubeGrid _grid;
 
+        private readonly HashSet<HashSet<thruster_info>> _thruster_groups_to_reset = new HashSet<HashSet<thruster_info>>();
         private readonly HashSet<thruster_info>[] _controlled_thrusters =
         {
             new HashSet<thruster_info>(),   // fore
@@ -681,12 +682,30 @@ namespace ttdtwm
         {
             IMyThrust thruster;
 
-            foreach (thruster_info cur_thruster_info in thrusters)
+            if (thrusters != null)
             {
-                thruster = cur_thruster_info.host_thruster;
-                if (thruster.ThrustOverride > 0.0f)
-                    thruster.ThrustOverride = 0.0f;
-                cur_thruster_info.current_setting = cur_thruster_info.prev_setting = 0.0f;
+                _thruster_groups_to_reset.Add(thrusters);
+                foreach (thruster_info cur_thruster_info in thrusters)
+                {
+                    thruster = cur_thruster_info.host_thruster;
+                    if (thruster.ThrustOverride > MIN_OVERRIDE)
+                        thruster.ThrustOverride = MIN_OVERRIDE;
+                    cur_thruster_info.current_setting = cur_thruster_info.prev_setting = 0.01f;
+                }
+            }
+            else
+            {
+                foreach (HashSet<thruster_info> cur_group in _thruster_groups_to_reset)
+                {
+                    foreach (thruster_info cur_thruster_info in cur_group)
+                    {
+                        thruster = cur_thruster_info.host_thruster;
+                        if (thruster.ThrustOverride > 0.0f)
+                            thruster.ThrustOverride = 0.0f;
+                        cur_thruster_info.current_setting = cur_thruster_info.prev_setting = 0.0f;
+                    }
+                }
+                _thruster_groups_to_reset.Clear();
             }
         }
 
@@ -1920,8 +1939,6 @@ namespace ttdtwm
             new_thruster.manual_throttle      = 0.0f;
             new_thruster.operational          = thruster.Enabled && thruster.IsFunctional;
 
-            if (sync_helper.running_on_server)
-                thruster.ThrustOverride = 0.0f;
             lock (_changed_thrusters)
             {
                 _uncontrolled_thrusters.Add(new_thruster);
@@ -2395,6 +2412,7 @@ namespace ttdtwm
 
         public void handle_4Hz_foreground()
         {
+            reset_thrusters(null);
             reset_overrides();
             Vector3D current_grid_CoM = new_grid_CoM;
             lock (_all_thrusters)
