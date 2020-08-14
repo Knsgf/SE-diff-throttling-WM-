@@ -438,9 +438,12 @@ namespace orbiter_SE
                     ++primary_count;
                 else if (cur_grid != primary)
                 {
-                    grid_logic cur_grid_object = grid_list[cur_grid];
-                    secondary_grids.Add(cur_grid_object);
-                    cur_grid_object.is_secondary = true;
+                    grid_logic cur_grid_object;
+                    if (grid_list.TryGetValue(cur_grid, out cur_grid_object))
+                    {
+                        secondary_grids.Add(cur_grid_object);
+                        cur_grid_object.is_secondary = true;
+                    }
                 }
             }
             if (primary_count != 1)

@@ -449,60 +449,57 @@ namespace orbiter_SE
         public void handle_60Hz()
         {
             check_disposed();
-            if (!_grid.IsStatic)
+            _ID_on = true;
+            foreach (IMyControllableEntity cur_controller in _ship_controllers)
             {
-                _ID_on = true;
-                foreach (IMyControllableEntity cur_controller in _ship_controllers)
-                {
-                    _ID_on = cur_controller.EnabledDamping;
-                    break;
-                }
-                _grid_physics.simulate_gravity_and_torque();
+                _ID_on = cur_controller.EnabledDamping;
+                break;
+            }
+            _grid_physics.simulate_gravity_and_torque();
 
-                if (_num_thrusters > 0 || _secondary_grids != null)
+            if (_num_thrusters > 0 || _secondary_grids != null)
+            {
+                lock (_ECU)
                 {
-                    lock (_ECU)
+                    if (!_is_secondary)
                     {
-                        if (!_is_secondary)
+                        IMyPlayer controlling_player = get_controlling_player();
+                        if (controlling_player != null)
                         {
-                            IMyPlayer controlling_player = get_controlling_player();
-                            if (controlling_player != null)
-                            {
-                                handle_user_input(controlling_player.Controller.ControlledEntity);
-                                if (sync_helper.running_on_server)
-                                    send_I_terms_message(controlling_player.SteamUserId);
-                            }
-                            else
-                            {
-                                _ECU.reset_user_input();
-                                if (_secondary_grids != null)
-                                {
-                                    foreach (grid_logic cur_secondary in _secondary_grids)
-                                        cur_secondary._ECU.reset_user_input();
-                                }
-                            }
-
+                            handle_user_input(controlling_player.Controller.ControlledEntity);
+                            if (sync_helper.running_on_server)
+                                send_I_terms_message(controlling_player.SteamUserId);
+                        }
+                        else
+                        {
+                            _ECU.reset_user_input();
                             if (_secondary_grids != null)
                             {
-                                Vector3D world_linear_velocity, world_angular_velocity;
-                                Vector3  target_linear_velocity, linear_control, rotation_control, gyro_override;
-                                bool     gyro_override_active, circularisation_on;
-                                engine_control_unit.ID_manoeuvres current_manoeuvre;
-
-                                _ECU.get_primary_control_parameters(out world_linear_velocity, out target_linear_velocity, out world_angular_velocity, 
-                                    out linear_control, out rotation_control, out gyro_override_active, out gyro_override, out circularisation_on,
-                                    out current_manoeuvre);
                                 foreach (grid_logic cur_secondary in _secondary_grids)
-                                {
-                                    cur_secondary._ID_on = _ID_on;
-                                    cur_secondary._ECU.set_secondary_control_parameters(world_linear_velocity, target_linear_velocity, world_angular_velocity, 
-                                        linear_control, rotation_control, gyro_override_active, gyro_override, circularisation_on, current_manoeuvre);
-                                }
+                                    cur_secondary._ECU.reset_user_input();
                             }
                         }
-                        _ECU.linear_dampers_on = _ID_on;
-                        _ECU.handle_60Hz(_jump_drive_engaged);
+
+                        if (_secondary_grids != null)
+                        {
+                            Vector3D world_linear_velocity, world_angular_velocity;
+                            Vector3  target_linear_velocity, linear_control, rotation_control, gyro_override;
+                            bool     gyro_override_active, circularisation_on;
+                            engine_control_unit.ID_manoeuvres current_manoeuvre;
+
+                            _ECU.get_primary_control_parameters(out world_linear_velocity, out target_linear_velocity, out world_angular_velocity, 
+                                out linear_control, out rotation_control, out gyro_override_active, out gyro_override, out circularisation_on, 
+                                out current_manoeuvre);
+                            foreach (grid_logic cur_secondary in _secondary_grids)
+                            {
+                                cur_secondary._ID_on = _ID_on;
+                                cur_secondary._ECU.set_secondary_control_parameters(world_linear_velocity, target_linear_velocity, world_angular_velocity, 
+                                    linear_control, rotation_control, gyro_override_active, gyro_override, circularisation_on, current_manoeuvre);
+                            }
+                        }
                     }
+                    _ECU.linear_dampers_on = _ID_on;
+                    _ECU.handle_60Hz(_jump_drive_engaged);
                 }
             }
         }
@@ -527,7 +524,7 @@ namespace orbiter_SE
             }
             lock (_ECU)
             { 
-                if (_grid.IsStatic || (_num_thrusters == 0 && _secondary_grids == null))
+                if (_num_thrusters == 0 && _secondary_grids == null)
                     _ECU.reset_ECU();
                 else
                 {
@@ -550,7 +547,7 @@ namespace orbiter_SE
         public void handle_4Hz_background()
         {
             check_disposed();
-            if (!_grid.IsStatic && (_num_thrusters > 0 || _secondary_grids != null))
+            if (_num_thrusters > 0 || _secondary_grids != null)
             {
                 lock (_ECU)
                 {
@@ -563,7 +560,7 @@ namespace orbiter_SE
         {
             check_disposed();
 
-            if (!_grid.IsStatic && (_num_thrusters > 0 || _secondary_grids != null))
+            if (_num_thrusters > 0 || _secondary_grids != null)
             {
                 lock (_ECU)
                 { 
@@ -577,7 +574,7 @@ namespace orbiter_SE
         public void handle_2s_period_background()
         {
             _grid_physics.update_current_reference();
-            if (!_grid.IsStatic && (_num_thrusters > 0 || _secondary_grids != null))
+            if (_num_thrusters > 0 || _secondary_grids != null)
             {
                 lock (_ECU)
                 {
@@ -588,7 +585,7 @@ namespace orbiter_SE
 
         public void perform_individual_calibration()
         {
-            if (!_grid.IsStatic && _num_thrusters > 0)
+            if (_num_thrusters > 0)
                 _ECU.perform_individual_calibration();
         }
 
