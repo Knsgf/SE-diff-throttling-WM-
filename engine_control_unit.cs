@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
 using VRage.Game;
-using VRage.Game.Components;
 using VRage.Game.Entity;
 using VRage.Game.ModAPI;
 using VRage.Utils;
@@ -1004,7 +1003,7 @@ namespace ttdtwm
 
         private void adjust_thrust_for_steering(int cur_dir, int opposite_dir, Vector3 desired_angular_velocity)
         {
-            const float DAMPING_CONSTANT = 0.5f, MIN_LINEAR_OPPOSITION = 0.05f, MAX_LINEAR_OPPOSITION = 1.0f, MAX_CONTROL = 0.2f, MIN_COT_SETTING = 0.1f;
+            const float DAMPING_CONSTANT = 5.0f, MIN_LINEAR_OPPOSITION = 0.05f, MAX_LINEAR_OPPOSITION = 1.0f, MAX_CONTROL = 0.2f, MIN_COT_SETTING = 0.1f;
             const float ALIGMENT_DEAD_ZONE = 0.5f, ANGULAR_VELOCITY_DEAD_ZONE = 0.01f;
 
             if (_actual_max_force[cur_dir] <= 1.0f)
@@ -1016,7 +1015,7 @@ namespace ttdtwm
             float average_grid_mass = this.average_grid_mass;
 
             Vector3 angular_velocity_diff = desired_angular_velocity - _local_angular_velocity, total_static_moment = Vector3.Zero;
-            float   max_linear_opposition, damping = DAMPING_CONSTANT * _surface_radii[cur_dir] * ((average_grid_mass >= _grid_mass) ? average_grid_mass : _grid_mass) / _actual_max_force[cur_dir],
+            float   max_linear_opposition, damping = DAMPING_CONSTANT * ((average_grid_mass >= _grid_mass) ? average_grid_mass : _grid_mass) / _actual_max_force[cur_dir],
                     current_limit = __thrust_limits[cur_dir], total_force = 0.0f, adjusted_damping,
                     linear_opposition = Math.Min(MAX_CONTROL, Math.Max(__control_vector[opposite_dir], _thrust_override_vector[opposite_dir])) / MAX_CONTROL,
                     CoT_setting, torque_alignment;
@@ -1326,7 +1325,7 @@ namespace ttdtwm
 
         private void adjust_trim_setting(out Vector3 desired_angular_velocity)
         {
-            const float ANGULAR_INTEGRAL_COEFF = 0.1f, ANGULAR_DERIVATIVE_COEFF = 0.1f, MAX_TRIM = 5.0f, THRUST_CUTOFF_TRIM = 4.0f, CHECKPOINT_FADE = 0.75f, 
+            const float ANGULAR_INTEGRAL_COEFF = 0.3f, ANGULAR_DERIVATIVE_COEFF = 0.1f, THRUST_CUTOFF_TRIM = 4.0f, CHECKPOINT_FADE = 0.75f, 
                 ANGULAR_ACCELERATION_SMOOTHING = 0.5f;
 
             bool    rotational_damping_enabled = rotational_damping_on;
@@ -1361,9 +1360,7 @@ namespace ttdtwm
 
             for (int dir_index = 0; dir_index < 6; ++dir_index)
             {
-                target_angular_velocity[dir_index] = steering_input[dir_index] * 2.0f;
-                if (steering_input[dir_index] > 0.01f)
-                    target_angular_velocity[dir_index] += angular_velocity[dir_index];
+                target_angular_velocity[dir_index] = steering_input[dir_index] * _surface_radii[dir_index] * 0.25f;
                 if (!rotational_damping_enabled)
                     target_angular_velocity[dir_index] += angular_velocity[dir_index];
                 else if (is_gyro_override_active)
