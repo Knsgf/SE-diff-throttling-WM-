@@ -76,7 +76,14 @@ namespace orbiter_SE
 
             var character = entity as IMyCharacter;
             if (character != null && character.IsPlayer)
+            {
                 gravity_and_physics.register_player(character);
+                return;
+            }
+
+            var floating_object = entity as MyFloatingObject;
+            if (floating_object != null)
+                gravity_and_physics.register_floating_object(floating_object);
         }
 
         private void on_entity_removed(IMyEntity entity)
@@ -105,7 +112,14 @@ namespace orbiter_SE
 
             var character = entity as IMyCharacter;
             if (character != null && character.IsPlayer)
+            {
                 gravity_and_physics.deregister_player(character);
+                return;
+            }
+
+            var floating_object = entity as MyFloatingObject;
+            if (floating_object != null)
+                gravity_and_physics.deregister_floating_object(floating_object);
         }
 
         #endregion
@@ -219,7 +233,7 @@ namespace orbiter_SE
         #region UI helpers
 
         private void create_toggle<_block_>(string id, string title, string enabled_text, string disabled_text, Action<IMyTerminalBlock> action, 
-            Func<IMyTerminalBlock, bool> getter, Func<IMyTerminalBlock, bool> state, string icon)
+            Func<IMyTerminalBlock, bool> getter, Func<IMyTerminalBlock, bool> state, string icon) where _block_: IMyTerminalBlock
         {
             IMyTerminalAction toggle_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id);
 
@@ -239,7 +253,7 @@ namespace orbiter_SE
         }
 
         private void create_checkbox<_block_>(string id, string title, string tooltip, string toolbar_enabled_text, string toolbar_disabled_text,
-            Func<IMyTerminalBlock, bool> getter, Action<IMyTerminalBlock, bool> setter, Func<IMyTerminalBlock, bool> state)
+            Func<IMyTerminalBlock, bool> getter, Action<IMyTerminalBlock, bool> setter, Func<IMyTerminalBlock, bool> state) where _block_: IMyTerminalBlock
         {
             IMyTerminalControlCheckbox panel_checkbox = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, _block_>(id);
 
@@ -263,7 +277,7 @@ namespace orbiter_SE
         }
 
         private void create_switch<_block_>(string id, string title, string tooltip, string enabled_text, string disabled_text, string toolbar_enabled_text, string toolbar_disabled_text,
-            Func<IMyTerminalBlock, bool> getter, Action<IMyTerminalBlock, bool> setter, Func<IMyTerminalBlock, bool> state)
+            Func<IMyTerminalBlock, bool> getter, Action<IMyTerminalBlock, bool> setter, Func<IMyTerminalBlock, bool> state) where _block_: IMyTerminalBlock
         {
             IMyTerminalControlOnOffSwitch panel_switch = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlOnOffSwitch, _block_>(id);
 
@@ -300,7 +314,7 @@ namespace orbiter_SE
         }
 
         private void create_button<_block_>(string id, string title, string tooltip, string action_prefix, Action<IMyTerminalBlock> button_function, 
-            Func<IMyTerminalBlock, bool> state, Action<IMyTerminalBlock, StringBuilder> status)
+            Func<IMyTerminalBlock, bool> state, Action<IMyTerminalBlock, StringBuilder> status) where _block_: IMyTerminalBlock
         {
             IMyTerminalControlButton new_button    = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlButton, _block_>(id);
             IMyTerminalAction        button_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id + "Activate");
@@ -319,7 +333,8 @@ namespace orbiter_SE
             MyAPIGateway.TerminalControls.AddAction <_block_>(button_action);
         }
 
-        private void create_slider_action<_block_>(string id, string title, Action<IMyTerminalBlock> action, Action<IMyTerminalBlock, StringBuilder> status, string icon)
+        private void create_slider_action<_block_>(string id, string title, Action<IMyTerminalBlock> action, 
+            Action<IMyTerminalBlock, StringBuilder> status, string icon) where _block_: IMyTerminalBlock
         {
             IMyTerminalAction toggle_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id);
 
@@ -332,7 +347,34 @@ namespace orbiter_SE
             MyAPIGateway.TerminalControls.AddAction<_block_>(toggle_action);
         }
 
+        private void create_slider<_block_>(string id, string title, Func<IMyTerminalBlock, float> getter, Action<IMyTerminalBlock, float> setter, 
+            Action<IMyTerminalBlock, StringBuilder> status, float minimum, float maximum, float change_amount, 
+            string increase_action_name, string decrease_action_name, string increase_text, string decrease_text) where _block_: IMyTerminalBlock
+        {
+            IMyTerminalControlSlider slider = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, _block_>(id);
+            slider.Getter = getter;
+            slider.Setter = setter;
+            slider.Title  = MyStringId.GetOrCompute(title);
+            slider.Writer = status;
+            slider.SupportsMultipleBlocks = true;
+            slider.SetLimits(minimum, maximum);
+            MyAPIGateway.TerminalControls.AddControl<_block_>(slider);
+            create_slider_action<_block_>(increase_action_name, increase_text,
+                delegate (IMyTerminalBlock block)
+                {
+                    setter(block, getter(block) + change_amount);
+                },
+                status, "Increase");
+            create_slider_action<_block_>(decrease_action_name, decrease_text,
+                delegate (IMyTerminalBlock block)
+                {
+                    setter(block, getter(block) - change_amount);
+                },
+                status, "Decrease");
+        }
+
         private void create_PB_property<_type_, _block_>(string id, Func<IMyTerminalBlock, _type_> getter, Action<IMyTerminalBlock, _type_> setter = null)
+            where _block_: IMyTerminalBlock
         {
             IMyTerminalControlProperty<_type_> new_property = MyAPIGateway.TerminalControls.CreateProperty<_type_, _block_>(id);
             new_property.Getter = getter;
@@ -526,7 +568,7 @@ namespace orbiter_SE
             }
         }
 
-        private void process_orbit_stabilisation_for_connected_grids()
+        private void synchronise_orbit_stabilisation_for_connected_grids()
         {
             List<List<grid_logic>> connected_grid_lists = _connected_grid_lists;
             int num_connected_grid_lists = _num_connected_grid_lists;
@@ -561,7 +603,7 @@ namespace orbiter_SE
                 _sample_PB = PB;
         }
 
-        private void create_controller_widgets<_controller_type_>()
+        private void create_controller_widgets<_controller_type_>() where _controller_type_: IMyShipController
         {
             if (!screen_info.torque_disabled)
             { 
@@ -643,27 +685,9 @@ namespace orbiter_SE
                 create_switch  <IMyThrust>(          "AntiSlip",      "Thrust Trimming", null, "On", "Off", "On", "Off", thruster_and_grid_tagger.is_anti_slip           , thruster_and_grid_tagger.set_anti_slip      , thruster_and_grid_tagger.is_anti_slip_available     );
                 create_checkbox<IMyThrust>("DisableLinearInput", "Disable linear input", null, "On", "Off",              thruster_and_grid_tagger.is_rotational_only     , thruster_and_grid_tagger.toggle_linear_input, thruster_and_grid_tagger.is_active_control_available);
                 create_switch  <IMyThrust>(       "StaticLimit",       "Thrust Limiter", null, "On", "Off", "On", "Off", thruster_and_grid_tagger.is_thrust_limiter_on   , thruster_and_grid_tagger.set_thrust_limiter , thruster_and_grid_tagger.is_thrust_limiter_available);
-
-                IMyTerminalControlSlider manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
-                manual_throttle.Getter = thruster_and_grid_tagger.get_manual_throttle;
-                manual_throttle.Setter = thruster_and_grid_tagger.set_manual_throttle;
-                manual_throttle.SupportsMultipleBlocks = true;
-                manual_throttle.Title  = MyStringId.GetOrCompute("Manual throttle");
-                manual_throttle.Writer = thruster_and_grid_tagger.throttle_status;
-                manual_throttle.SetLimits(0.0f, 100.0f);
-                MyAPIGateway.TerminalControls.AddControl<IMyThrust>(manual_throttle);
-                create_slider_action<IMyThrust>("IncreaseThrottle", "Increase Manual Throttle",
-                    delegate (IMyTerminalBlock thruster)
-                    {
-                        thruster_and_grid_tagger.set_manual_throttle(thruster, thruster_and_grid_tagger.get_manual_throttle(thruster) + 5.0f);
-                    },
-                    thruster_and_grid_tagger.throttle_status, "Increase");
-                create_slider_action<IMyThrust>("DecreaseThrottle", "Decrease Manual Throttle",
-                    delegate (IMyTerminalBlock thruster)
-                    {
-                        thruster_and_grid_tagger.set_manual_throttle(thruster, thruster_and_grid_tagger.get_manual_throttle(thruster) - 5.0f);
-                    },
-                    thruster_and_grid_tagger.throttle_status, "Decrease");
+                create_slider<IMyThrust>("ManualThrottle", "Manual throttle", 
+                    thruster_and_grid_tagger.get_manual_throttle, thruster_and_grid_tagger.set_manual_throttle, thruster_and_grid_tagger.throttle_status,
+                    0.0f, 100.0f, 5.0f, "IncreaseThrottle", "DecreaseThrottle", "Increase Manual Throttle", "Decrease Manual Throttle");
                 create_PB_property<float, IMyThrust>("BalancedLevel", thruster_and_grid_tagger.get_thrust_limit);
             }
 
@@ -719,7 +743,7 @@ namespace orbiter_SE
                     else if (!_calibration_task.valid || _calibration_task.IsComplete)
                         _calibration_task = MyAPIGateway.Parallel.Start(calibration_thread);
                     _grids_handle_2s_period_background?.Invoke();
-                    gravity_and_physics.update_player_reference_bodies();
+                    gravity_and_physics.update_player_and_floating_object_reference_bodies();
                 }
                 _grids_handle_4Hz_background?.Invoke();
             }
@@ -760,9 +784,9 @@ namespace orbiter_SE
                 thruster_and_grid_tagger.handle_4Hz();
                 _grids_handle_4Hz_foreground?.Invoke();
             }
-            process_orbit_stabilisation_for_connected_grids();
+            synchronise_orbit_stabilisation_for_connected_grids();
             _grids_handle_60Hz?.Invoke();
-            gravity_and_physics.apply_gravity_to_players();
+            gravity_and_physics.apply_gravity_to_players_and_floating_objects();
         }
 
         public override void UpdateAfterSimulation()

@@ -499,7 +499,7 @@ namespace orbiter_SE
             if (!_UI_handlers_registered && MyAPIGateway.Utilities != null)
             {
                 MyAPIGateway.Utilities.MessageEntered += command_handler;
-                register_HUD_notification(     THRUST_LOSS, "Thrust loss indication", false, true, set_min_thrust_loss_percentage);
+                register_HUD_notification(     THRUST_LOSS, "Thrust loss indication", false, false, set_min_thrust_loss_percentage);
                 register_HUD_notification(  VERTICAL_SPEED, "Vertical speed readout",  true, false);
                 register_HUD_notification(ORBITAL_ELEMENTS,      "Orbit information", false, false, set_displayed_orbital_elements);
                 register_HUD_notification( PLANE_ALIGNMENT,    "Plane alignment aid", false,  true, set_target_plane);
