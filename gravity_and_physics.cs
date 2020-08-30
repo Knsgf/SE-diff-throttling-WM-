@@ -407,7 +407,7 @@ namespace orbiter_SE
         private gravity_source _current_reference = null, _display_reference = null;
 
         private Vector3D _grid_position, _absolute_linear_velocity, _absolute_angular_velocity;
-        private Vector3D  _current_gravity_vector = Vector3D.Zero, _accumulated_gravity = Vector3D.Zero;
+        private Vector3D _current_gravity_vector = Vector3D.Zero, _accumulated_gravity = Vector3D.Zero;
         private Vector3D _current_angular_momentum = Vector3D.Up;
         private Vector3D _grid_forward, _grid_right, _grid_up;
 
@@ -422,7 +422,7 @@ namespace orbiter_SE
         private static readonly Dictionary<MyFloatingObject, gravity_source> _FO_new_source     = new Dictionary<MyFloatingObject, gravity_source>();
 
         private double _reference_energy = 0.0, _grid_mass = 1.0;
-        private bool   _energy_changed   = false, _suppress_stabilisation = true, _energy_received = false;
+        private bool   _energy_changed   = false, _suppress_stabilisation = true, _energy_received = false, _stock_gravity_used;
 
         private string _old_name;
 
@@ -902,9 +902,10 @@ namespace orbiter_SE
                 info_text.AppendLine();
             if (current_elements.eccentricity < 1.0)
             {
-                info_text.AppendFormat("Orbiting {0}\nRadius: {1:F1} km\nLocal gravity: {5:F2} m/s^2\nSemi-major axis: {2:F1} km\nPeriapsis: {3:F1} km\nApoapsis: {4:F1} km",
+                info_text.AppendFormat("Orbiting {0}\nRadius: {1:F1} km\nLocal gravity: {5:F2} m/s^2 ({6})\nSemi-major axis: {2:F1} km\nPeriapsis: {3:F1} km\nApoapsis: {4:F1} km",
                     current_elements.name, current_elements.predicted_distance / 1000.0, current_elements.semi_major_axis / 1000.0, 
-                    current_elements.periapsis_radius / 1000.0, current_elements.apoapsis_radius / 1000.0, instance._current_gravity_vector.Length());
+                    current_elements.periapsis_radius / 1000.0, current_elements.apoapsis_radius / 1000.0, instance._current_gravity_vector.Length(), 
+                    instance._stock_gravity_used ? "stock" : "real");
                 info_text.AppendFormat("\nEccentricity: {0:F3}\nInclination: {1:F0} deg\nLAN: {2:F0} deg", current_elements.eccentricity, 
                     current_elements.inclination * 180.0 / Math.PI, current_elements.longitude_of_ascending_node * 180.0 / Math.PI);
                 info_text.AppendFormat("\nPeriod: {0:F0} s\nTime to periapsis: {1:F0} s\nTime to apoapsis: {2:F0} s", current_elements.orbit_period,
@@ -916,9 +917,10 @@ namespace orbiter_SE
             }
             else
             {
-                info_text.AppendFormat("Escaping {0}\nRadius: {1:F1} km\nLocal gravity: {4:F2} m/s^2\nSemi-major axis: {2:F1} km\nPeriapsis: {3:F1} km\nApoapsis: N/A",
+                info_text.AppendFormat("Escaping {0}\nRadius: {1:F1} km\nLocal gravity: {4:F2} m/s^2 ({5})\nSemi-major axis: {2:F1} km\nPeriapsis: {3:F1} km\nApoapsis: N/A",
                     current_elements.name, current_elements.predicted_distance / 1000.0, current_elements.semi_major_axis / 1000.0, 
-                    current_elements.periapsis_radius / 1000.0, instance._current_gravity_vector.Length());
+                    current_elements.periapsis_radius / 1000.0, instance._current_gravity_vector.Length(),
+                    instance._stock_gravity_used ? "stock" : "real");
                 info_text.AppendFormat("\nEccentricity: {0:F3}\nInclination: {1:F0} deg\nLAN: {2:F0} deg", current_elements.eccentricity, 
                     current_elements.inclination * 180.0 / Math.PI, current_elements.longitude_of_ascending_node * 180.0 / Math.PI);
                 info_text.AppendFormat("\nPeriod: N/A\nTime {0} periapsis: {1:F0} s\nTime to apoapsis: N/A", 
@@ -1149,8 +1151,13 @@ namespace orbiter_SE
 
             Vector3 stock_gravity_force = _grid.Physics.Gravity;
             double  gravity_magnitude   = gravity_vector.Length(), stock_gravity_magnitude = stock_gravity_force.Length();
-            if (gravity_magnitude < stock_gravity_magnitude)
-                gravity_vector *= stock_gravity_magnitude / gravity_magnitude;
+            if (gravity_magnitude >= stock_gravity_magnitude)
+                _stock_gravity_used = false;
+            else
+            {
+                gravity_vector     *= stock_gravity_magnitude / gravity_magnitude;
+                _stock_gravity_used = true;
+            }
             double grid_mass = _grid_mass;
             Vector3D gravity_correction_force = grid_mass * (gravity_vector - stock_gravity_force) + _accumulated_gravity;
             if (gravity_correction_force.LengthSquared() >= 1.0 || _current_torque.LengthSquared() >= 1.0f)
