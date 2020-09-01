@@ -195,6 +195,8 @@ namespace orbiter_SE
         
         public Vector3D new_grid_CoM      { get; set; }
         public float    average_grid_mass { get; set; } = 1.0f;
+
+        public float control_sensitivity { get; set; } = 5.0f;
         
         public int  thrust_reduction      { get; private set; }
 
@@ -1113,7 +1115,7 @@ namespace orbiter_SE
 
         private void adjust_thrust_for_steering(int cur_dir, int opposite_dir, Vector3 desired_angular_velocity)
         {
-            const float DAMPING_CONSTANT = 5.0f, MIN_LINEAR_OPPOSITION = 0.05f, MAX_LINEAR_OPPOSITION = 1.0f, MAX_CONTROL = 0.2f, MIN_COT_SETTING = 0.1f;
+            const float MIN_LINEAR_OPPOSITION = 0.05f, MAX_LINEAR_OPPOSITION = 1.0f, MAX_CONTROL = 0.2f, MIN_COT_SETTING = 0.1f;
             const float ALIGMENT_DEAD_ZONE = 0.5f, ANGULAR_VELOCITY_DEAD_ZONE = 0.01f;
 
             if (_actual_max_force[cur_dir] <= 1.0f)
@@ -1125,7 +1127,7 @@ namespace orbiter_SE
             float average_grid_mass = this.average_grid_mass;
 
             Vector3 angular_velocity_diff = desired_angular_velocity - _local_angular_velocity, total_static_moment = Vector3.Zero;
-            float   max_linear_opposition, damping = DAMPING_CONSTANT * ((average_grid_mass >= _grid_mass) ? average_grid_mass : _grid_mass) / _actual_max_force[cur_dir],
+            float   max_linear_opposition, damping = control_sensitivity * ((average_grid_mass >= _grid_mass) ? average_grid_mass : _grid_mass) / _actual_max_force[cur_dir],
                     current_limit = __thrust_limits[cur_dir], total_force = 0.0f, adjusted_damping,
                     linear_opposition = Math.Min(MAX_CONTROL, Math.Max(__control_vector[opposite_dir], _thrust_override_vector[opposite_dir])) / MAX_CONTROL,
                     CoT_setting, torque_alignment;
@@ -1487,6 +1489,7 @@ namespace orbiter_SE
                 {
                     last_angular_velocity[dir_index] = -1.0f;
                     current_trim[dir_index] = aux_trim[dir_index] = angular_velocity_checkpoint[dir_index] = smoothed_acceleration[dir_index] = 0.0f;
+                    continue;
                 }
 
                 opposite_dir = (dir_index + 3) % 6;

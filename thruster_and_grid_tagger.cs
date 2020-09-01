@@ -26,13 +26,21 @@ namespace orbiter_SE
         const int MANUAL_THROTTLE_FIELD_END   = MANUAL_THROTTLE_FIELD_START + 3;
         const int THRUSTER_FIELDS_LENGTH      = MANUAL_THROTTLE_FIELD_END   + 1;
 
-        const int GRID_MODE_FIELD_START      = 0;
-        const int GRID_MODE_FIELD_END        = GRID_MODE_FIELD_START      + 2;
-        const int GRID_MANOEUVRE_FIELD_START = GRID_MODE_FIELD_END        + 1;
-        const int GRID_MANOEUVRE_FIELD_END   = GRID_MANOEUVRE_FIELD_START + 0;
-        const int GRID_FIELDS_LENGTH         = GRID_MANOEUVRE_FIELD_END   + 1;
+        const float GRID_CONTROL_SENSITIVITY_SCALE = 1000.0f, MIN_CONTROL_SENSITIVITY = 0.1f;
+        
+        const int GRID_MODE_FIELD_START                = 0;
+        const int GRID_MODE_FIELD_END                  = GRID_MODE_FIELD_START                + 2;
+        const int GRID_MANOEUVRE_FIELD_START           = GRID_MODE_FIELD_END                  + 1;
+        const int GRID_MANOEUVRE_FIELD_END             = GRID_MANOEUVRE_FIELD_START           + 0;
+        const int GRID_CONTROL_SENSITIVITY_FIELD_START = GRID_MANOEUVRE_FIELD_END             + 1;
+        const int GRID_CONTROL_SENSITIVITY_FIELD_END   = GRID_CONTROL_SENSITIVITY_FIELD_START + 5;
+        const int GRID_FIELDS_LENGTH                   = GRID_CONTROL_SENSITIVITY_FIELD_END   + 1;
 
         private static readonly Guid _uuid = new Guid("A78B4F70-BC21-4BAF-A403-855F82C2856F");
+
+        private static HashSet<IMyTerminalBlock> _pending_thruster_requests = null;
+        private static HashSet<IMyCubeGrid     > _pending_grid_requests     = null;
+        private static bool _have_pending_requests = false;
 
         private static readonly Dictionary<IMyCubeGrid,    grid_logic> _grid_handlers = new Dictionary<IMyCubeGrid,    grid_logic>();
         private static readonly Dictionary<IMyCubeGrid, StringBuilder> _grid_settings = new Dictionary<IMyCubeGrid, StringBuilder>();
@@ -42,13 +50,12 @@ namespace orbiter_SE
 
         private static StringBuilder _current_thruster_settings = null, _current_grid_settings = null;
         
-        private static string           _thruster_data, _throttle_setting;
         private static IMyTerminalBlock _current_thruster = null, _last_controller = null;
-        private static bool             _current_active_control_on, _current_anti_slip_on, _current_disable_linear, _current_thrust_limiter_on, _settings_changed = false;
+        private static bool             _current_active_control_on, _current_anti_slip_on, _current_disable_linear, _current_thrust_limiter_on;
         private static int              _thruster_switches, _manual_throttle;
 
         private static IMyCubeGrid _current_grid = null;
-        private static int         _grid_switches;
+        private static int         _grid_switches, _grid_control_sensitivity;
         private static bool        _CoT_mode_on, _individual_calibration_on, _touchdown_mode_on, _rotational_damping_on, _circularisation_on;
         private static engine_control_unit.ID_manoeuvres _current_manoeuvre;
 
@@ -104,10 +111,10 @@ namespace orbiter_SE
             
             for (int index = beginning; index <= end; ++index)
             {
-                digit = (char) (number / divider + '0');
+                digit        = (char) (number / divider + '0');
                 input[index] = digit;
-                number %= divider;
-                divider /= 10;
+                number      %= divider;
+                divider     /= 10;
             }
         }
 
@@ -139,7 +146,6 @@ namespace orbiter_SE
             if (!(thruster is IMyThrust) || !_thruster_hosts.ContainsKey(thruster))
             {
                 _current_thruster = null;
-                _throttle_setting = null;
                 _current_thruster_settings = null;
                 _current_active_control_on = _current_anti_slip_on = _current_disable_linear = _current_thrust_limiter_on = false;
                 _manual_throttle = 0;
@@ -183,33 +189,6 @@ namespace orbiter_SE
                 _thruster_hosts[thruster].set_manual_throttle(thruster.EntityId, _manual_throttle / MANUAL_THROTTLE_SCALE);
 
             return true;
-            /*
-            _thruster_data    = thruster.CustomData;
-            bool contains_RCS = _thruster_data.ContainsRCSTag();
-            _current_active_control_on = _thruster_data.ContainsTHRTag()  ||  contains_RCS;
-            _current_anti_slip_on      = _thruster_data.ContainsSLPTag();
-            _current_disable_linear    = _thruster_data.ContainsNLTag();
-            _current_thrust_limiter_on = _thruster_data.ContainsSTATTag() && !contains_RCS;
-
-            _throttle_setting  = "TTDTWM_MT_" + thruster.EntityId.ToString();
-            bool setting_saved = MyAPIGateway.Utilities.GetVariable(_throttle_setting, out _manual_throttle);
-            if (!setting_saved)
-                _manual_throttle = 0;
-
-            _thruster_switches = 0;
-            toggle_switch(ref _thruster_switches, STEERING, _current_active_control_on);
-            toggle_switch(ref _thruster_switches, THRUST_TRIM, _current_anti_slip_on);
-            toggle_switch(ref _thruster_switches, THRUST_LIMIT, _current_thrust_limiter_on);
-            toggle_switch(ref _thruster_switches, LINEAR_OFF, _current_disable_linear);
-            store_number(_current_thruster_settings, _thruster_switches, THRUSTER_MODE_FIELD_START, THRUSTER_MODE_FIELD_END);
-            _manual_throttle = (int) (_manual_throttle * manual_throttle_scale / 100.0f);
-            store_number(_current_thruster_settings, _manual_throttle, MANUAL_THROTTLE_FIELD_START, MANUAL_THROTTLE_FIELD_END);
-            thruster.Storage[_uuid] = _current_thruster_settings.ToString();
-            thruster.RefreshCustomInfo();
-
-            attach_ECU(thruster, _thruster_hosts[thruster]);
-            update_thruster_flags(thruster);
-            */
         }
 
         public static void remote_thrust_settings(sync_helper.message_types message_type, object entity, byte[] argument, int length)
@@ -218,39 +197,40 @@ namespace orbiter_SE
             if (thruster == null)
                 return;
 
-            if (sync_helper.running_on_server)
+            if (message_type == sync_helper.message_types.MANUAL_THROTTLE && length == 2)
             {
-                if (message_type == sync_helper.message_types.MANUAL_THROTTLE && length == 2)
-                {
-                    _manual_throttle = (int) sync_helper.decode_signed(2, argument, 0);
-                    //log_tagger_action("remote_thrust_settings", $"received \"{thruster.CustomName}\" T={_manual_throttle / MANUAL_THROTTLE_SCALE * 100.0f}");
-                    update_thruster_flags(thruster, use_remote_manual_throttle: true);
-                }
-                else if (message_type == sync_helper.message_types.THRUSTER_MODES)
-                {
-                    if (length == 1)
-                    {
-                        _thruster_switches = argument[0];
-                        //log_tagger_action("remote_thrust_settings", $"received \"{thruster.CustomName}\" S={_thruster_switches:X}h");
-                        update_thruster_flags(thruster, use_remote_switches: true);
-                    }
-                    else if (length == 8)
-                    {
-                        update_thruster_flags(thruster);
-                        _message[0] = (byte) _thruster_switches;
-                        sync_helper.encode_signed(_manual_throttle, 2, _message, 1);
-                        ulong recipient = sync_helper.decode_unsigned(8, argument, 0);
-                        //log_tagger_action("remote_thrust_settings", $"sending \"{thruster.CustomName}\" S={_thruster_switches:X}h+T={_manual_throttle / MANUAL_THROTTLE_SCALE * 100.0f} to {recipient}");
-                        sync_helper.send_message_to(recipient, sync_helper.message_types.THRUSTER_MODES, thruster, _message, 3);
-                    }
-                }
+                _manual_throttle = (int) sync_helper.decode_signed(2, argument, 0);
+                //log_tagger_action("remote_thrust_settings", $"received \"{thruster.CustomName}\" T={_manual_throttle / MANUAL_THROTTLE_SCALE * 100.0f}");
+                update_thruster_flags(thruster, use_remote_manual_throttle: true);
             }
-            else if (message_type == sync_helper.message_types.THRUSTER_MODES && length == 3)
+            else if (message_type == sync_helper.message_types.THRUSTER_MODES)
             {
-                _thruster_switches = argument[0];
-                _manual_throttle   = (int) sync_helper.decode_signed(2, argument, 1);
-                //log_tagger_action("remote_thrust_settings", $"received \"{thruster.CustomName}\" S={_thruster_switches:X}h+T={_manual_throttle / MANUAL_THROTTLE_SCALE * 100.0f}");
-                update_thruster_flags(thruster, use_remote_switches: true, use_remote_manual_throttle: true);
+                if (length == 1)
+                {
+                    _thruster_switches = argument[0];
+                    //log_tagger_action("remote_thrust_settings", $"received \"{thruster.CustomName}\" S={_thruster_switches:X}h");
+                    update_thruster_flags(thruster, use_remote_switches: true);
+                }
+                else if (length == 8 && sync_helper.running_on_server)
+                {
+                    update_thruster_flags(thruster);
+                    _message[0] = (byte) _thruster_switches;
+                    sync_helper.encode_signed(_manual_throttle, 2, _message, 1);
+                    ulong recipient = sync_helper.decode_unsigned(8, argument, 0);
+                    //log_tagger_action("remote_thrust_settings", $"sending \"{thruster.CustomName}\" S={_thruster_switches:X}h+T={_manual_throttle / MANUAL_THROTTLE_SCALE * 100.0f} to {recipient}");
+                    sync_helper.send_message_to(recipient, sync_helper.message_types.THRUSTER_MODES, thruster, _message, 3);
+                }
+                else if (length == 3 && !sync_helper.running_on_server)
+                {
+                    _pending_thruster_requests.Remove(thruster);
+                    _have_pending_requests = _pending_thruster_requests != null && _pending_thruster_requests.Count > 0
+                                          || _pending_grid_requests     != null && _pending_grid_requests.Count     > 0;
+
+                    _thruster_switches = argument[0];
+                    _manual_throttle   = (int) sync_helper.decode_signed(2, argument, 1);
+                    //log_tagger_action("remote_thrust_settings", $"received \"{thruster.CustomName}\" S={_thruster_switches:X}h+T={_manual_throttle / MANUAL_THROTTLE_SCALE * 100.0f}");
+                    update_thruster_flags(thruster, use_remote_switches: true, use_remote_manual_throttle: true);
+                }
             }
         }
 
@@ -266,46 +246,23 @@ namespace orbiter_SE
 
             if (!sync_helper.running_on_server)
             {
-                //log_tagger_action("attach_ECU", $"requesting \"{thruster.CustomName}\" state for player {screen_info.local_player.SteamUserId}");
-                sync_helper.encode_unsigned(screen_info.local_player.SteamUserId, 8, _message, 0);
-                sync_helper.send_message_to_server(sync_helper.message_types.THRUSTER_MODES, thruster, _message, 8);
+                //log_tagger_action("attach_ECU", $"queueing \"{thruster.CustomName}\" state for player {screen_info.local_player.SteamUserId}");
+                if (_pending_thruster_requests == null)
+                    _pending_thruster_requests = new HashSet<IMyTerminalBlock>();
+                _pending_thruster_requests.Add(thruster);
+                _have_pending_requests = true;
                 return;
             }
 
-            if (!thruster.Storage.ContainsKey(_uuid))
-            {
-                _thruster_data    = thruster.CustomData;
-                bool contains_RCS = _thruster_data.ContainsRCSTag();
-                _current_active_control_on = _thruster_data.ContainsTHRTag()  ||  contains_RCS;
-                _current_anti_slip_on      = _thruster_data.ContainsSLPTag();
-                _current_disable_linear    = _thruster_data.ContainsNLTag();
-                _current_thrust_limiter_on = _thruster_data.ContainsSTATTag() && !contains_RCS;
-
-                _throttle_setting  = "TTDTWM_MT_" + thruster.EntityId.ToString();
-                bool setting_saved = MyAPIGateway.Utilities.GetVariable(_throttle_setting, out _manual_throttle);
-                if (!setting_saved)
-                    _manual_throttle = 0;
-
-                _current_thruster_settings = _thruster_settings[thruster];
-                _thruster_switches = 0;
-                toggle_switch(ref _thruster_switches, STEERING, _current_active_control_on);
-                toggle_switch(ref _thruster_switches, THRUST_TRIM, _current_anti_slip_on);
-                toggle_switch(ref _thruster_switches, THRUST_LIMIT, _current_thrust_limiter_on);
-                toggle_switch(ref _thruster_switches, LINEAR_OFF, _current_disable_linear);
-                store_number(_current_thruster_settings, _thruster_switches, THRUSTER_MODE_FIELD_START, THRUSTER_MODE_FIELD_END);
-                _manual_throttle = (int) (_manual_throttle * MANUAL_THROTTLE_SCALE / 100.0f);
-                store_number(_current_thruster_settings, _manual_throttle, MANUAL_THROTTLE_FIELD_START, MANUAL_THROTTLE_FIELD_END);
-                //log_tagger_action("attach_ECU", $"attach_ECU(): \"{thruster.CustomName}\" {_thruster_switches:X}h");
-                thruster.Storage[_uuid] = _current_thruster_settings.ToString();
-            }
-
-            string thruster_data = thruster.Storage[_uuid];
-            if (thruster_data.Length >= THRUSTER_FIELDS_LENGTH)
+            string thruster_data;
+            if (!thruster.Storage.TryGetValue(_uuid, out thruster_data) || thruster_data.Length < THRUSTER_FIELDS_LENGTH)
+                _thruster_switches = _manual_throttle = 0;
+            else
             {
                 _thruster_switches = parse_number(thruster_data,   THRUSTER_MODE_FIELD_START,   THRUSTER_MODE_FIELD_END);
                 _manual_throttle   = parse_number(thruster_data, MANUAL_THROTTLE_FIELD_START, MANUAL_THROTTLE_FIELD_END);
-                update_thruster_flags(thruster, use_remote_switches: true, use_remote_manual_throttle: true);
             }
+            update_thruster_flags(thruster, use_remote_switches: true, use_remote_manual_throttle: true);
         }
 
         public static void detach_ECU(IMyTerminalBlock thruster)
@@ -472,46 +429,56 @@ namespace orbiter_SE
             if (grid == null)
                 return;
 
-            if (sync_helper.running_on_server)
+            if (message_type == sync_helper.message_types.MANOEUVRE && length == 1)
             {
-                if (message_type == sync_helper.message_types.MANOEUVRE && length == 1)
-                {
-                    _current_manoeuvre = (engine_control_unit.ID_manoeuvres) argument[0];
-                    //log_tagger_action("remote_grid_settings", $"received \"{grid.DisplayName}\" M={_current_manoeuvre}");
-                    update_grid_flags(grid, use_remote_manoeuvre: true);
-                }
-                else if (message_type == sync_helper.message_types.GRID_MODES)
-                {
-                    if (length == 1)
-                    {
-                        _grid_switches = argument[0];
-                        //log_tagger_action("remote_grid_settings", $"received \"{grid.DisplayName}\" S={_grid_switches:X}h");
-                        update_grid_flags(grid, use_remote_switches: true);
-                    }
-                    if (length == 8)
-                    {
-                        update_grid_flags(grid);
-                        _message[0] = (byte) _grid_switches;
-                        _message[1] = (byte) _current_manoeuvre;
-                        ulong recipient = sync_helper.decode_unsigned(8, argument, 0);
-                        //log_tagger_action("remote_grid_settings", $"sending \"{grid.DisplayName}\" S={_grid_switches:X}h+M={_current_manoeuvre} to {recipient}");
-                        sync_helper.send_message_to(recipient, sync_helper.message_types.GRID_MODES, grid, _message, 2);
-                    }
-                }
+                _current_manoeuvre = (engine_control_unit.ID_manoeuvres) argument[0];
+                //log_tagger_action("remote_grid_settings", $"received \"{grid.DisplayName}\" M={_current_manoeuvre}");
+                update_grid_flags(grid, use_remote_manoeuvre: true);
             }
-            else if (message_type == sync_helper.message_types.GRID_MODES && length == 2)
+            else if (message_type == sync_helper.message_types.GRID_CONTROL_SENSITIVITY && length == 2)
             {
-                _grid_switches     =                                     argument[0];
-                _current_manoeuvre = (engine_control_unit.ID_manoeuvres) argument[1];
-                //log_tagger_action("remote_grid_settings", $"received \"{grid.DisplayName}\" S={_grid_switches:X}h+M={_current_manoeuvre}");
-                update_grid_flags(grid, use_remote_switches: true, use_remote_manoeuvre: true);
+                _grid_control_sensitivity = (int) sync_helper.decode_signed(2, argument, 0);
+                //log_tagger_action("remote_grid_settings", $"received \"{grid.DisplayName}\" P={_grid_control_sensitivity / GRID_CONTROL_SENSITIVITY_SCALE}");
+                update_grid_flags(grid, use_remote_sensitivity: true);
+            }
+            else if (message_type == sync_helper.message_types.GRID_MODES)
+            {
+                if (length == 1)
+                {
+                    _grid_switches = argument[0];
+                    //log_tagger_action("remote_grid_settings", $"received \"{grid.DisplayName}\" S={_grid_switches:X}h");
+                    update_grid_flags(grid, use_remote_switches: true);
+                }
+                else if (length == 8 && sync_helper.running_on_server)
+                {
+                    update_grid_flags(grid);
+                    _message[0] = (byte) _grid_switches;
+                    _message[1] = (byte) _current_manoeuvre;
+                    sync_helper.encode_signed(_grid_control_sensitivity, 2, _message, 2);
+                    ulong recipient = sync_helper.decode_unsigned(8, argument, 0);
+                    //log_tagger_action("remote_grid_settings", $"sending \"{grid.DisplayName}\" S={_grid_switches:X}h+M={_current_manoeuvre}+P={_grid_control_sensitivity / GRID_CONTROL_SENSITIVITY_SCALE} to {recipient}");
+                    sync_helper.send_message_to(recipient, sync_helper.message_types.GRID_MODES, grid, _message, 4);
+                }
+                else if (length == 4 && !sync_helper.running_on_server)
+                {
+                    _pending_grid_requests.Remove(grid);
+                    _have_pending_requests = _pending_thruster_requests != null && _pending_thruster_requests.Count > 0
+                                          || _pending_grid_requests     != null && _pending_grid_requests.Count     > 0;
+
+                    _grid_switches            =                                     argument[0];
+                    _current_manoeuvre        = (engine_control_unit.ID_manoeuvres) argument[1];
+                    _grid_control_sensitivity = (int) sync_helper.decode_signed(2, argument, 2);
+                    //log_tagger_action("remote_grid_settings", $"received \"{grid.DisplayName}\" S={_grid_switches:X}h+M={_current_manoeuvre}+P={_grid_control_sensitivity / GRID_CONTROL_SENSITIVITY_SCALE}");
+                    update_grid_flags(grid, use_remote_switches: true, use_remote_manoeuvre: true, use_remote_sensitivity: true);
+                }
             }
         }
 
         public static void load_grid_settings(IMyCubeGrid grid, grid_logic grid_handler)
         {
-            sync_helper.register_entity(sync_helper.message_types.GRID_MODES, grid, grid.EntityId);
-            sync_helper.register_entity(sync_helper.message_types.MANOEUVRE , grid, grid.EntityId);
+            sync_helper.register_entity(sync_helper.message_types.GRID_MODES              , grid, grid.EntityId);
+            sync_helper.register_entity(sync_helper.message_types.MANOEUVRE               , grid, grid.EntityId);
+            sync_helper.register_entity(sync_helper.message_types.GRID_CONTROL_SENSITIVITY, grid, grid.EntityId);
             _grid_handlers[grid] = grid_handler;
             _grid_settings[grid] = new StringBuilder(new string('0', GRID_FIELDS_LENGTH));
 
@@ -520,65 +487,40 @@ namespace orbiter_SE
 
             if (!sync_helper.running_on_server)
             {
-                //log_tagger_action("load_grid_settings", $"requesting \"{grid.DisplayName}\" state for player {screen_info.local_player.SteamUserId}");
-                sync_helper.encode_unsigned(screen_info.local_player.SteamUserId, 8, _message, 0);
-                sync_helper.send_message_to_server(sync_helper.message_types.GRID_MODES, grid, _message, 8);
+                //log_tagger_action("load_grid_settings", $"queueing \"{grid.DisplayName}\" state for player {screen_info.local_player.SteamUserId}");
+                if (_pending_grid_requests == null)
+                    _pending_grid_requests = new HashSet<IMyCubeGrid>();
+                _pending_grid_requests.Add(grid);
+                _have_pending_requests = true;
                 return;
             }
 
-            if (!grid.Storage.ContainsKey(_uuid))
-            {
-                _grid_handlers[grid].update_ECU_cockpit_controls();
-                engine_control_unit ECU = _grid_handlers[grid].ECU;
-                _CoT_mode_on = ECU.CoT_mode_on;
-                _touchdown_mode_on = ECU.touchdown_mode_on;
-                _rotational_damping_on = ECU.rotational_damping_on;
-                _individual_calibration_on = ECU.use_individual_calibration;
-                _circularisation_on = ECU.circularise_on;
-
-                _current_grid_settings = _grid_settings[grid];
-                _grid_switches = 0;
-                toggle_switch(ref _grid_switches, COT_MODE, _CoT_mode_on);
-                toggle_switch(ref _grid_switches, TOUCHDOWN_MODE, _touchdown_mode_on);
-                toggle_switch(ref _grid_switches, ROTATIONAL_DAMNPING_OFF, !_rotational_damping_on);
-                toggle_switch(ref _grid_switches, INDIVIDUAL_CALIBRATION, _individual_calibration_on);
-                toggle_switch(ref _grid_switches, ID_CIRCULARISE, _circularisation_on);
-
-                Vector3 dampers_axis_enabled = ECU.dampers_axes_enabled;
-                toggle_switch(ref _grid_switches, IDO_FORE_AFT, dampers_axis_enabled.Z < 0.5f);
-                toggle_switch(ref _grid_switches, IDO_PORT_STARBOARD, dampers_axis_enabled.X < 0.5f);
-                toggle_switch(ref _grid_switches, IDO_DORSAL_VENTRAL, dampers_axis_enabled.Y < 0.5f);
-
-                //log_tagger_action("load_grid_settings", $"\"{grid.DisplayName}\" {_grid_switches:X}h");
-                store_number(_current_grid_settings, _grid_switches, GRID_MODE_FIELD_START, GRID_MODE_FIELD_END);
-                grid.Storage[_uuid] = _current_grid_settings.ToString();
-            }
-
-            string grid_data = grid.Storage[_uuid];
-            if (grid_data.Length > GRID_MODE_FIELD_END)
-            {
-                _grid_switches = parse_number(grid_data, GRID_MODE_FIELD_START, GRID_MODE_FIELD_END);
-                update_grid_flags(grid, use_remote_switches: true);
-            }
-            if (grid_data.Length >= GRID_FIELDS_LENGTH)
-            {
-                _current_manoeuvre = (engine_control_unit.ID_manoeuvres) parse_number(grid_data, GRID_MANOEUVRE_FIELD_START, GRID_MANOEUVRE_FIELD_END);
-                update_grid_flags(grid, use_remote_manoeuvre: true);
-            }
+            string grid_data = grid.Storage.ContainsKey(_uuid) ? grid.Storage[_uuid] : "";
+            _grid_switches = (grid_data.Length > GRID_MODE_FIELD_END) ? parse_number(grid_data, GRID_MODE_FIELD_START, GRID_MODE_FIELD_END) : 0;
+            _current_manoeuvre = (grid_data.Length > GRID_MANOEUVRE_FIELD_END) 
+                ? ((engine_control_unit.ID_manoeuvres) parse_number(grid_data, GRID_MANOEUVRE_FIELD_START, GRID_MANOEUVRE_FIELD_END)) 
+                : engine_control_unit.ID_manoeuvres.manoeuvre_off;
+            _grid_control_sensitivity = (grid_data.Length > GRID_CONTROL_SENSITIVITY_FIELD_END)
+                ? parse_number(grid_data, GRID_CONTROL_SENSITIVITY_FIELD_START, GRID_CONTROL_SENSITIVITY_FIELD_END)
+                : ((int) (5.0f * GRID_CONTROL_SENSITIVITY_SCALE));
+            update_grid_flags(grid, use_remote_switches: true, use_remote_manoeuvre: true, use_remote_sensitivity: true);
+            //log_tagger_action("load_grid_settings", $"\"{grid.DisplayName}\" S={_grid_switches:X}h M={_current_manoeuvre} P={_grid_control_sensitivity}");
         }
 
         public static void dispose_grid(IMyCubeGrid grid)
         {
-            sync_helper.deregister_entity(sync_helper.message_types.GRID_MODES, grid.EntityId);
-            sync_helper.deregister_entity(sync_helper.message_types.MANOEUVRE , grid.EntityId);
+            sync_helper.deregister_entity(sync_helper.message_types.GRID_MODES              , grid.EntityId);
+            sync_helper.deregister_entity(sync_helper.message_types.MANOEUVRE               , grid.EntityId);
+            sync_helper.deregister_entity(sync_helper.message_types.GRID_CONTROL_SENSITIVITY, grid.EntityId);
         }
 
-        private static bool update_grid_flags(IMyCubeGrid grid, bool use_remote_switches = false, bool use_remote_manoeuvre = false)
+        private static bool update_grid_flags(IMyCubeGrid grid, bool use_remote_switches = false, bool use_remote_manoeuvre = false, 
+            bool use_remote_sensitivity = false)
         {
             if (!_grid_handlers.ContainsKey(grid))
                 return false;
             
-            if (grid == _current_grid && !use_remote_switches && !use_remote_manoeuvre)
+            if (grid == _current_grid && !use_remote_switches && !use_remote_manoeuvre && !use_remote_sensitivity)
                 return true;
 
             _current_grid          = grid;
@@ -595,6 +537,13 @@ namespace orbiter_SE
             else
             {
                 store_number(_current_grid_settings, (int) _current_manoeuvre, GRID_MANOEUVRE_FIELD_START, GRID_MANOEUVRE_FIELD_END);
+                grid.Storage[_uuid] = _current_grid_settings.ToString();
+            }
+            if (!use_remote_sensitivity)
+                _grid_control_sensitivity = parse_number(_current_grid_settings, GRID_CONTROL_SENSITIVITY_FIELD_START, GRID_CONTROL_SENSITIVITY_FIELD_END);
+            else
+            {
+                store_number(_current_grid_settings, _grid_control_sensitivity, GRID_CONTROL_SENSITIVITY_FIELD_START, GRID_CONTROL_SENSITIVITY_FIELD_END);
                 grid.Storage[_uuid] = _current_grid_settings.ToString();
             }
             _CoT_mode_on               = (_grid_switches &                COT_MODE) != 0;
@@ -618,6 +567,8 @@ namespace orbiter_SE
             }
             if (use_remote_manoeuvre)
                 _grid_handlers[grid].start_manoeuvre(_current_manoeuvre);
+            if (use_remote_sensitivity)
+                _grid_handlers[grid].set_thrust_control_sensitivity(_grid_control_sensitivity / GRID_CONTROL_SENSITIVITY_SCALE);
 
             return true;
         }
@@ -804,11 +755,69 @@ namespace orbiter_SE
             };
         }
 
+        public static float get_control_sensitivity(IMyTerminalBlock controller)
+        {
+            IMyCubeGrid grid = controller.CubeGrid;
+            if (!update_grid_flags(grid))
+                return 0.0f;
+            return _grid_control_sensitivity / GRID_CONTROL_SENSITIVITY_SCALE;
+        }
+
+        public static void set_control_sensitivity(IMyTerminalBlock controller, float new_sensitivity)
+        {
+            IMyCubeGrid grid = controller.CubeGrid;
+            if (!update_grid_flags(grid))
+                return;
+            _grid_control_sensitivity = (int) (new_sensitivity * GRID_CONTROL_SENSITIVITY_SCALE);
+            if (_grid_control_sensitivity < MIN_CONTROL_SENSITIVITY * GRID_CONTROL_SENSITIVITY_SCALE)
+                _grid_control_sensitivity = (int) (MIN_CONTROL_SENSITIVITY * GRID_CONTROL_SENSITIVITY_SCALE);
+            else if (_grid_control_sensitivity > short.MaxValue)
+                _grid_control_sensitivity = short.MaxValue;
+            _grid_handlers[grid].set_thrust_control_sensitivity(_grid_control_sensitivity / GRID_CONTROL_SENSITIVITY_SCALE);
+            store_number(_current_grid_settings, _grid_control_sensitivity, GRID_CONTROL_SENSITIVITY_FIELD_START, GRID_CONTROL_SENSITIVITY_FIELD_END);
+            grid.Storage[_uuid] = _current_grid_settings.ToString();
+            sync_helper.encode_signed(_grid_control_sensitivity, 2, _message, 0);
+            sync_helper.send_message_to_others(sync_helper.message_types.GRID_CONTROL_SENSITIVITY, grid, _message, 2);
+        }
+
+        public static void control_sensitivity_text(IMyTerminalBlock controller, StringBuilder status)
+        {
+            status.Clear();
+            IMyCubeGrid grid = controller.CubeGrid;
+            if (!update_grid_flags(grid))
+                return;
+            status.AppendFormat("{0:F2}", _grid_control_sensitivity / GRID_CONTROL_SENSITIVITY_SCALE);
+        }
+
         #endregion
 
         public static void handle_4Hz()
         {
             _last_controller = null;
+        }
+
+        public static void handle_2s_period()
+        {
+            if (!_have_pending_requests || sync_helper.running_on_server)
+                return;
+
+            sync_helper.encode_unsigned(screen_info.local_player.SteamUserId, 8, _message, 0);
+            if (_pending_thruster_requests != null)
+            {
+                foreach (IMyTerminalBlock thruster in _pending_thruster_requests)
+                {
+                    //log_tagger_action("handle_2s_period", $"requesting \"{thruster.CustomName}\" state for player {screen_info.local_player.SteamUserId}");
+                    sync_helper.send_message_to_server(sync_helper.message_types.THRUSTER_MODES, thruster, _message, 8);
+                }
+            }
+            if (_pending_grid_requests != null)
+            {
+                foreach (IMyCubeGrid grid in _pending_grid_requests)
+                {
+                    //log_tagger_action("handle_2s_period", $"requesting \"{grid.DisplayName}\" state for player {screen_info.local_player.SteamUserId}");
+                    sync_helper.send_message_to_server(sync_helper.message_types.GRID_MODES, grid, _message, 8);
+                }
+            }
         }
     }
 }

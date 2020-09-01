@@ -144,7 +144,6 @@
     <Compile Include="engine_control_unit.cs" />
     <Compile Include="grid_logic.cs" />
     <Compile Include="SimplSolver.cs" />
-    <Compile Include="stringExtensions.cs" />
     <Compile Include="sync_helper.cs" />
     <Compile Include="ttdtwm.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

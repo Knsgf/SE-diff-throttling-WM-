@@ -614,6 +614,10 @@ namespace orbiter_SE
                 create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad", thruster_and_grid_tagger.use_individual_calibration   , thruster_and_grid_tagger.choose_calibration_method  , thruster_and_grid_tagger.is_grid_control_available       );
                 create_switch  <_controller_type_>(          "LandingMode",            "Touchdown Mode", null,   "On",  "Off", "Land", "Flight", thruster_and_grid_tagger.is_grid_touchdown_mode_on    , thruster_and_grid_tagger.set_grid_touchdown_mode    , thruster_and_grid_tagger.is_grid_touchdown_mode_available);
 
+                create_slider<_controller_type_>("ControlSensitivity", "Thrust Control Sensitivity", 
+                    thruster_and_grid_tagger.get_control_sensitivity, thruster_and_grid_tagger.set_control_sensitivity, thruster_and_grid_tagger.control_sensitivity_text, 
+                    0.1f, 20.0f, 0.1f, "IncreaseSensitivity", "DecreaseSensitivity", "Increase Control Sensitivity", "Decrease Control Sensitivity");
+
                 IMyTerminalControlSeparator controller_line2 = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE2");
                 MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line2);
                 IMyTerminalControlLabel controller_line_ID_override_label = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, _controller_type_>("TTDTWM_ID_OVR");
@@ -777,6 +781,7 @@ namespace orbiter_SE
                     _count8_foreground  = 8;
                     _retry_registration = true;
                     enable_active_grids();
+                    thruster_and_grid_tagger.handle_2s_period();
                     _grids_handle_2s_period_foreground?.Invoke();
                 }
                 screen_info.refresh_local_player_HUD();

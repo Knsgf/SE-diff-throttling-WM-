@@ -13,7 +13,11 @@ namespace orbiter_SE
         const ushort SYNC_MESSAGE_ID = 17370;
 
         internal const int MAX_MESSAGE_LENGTH = 200;
-        internal enum message_types: byte { I_TERMS, THRUSTER_MODES, MANUAL_THROTTLE, GRID_MODES, MANOEUVRE, THRUST_LOSS, REMOTE_SCREEN_TEXT, GLOBAL_MODES, ORBIT_ENERGY };
+        internal enum message_types: byte 
+        { 
+            I_TERMS, THRUSTER_MODES, MANUAL_THROTTLE, GRID_MODES, MANOEUVRE, THRUST_LOSS, REMOTE_SCREEN_TEXT, GLOBAL_MODES, ORBIT_ENERGY, 
+            GRID_CONTROL_SENSITIVITY
+        };
         private static readonly int _num_messages;
 
         const int SIGNATURE_LENGTH = 6;
@@ -35,15 +39,16 @@ namespace orbiter_SE
         {
             _num_messages     = Enum.GetValues(typeof(message_types)).Length;
             _message_handlers = new Action<message_types, object, byte[], int>[_num_messages];
-            _message_handlers[(int) message_types.I_TERMS           ] = grid_logic.I_terms_handler;
-            _message_handlers[(int) message_types.THRUST_LOSS       ] = grid_logic.thrust_reduction_handler;
-            _message_handlers[(int) message_types.GRID_MODES        ] = thruster_and_grid_tagger.remote_grid_settings;
-            _message_handlers[(int) message_types.MANOEUVRE         ] = thruster_and_grid_tagger.remote_grid_settings;
-            _message_handlers[(int) message_types.THRUSTER_MODES    ] = thruster_and_grid_tagger.remote_thrust_settings;
-            _message_handlers[(int) message_types.MANUAL_THROTTLE   ] = thruster_and_grid_tagger.remote_thrust_settings;
-            _message_handlers[(int) message_types.REMOTE_SCREEN_TEXT] = screen_info.show_remote_text;
-            _message_handlers[(int) message_types.GLOBAL_MODES      ] = screen_info.handle_remote_settings;
-            _message_handlers[(int) message_types.ORBIT_ENERGY      ] = gravity_and_physics.orbit_energy_handler;
+            _message_handlers[(int) message_types.I_TERMS                 ] = grid_logic.I_terms_handler;
+            _message_handlers[(int) message_types.THRUST_LOSS             ] = grid_logic.thrust_reduction_handler;
+            _message_handlers[(int) message_types.GRID_MODES              ] = thruster_and_grid_tagger.remote_grid_settings;
+            _message_handlers[(int) message_types.MANOEUVRE               ] = thruster_and_grid_tagger.remote_grid_settings;
+            _message_handlers[(int) message_types.GRID_CONTROL_SENSITIVITY] = thruster_and_grid_tagger.remote_grid_settings;
+            _message_handlers[(int) message_types.THRUSTER_MODES          ] = thruster_and_grid_tagger.remote_thrust_settings;
+            _message_handlers[(int) message_types.MANUAL_THROTTLE         ] = thruster_and_grid_tagger.remote_thrust_settings;
+            _message_handlers[(int) message_types.REMOTE_SCREEN_TEXT      ] = screen_info.show_remote_text;
+            _message_handlers[(int) message_types.GLOBAL_MODES            ] = screen_info.handle_remote_settings;
+            _message_handlers[(int) message_types.ORBIT_ENERGY            ] = gravity_and_physics.orbit_energy_handler;
 
             _entities   = new Dictionary<long, object>[_num_messages];
             _entity_ids = new Dictionary<object, long>[_num_messages];
