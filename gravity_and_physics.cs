@@ -97,7 +97,7 @@ namespace orbiter_SE
             specific_angular_momentum = _specific_angular_momentum = Vector3D.Cross(radius_vector, linear_velocity);
             double areal_velocity     = specific_angular_momentum.Length();
 
-            var    AN_vector        = new Vector3D(specific_angular_momentum.Z, 0.0, -specific_angular_momentum.X);
+            var    AN_vector        = new Vector3D(-specific_angular_momentum.Z, 0.0, specific_angular_momentum.X);
             double AN_vector_length = AN_vector.Length();
             if (AN_vector_length >= EPSILON)
                 AN_vector /= AN_vector.Length();
@@ -136,23 +136,23 @@ namespace orbiter_SE
                 eccentricity_vector = Vector3D.Zero;
             }
 
-            inclination = (areal_velocity > 0.0) ? Math.Acos(specific_angular_momentum.Y / areal_velocity) : 0.0;
+            inclination = (areal_velocity > 0.0) ? Math.Acos(-specific_angular_momentum.Y / areal_velocity) : 0.0;
             if (inclination > -EPSILON && inclination < EPSILON)
                 inclination = 0.0;
             if (inclination != 0.0)
             {
                 longitude_of_ascending_node = Math.Acos(AN_vector.X);
                 argument_of_periapsis       = (eccentricity > 0.0) ? Math.Acos(MathHelperD.Clamp(Vector3D.Dot(AN_vector, eccentricity_vector) / eccentricity, -1.0, 1.0)) : 0.0;
-                if (AN_vector.Z > 0.0)
+                if (AN_vector.Z < 0.0)
                     longitude_of_ascending_node = 2.0 * Math.PI - longitude_of_ascending_node;
-                if (eccentricity_vector.Y < 0.0)
+                if (eccentricity_vector.Y > 0.0)
                     argument_of_periapsis = 2.0 * Math.PI - argument_of_periapsis;
             }
             else
             {
                 longitude_of_ascending_node = 0.0;
                 argument_of_periapsis       = (eccentricity > 0.0) ? Math.Acos(eccentricity_vector.X / eccentricity) : 0.0;
-                if (eccentricity_vector.Z > 0.0)
+                if (eccentricity_vector.Z < 0.0)
                     argument_of_periapsis = 2.0 * Math.PI - argument_of_periapsis;
             }
 
@@ -341,18 +341,31 @@ namespace orbiter_SE
             else
             {
                 true_anomaly = Math.Acos(direction.X / direction.Length());
-                if (direction.Z > 0.0)
+                if (direction.Z < 0.0)
                     true_anomaly = 2.0 * Math.PI - true_anomaly;
             }
 
             return true_anomaly;
         }
 
+        public static double get_true_anomaly(Vector3D direction, Vector3D orbit_normal, Vector3D AN_vector, double argument_of_periapsis)
+        {
+            double   AN_anomaly         = Math.Acos(MathHelperD.Clamp(Vector3D.Dot(AN_vector, direction) / direction.Length(), -1.0, 1.0));
+            Vector3D inclination_vector = Vector3D.Cross(orbit_normal, AN_vector);
+            if (Vector3D.Dot(direction, inclination_vector) < 0.0)
+                AN_anomaly = 2.0 * Math.PI - AN_anomaly;
+            
+            double true_anomaly = AN_anomaly - argument_of_periapsis;
+            if (true_anomaly < 0.0)
+                true_anomaly += 2.0 * Math.PI;
+            return true_anomaly;
+        }
+
         public static Vector3D calculate_orbit_normal(double inclination, double LAN)
         {
-            var AN_direction    = new Vector3(Math.Cos(LAN), 0.0, -Math.Sin(LAN));
+            var AN_direction    = new Vector3(Math.Cos(LAN), 0.0, Math.Sin(LAN));
             var normal_rotation = Quaternion.CreateFromAxisAngle(AN_direction, (float) inclination);
-            return Vector3D.Transform(Vector3D.Up, normal_rotation);
+            return Vector3D.Transform(Vector3D.Down, normal_rotation);
         }
 
         #endregion
@@ -858,16 +871,13 @@ namespace orbiter_SE
             return orbit_elements.convert_true_anomaly_to_mean(eccentricity, floor_mod(mean_anomaly, 2.0 * Math.PI));
         }
 
-        public static double get_true_anomaly(IMyTerminalBlock PB, Vector3D direction)
+        public static double get_true_anomaly(IMyTerminalBlock PB, Vector3D direction, Vector3D orbit_normal, Vector3D AN_vector, double argumewnt_of_periapsis)
         {
-            orbit_elements PB_elements;
-            if (!_PB_elements.TryGetValue(PB, out PB_elements))
+            Vector3D ahead90_vector = Vector3D.Cross(orbit_normal, direction);
+            if (Vector3D.IsZero(ahead90_vector))
                 return -1.0;
-            Vector3D aux_vector = Vector3D.Cross(PB_elements.specific_angular_momentum, direction);
-            if (Vector3D.IsZero(aux_vector))
-                return -1.0;
-            direction = Vector3D.Cross(Vector3D.Normalize(aux_vector), PB_elements.specific_angular_momentum);
-            return PB_elements.get_true_anomaly(direction);
+            direction = Vector3D.Cross(Vector3D.Normalize(ahead90_vector), orbit_normal);
+            return orbit_elements.get_true_anomaly(direction, orbit_normal, AN_vector, floor_mod(argumewnt_of_periapsis, 2.0 * Math.PI));
         }
 
         public static ValueTuple<double, double>? compute_orbit_intersections(double ship_ecc, double target_ecc, double ship_SLR, double target_SLR, 
@@ -885,7 +895,7 @@ namespace orbiter_SE
             if (D < -1.0 || D > 1.0)
                 return null;
             double inv_cos = Math.Acos(D), angle_offset = Math.Atan2(C.Y, C.X);
-            return new ValueTuple<double, double>(inv_cos - angle_offset, 2.0 * Math.PI - inv_cos - angle_offset);
+            return new ValueTuple<double, double>(floor_mod(inv_cos - angle_offset, 2.0 * Math.PI), floor_mod(2.0 * Math.PI - inv_cos - angle_offset, 2.0 * Math.PI));
         }
 
         public static void list_current_elements(IMyTerminalBlock controller, StringBuilder info_text)
@@ -990,21 +1000,21 @@ namespace orbiter_SE
             gravity_source selected_reference = _current_reference;
             if (selected_reference == null)
             {
-                _current_angular_momentum = Vector3D.Up;
+                _current_angular_momentum = Vector3D.Down;
                 return;
             }
 
             Vector3D grid_vector = _grid_position - selected_reference.centre_position;
             Vector3D new_angular_momentum;
-            if (_absolute_linear_velocity.LengthSquared() > 10.0)
+            if (_absolute_linear_velocity.LengthSquared() >= 10.0)
                 new_angular_momentum = Vector3D.Cross(grid_vector, _absolute_linear_velocity);
             else
             {
-                Vector3D tangent     = Vector3D.Cross(Vector3D.Up, grid_vector);
-                tangent              = (tangent.LengthSquared() < 1.0) ? Vector3D.Forward : Vector3D.Normalize(tangent);
+                Vector3D tangent     = Vector3D.Cross(Vector3D.Down, grid_vector);
+                tangent              = (tangent.LengthSquared() < 1.0) ? Vector3D.Backward : Vector3D.Normalize(tangent);
                 new_angular_momentum = Vector3D.Cross(grid_vector, tangent);
             }
-            if (_current_angular_momentum == Vector3D.Up)
+            if (_current_angular_momentum == Vector3D.Down)
                 _current_angular_momentum = new_angular_momentum;
             else
                 _current_angular_momentum = no_plane_change ? (Vector3D.Normalize(_current_angular_momentum) * new_angular_momentum.Length()) : new_angular_momentum;

@@ -156,11 +156,11 @@ namespace orbiter_SE
             return gravity_and_physics.compute_orbit_intersections;
         }
 
-        private Func<Vector3D, double> get_radius_to_anomaly_converter(IMyTerminalBlock PB)
+        private Func<Vector3D, Vector3D, Vector3D, double, double> get_radius_to_anomaly_converter(IMyTerminalBlock PB)
         {
-            return delegate (Vector3D offset)
+            return delegate (Vector3D offset, Vector3D normal, Vector3D AN_vector, double argument_of_periapsis)
             {
-                return gravity_and_physics.get_true_anomaly(PB, offset);
+                return gravity_and_physics.get_true_anomaly(PB, offset, normal, AN_vector, argument_of_periapsis);
             };
         }
 
@@ -711,7 +711,7 @@ namespace orbiter_SE
                 create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>(   "ConvertTrueAnomalyToMean", get_true_to_mean_converter     );
                 create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>(   "ConvertMeanAnomalyToTrue", get_mean_to_true_converter     );
                 create_PB_property<Func<double, double, Vector3D>, IMyProgrammableBlock>(         "ComputeOrbitNormal", get_orbit_normal_calculator    );
-                create_PB_property<Func<Vector3D, double>        , IMyProgrammableBlock>("ConvertRadialToTtrueAnomaly", get_radius_to_anomaly_converter);
+                create_PB_property<Func<Vector3D, Vector3D, Vector3D, double, double>, IMyProgrammableBlock>("ConvertRadialToTtrueAnomaly", get_radius_to_anomaly_converter);
                 create_PB_property<Func<double, double, double, double, double, double, ValueTuple<double, double>?>, IMyProgrammableBlock>
                     ("ComputeOrbitIntersections", get_intersection_calculator);
                 _programmable_block_properties_set = true;
