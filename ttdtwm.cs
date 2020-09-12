@@ -83,7 +83,7 @@ namespace ttdtwm
         #region UI helpers
 
         private void create_toggle<_block_>(string id, string title, string enabled_text, string disabled_text, Action<IMyTerminalBlock> action, 
-            Func<IMyTerminalBlock, bool> getter, Func<IMyTerminalBlock, bool> state, string icon)
+            Func<IMyTerminalBlock, bool> getter, Func<IMyTerminalBlock, bool> state, string icon) where _block_: IMyTerminalBlock
         {
             IMyTerminalAction toggle_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id);
 
@@ -103,7 +103,7 @@ namespace ttdtwm
         }
 
         private void create_checkbox<_block_>(string id, string title, string tooltip, string toolbar_enabled_text, string toolbar_disabled_text,
-            Func<IMyTerminalBlock, bool> getter, Action<IMyTerminalBlock, bool> setter, Func<IMyTerminalBlock, bool> state)
+            Func<IMyTerminalBlock, bool> getter, Action<IMyTerminalBlock, bool> setter, Func<IMyTerminalBlock, bool> state) where _block_: IMyTerminalBlock
         {
             IMyTerminalControlCheckbox panel_checkbox = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, _block_>(id);
 
@@ -127,7 +127,7 @@ namespace ttdtwm
         }
 
         private void create_switch<_block_>(string id, string title, string tooltip, string enabled_text, string disabled_text, string toolbar_enabled_text, string toolbar_disabled_text,
-            Func<IMyTerminalBlock, bool> getter, Action<IMyTerminalBlock, bool> setter, Func<IMyTerminalBlock, bool> state)
+            Func<IMyTerminalBlock, bool> getter, Action<IMyTerminalBlock, bool> setter, Func<IMyTerminalBlock, bool> state) where _block_: IMyTerminalBlock
         {
             IMyTerminalControlOnOffSwitch panel_switch = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlOnOffSwitch, _block_>(id);
 
@@ -164,7 +164,7 @@ namespace ttdtwm
         }
 
         private void create_button<_block_>(string id, string title, string tooltip, string action_prefix, Action<IMyTerminalBlock> button_function, 
-            Func<IMyTerminalBlock, bool> state, Action<IMyTerminalBlock, StringBuilder> status)
+            Func<IMyTerminalBlock, bool> state, Action<IMyTerminalBlock, StringBuilder> status) where _block_: IMyTerminalBlock
         {
             IMyTerminalControlButton new_button    = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlButton, _block_>(id);
             IMyTerminalAction        button_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id + "Activate");
@@ -183,7 +183,8 @@ namespace ttdtwm
             MyAPIGateway.TerminalControls.AddAction <_block_>(button_action);
         }
 
-        private void create_slider_action<_block_>(string id, string title, Action<IMyTerminalBlock> action, Action<IMyTerminalBlock, StringBuilder> status, string icon)
+        private void create_slider_action<_block_>(string id, string title, Action<IMyTerminalBlock> action, 
+            Action<IMyTerminalBlock, StringBuilder> status, string icon) where _block_: IMyTerminalBlock
         {
             IMyTerminalAction toggle_action = MyAPIGateway.TerminalControls.CreateAction<_block_>(id);
 
@@ -196,7 +197,34 @@ namespace ttdtwm
             MyAPIGateway.TerminalControls.AddAction<_block_>(toggle_action);
         }
 
+        private void create_slider<_block_>(string id, string title, Func<IMyTerminalBlock, float> getter, Action<IMyTerminalBlock, float> setter, 
+            Action<IMyTerminalBlock, StringBuilder> status, float minimum, float maximum, float change_amount, 
+            string increase_action_name, string decrease_action_name, string increase_text, string decrease_text) where _block_: IMyTerminalBlock
+        {
+            IMyTerminalControlSlider slider = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, _block_>(id);
+            slider.Getter = getter;
+            slider.Setter = setter;
+            slider.Title  = MyStringId.GetOrCompute(title);
+            slider.Writer = status;
+            slider.SupportsMultipleBlocks = true;
+            slider.SetLimits(minimum, maximum);
+            MyAPIGateway.TerminalControls.AddControl<_block_>(slider);
+            create_slider_action<_block_>(increase_action_name, increase_text,
+                delegate (IMyTerminalBlock block)
+                {
+                    setter(block, getter(block) + change_amount);
+                },
+                status, "Increase");
+            create_slider_action<_block_>(decrease_action_name, decrease_text,
+                delegate (IMyTerminalBlock block)
+                {
+                    setter(block, getter(block) - change_amount);
+                },
+                status, "Decrease");
+        }
+
         private void create_PB_property<_type_, _block_>(string id, Func<IMyTerminalBlock, _type_> getter, Action<IMyTerminalBlock, _type_> setter = null)
+            where _block_: IMyTerminalBlock
         {
             IMyTerminalControlProperty<_type_> new_property = MyAPIGateway.TerminalControls.CreateProperty<_type_, _block_>(id);
             new_property.Getter = getter;
@@ -402,7 +430,7 @@ namespace ttdtwm
                 _sample_controller = controller;
         }
 
-        private void create_controller_widgets<_controller_type_>()
+        private void create_controller_widgets<_controller_type_>() where _controller_type_: IMyShipController
         {
             IMyTerminalControlSeparator controller_line = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE1");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line);
@@ -410,6 +438,9 @@ namespace ttdtwm
             create_switch  <_controller_type_>(              "CoTMode",  "Active Control Reference", null,  "CoT",  "CoM",  "CoT",    "CoM", thruster_and_grid_tagger.is_grid_CoT_mode_on          , thruster_and_grid_tagger.set_grid_CoT_mode          , thruster_and_grid_tagger.is_grid_control_available       );
             create_switch  <_controller_type_>("IndividualCalibration", "Thrust Calibration Method", null, "Ind.", "Quad", "Ind.",   "Quad", thruster_and_grid_tagger.use_individual_calibration   , thruster_and_grid_tagger.choose_calibration_method  , thruster_and_grid_tagger.is_grid_control_available       );
             create_switch  <_controller_type_>(          "LandingMode",            "Touchdown Mode", null,   "On",  "Off", "Land", "Flight", thruster_and_grid_tagger.is_grid_touchdown_mode_on    , thruster_and_grid_tagger.set_grid_touchdown_mode    , thruster_and_grid_tagger.is_grid_touchdown_mode_available);
+            create_slider<_controller_type_>("ControlSensitivity", "Thrust Control Sensitivity",
+                thruster_and_grid_tagger.get_control_sensitivity, thruster_and_grid_tagger.set_control_sensitivity, thruster_and_grid_tagger.control_sensitivity_text,
+                0.1f, 20.0f, 0.1f, "IncreaseSensitivity", "DecreaseSensitivity", "Increase Control Sensitivity", "Decrease Control Sensitivity");
 
             IMyTerminalControlSeparator controller_line2 = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, _controller_type_>("TTDTWM_LINE2");
             MyAPIGateway.TerminalControls.AddControl<_controller_type_>(controller_line2);
@@ -461,27 +492,9 @@ namespace ttdtwm
                 create_switch  <IMyThrust>(          "AntiSlip",      "Thrust Trimming", null, "On", "Off", "On", "Off", thruster_and_grid_tagger.is_anti_slip           , thruster_and_grid_tagger.set_anti_slip      , thruster_and_grid_tagger.is_anti_slip_available     );
                 create_checkbox<IMyThrust>("DisableLinearInput", "Disable linear input", null, "On", "Off",              thruster_and_grid_tagger.is_rotational_only     , thruster_and_grid_tagger.toggle_linear_input, thruster_and_grid_tagger.is_active_control_available);
                 create_switch  <IMyThrust>(       "StaticLimit",       "Thrust Limiter", null, "On", "Off", "On", "Off", thruster_and_grid_tagger.is_thrust_limiter_on   , thruster_and_grid_tagger.set_thrust_limiter , thruster_and_grid_tagger.is_thrust_limiter_available);
-
-                IMyTerminalControlSlider manual_throttle = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyThrust>("ManualThrottle");
-                manual_throttle.Getter = thruster_and_grid_tagger.get_manual_throttle;
-                manual_throttle.Setter = thruster_and_grid_tagger.set_manual_throttle;
-                manual_throttle.SupportsMultipleBlocks = true;
-                manual_throttle.Title  = MyStringId.GetOrCompute("Manual throttle");
-                manual_throttle.Writer = thruster_and_grid_tagger.throttle_status;
-                manual_throttle.SetLimits(0.0f, 100.0f);
-                MyAPIGateway.TerminalControls.AddControl<IMyThrust>(manual_throttle);
-                create_slider_action<IMyThrust>("IncreaseThrottle", "Increase Manual Throttle",
-                    delegate (IMyTerminalBlock thruster)
-                    {
-                        thruster_and_grid_tagger.set_manual_throttle(thruster, thruster_and_grid_tagger.get_manual_throttle(thruster) + 5.0f);
-                    },
-                    thruster_and_grid_tagger.throttle_status, "Increase");
-                create_slider_action<IMyThrust>("DecreaseThrottle", "Decrease Manual Throttle",
-                    delegate (IMyTerminalBlock thruster)
-                    {
-                        thruster_and_grid_tagger.set_manual_throttle(thruster, thruster_and_grid_tagger.get_manual_throttle(thruster) - 5.0f);
-                    },
-                    thruster_and_grid_tagger.throttle_status, "Decrease");
+                create_slider<IMyThrust>("ManualThrottle", "Manual throttle", 
+                    thruster_and_grid_tagger.get_manual_throttle, thruster_and_grid_tagger.set_manual_throttle, thruster_and_grid_tagger.throttle_status,
+                    0.0f, 100.0f, 5.0f, "IncreaseThrottle", "DecreaseThrottle", "Increase Manual Throttle", "Decrease Manual Throttle");
                 create_PB_property<float, IMyThrust>("BalancedLevel", thruster_and_grid_tagger.get_thrust_limit);
             }
 
@@ -532,6 +545,7 @@ namespace ttdtwm
             if (_grids_handle_60Hz == null)
             {
                 enable_active_grids();
+                _retry_registration = true;
                 return;
             }
 
@@ -552,6 +566,7 @@ namespace ttdtwm
                     _count8_foreground  = 8;
                     _retry_registration = true;
                     enable_active_grids();
+                    thruster_and_grid_tagger.handle_2s_period();
                     _grids_handle_2s_period_foreground();
                 }
                 screen_info.refresh_local_player_HUD();

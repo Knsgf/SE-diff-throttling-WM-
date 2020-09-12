@@ -52,7 +52,6 @@ namespace ttdtwm
         }
 
         public Vector3 dampers_axes_enabled => _ECU.dampers_axes_enabled;
-        public engine_control_unit ECU => _ECU;
 
         #endregion
 
@@ -151,6 +150,11 @@ namespace ttdtwm
             _ECU.translate_damper_override(new_override, controller);
         }
 
+        public void set_thrust_control_sensitivity(float new_sensitivity)
+        {
+            _ECU.control_sensitivity = new_sensitivity;
+        }
+
         #endregion
 
         #region auxiliaries
@@ -171,31 +175,6 @@ namespace ttdtwm
             if (MyAPIGateway.Multiplayer != null)
                 return MyAPIGateway.Multiplayer.Players.GetPlayerControllingEntity(_grid);
             return !_ECU.is_under_control_of(screen_info.local_controller) ? null : screen_info.local_player;
-        }
-
-        public void update_ECU_cockpit_controls()
-        {
-            bool CoT_mode_on = false, landing_mode_on = false, rotational_damping_on = true, use_individual_calibration = false, circularise_on = false;
-            engine_control_unit ECU = _ECU;
-
-            foreach (IMyControllableEntity cur_controller in _ship_controllers)
-            {
-                string controller_data = ((IMyTerminalBlock) cur_controller).CustomData;
-                CoT_mode_on                = controller_data.ContainsCOTTag();
-                rotational_damping_on      = controller_data.ContainsDAMPINGTag();
-                use_individual_calibration = controller_data.ContainsICTag();
-                circularise_on             = controller_data.ContainsCIRCULARISETag();
-                landing_mode_on            = controller_data.ContainsLANDINGTag() && is_landing_mode_available;
-                _ID_on                     = cur_controller.EnabledDamping;
-                ECU.translate_damper_override(controller_data.IDOverrides(), (IMyTerminalBlock) cur_controller);
-                break;
-            }
-            ECU.CoT_mode_on                = CoT_mode_on;
-            ECU.use_individual_calibration = use_individual_calibration;
-            ECU.touchdown_mode_on          = landing_mode_on;
-            ECU.rotational_damping_on      = rotational_damping_on;
-            ECU.linear_dampers_on          = _ID_on;
-            ECU.secondary_ECU              = _is_secondary;
         }
 
         private void initialise_ECU_and_physics()
