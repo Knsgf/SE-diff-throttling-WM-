@@ -1238,40 +1238,46 @@ namespace orbiter_SE
             gravity_source   current_source;
             Vector3D         position, gravity_vector, stock_gravity_vector;
 
-            foreach (KeyValuePair<IMyCharacter, gravity_source> player_entry in _PC_current_source)
+            lock (_PC_current_source)
             {
-                player         = player_entry.Key;
-                current_source = player_entry.Value;
-                if (current_source == null || player.Physics == null || !player.Physics.Enabled)
-                    continue;
-                
-                bool jetpack_on = player.EnabledThrusts;
-                if (jetpack_on && player.EnabledDamping)
-                    continue;
-                bool is_falling = player.CurrentMovementState == MyCharacterMovementEnum.Falling;
-                if (!is_falling && !jetpack_on)
-                    continue;
-                stock_gravity_vector = player.Physics.Gravity;
-                if (is_falling && stock_gravity_vector.LengthSquared() >= 0.0001f)
-                    continue;
+                foreach (KeyValuePair<IMyCharacter, gravity_source> player_entry in _PC_current_source)
+                {
+                    player         = player_entry.Key;
+                    current_source = player_entry.Value;
+                    if (current_source == null || player.Physics == null || !player.Physics.Enabled)
+                        continue;
 
-                position       = player.PositionComp.GetPosition();
-                gravity_vector = calculate_gravity_vector(current_source, position);
-                player.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, (gravity_vector - stock_gravity_vector) * player.Physics.Mass / MyEngineConstants.UPDATE_STEPS_PER_SECOND, position, Vector3.Zero);
+                    bool jetpack_on = player.EnabledThrusts;
+                    if (jetpack_on && player.EnabledDamping)
+                        continue;
+                    bool is_falling = player.CurrentMovementState == MyCharacterMovementEnum.Falling;
+                    if (!is_falling && !jetpack_on)
+                        continue;
+                    stock_gravity_vector = player.Physics.Gravity;
+                    if (is_falling && stock_gravity_vector.LengthSquared() >= 0.0001f)
+                        continue;
+
+                    position       = player.PositionComp.GetPosition();
+                    gravity_vector = calculate_gravity_vector(current_source, position);
+                    player.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, (gravity_vector - stock_gravity_vector) * player.Physics.Mass / MyEngineConstants.UPDATE_STEPS_PER_SECOND, position, Vector3.Zero);
+                }
             }
 
-            foreach (KeyValuePair<MyFloatingObject, gravity_source> FO_entry in _FO_current_source)
+            lock (_FO_current_source)
             {
-                floating_object = FO_entry.Key;
-                current_source  = FO_entry.Value;
-                if (current_source == null || floating_object.Physics == null || !floating_object.Physics.Enabled)
-                    continue;
+                foreach (KeyValuePair<MyFloatingObject, gravity_source> FO_entry in _FO_current_source)
+                {
+                    floating_object = FO_entry.Key;
+                    current_source  = FO_entry.Value;
+                    if (current_source == null || floating_object.Physics == null || !floating_object.Physics.Enabled)
+                        continue;
 
-                position             = floating_object.PositionComp.GetPosition();
-                gravity_vector       = calculate_gravity_vector(current_source, position);
-                stock_gravity_vector = floating_object.Physics.Gravity;
-                gravity_vector      -= (Vector3D.Dot(gravity_vector, stock_gravity_vector) / stock_gravity_vector.LengthSquared()) * stock_gravity_vector;
-                floating_object.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, gravity_vector * floating_object.Physics.Mass / MyEngineConstants.UPDATE_STEPS_PER_SECOND, position, Vector3.Zero);
+                    position             = floating_object.PositionComp.GetPosition();
+                    gravity_vector       = calculate_gravity_vector(current_source, position);
+                    stock_gravity_vector = floating_object.Physics.Gravity;
+                    gravity_vector      -= (Vector3D.Dot(gravity_vector, stock_gravity_vector) / stock_gravity_vector.LengthSquared()) * stock_gravity_vector;
+                    floating_object.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_IMPULSE_AND_WORLD_ANGULAR_IMPULSE, gravity_vector * floating_object.Physics.Mass / MyEngineConstants.UPDATE_STEPS_PER_SECOND, position, Vector3.Zero);
+                }
             }
         }
 
@@ -1281,27 +1287,33 @@ namespace orbiter_SE
             MyFloatingObject floating_object;
             gravity_source   new_source;
 
-            _PC_new_source.Clear();
-            foreach (KeyValuePair<IMyCharacter, gravity_source> player_entry in _PC_current_source)
+            lock (_PC_current_source)
             {
-                player     = player_entry.Key;
-                new_source = get_reference_body(player.PositionComp.GetPosition());
-                if (player_entry.Value != new_source)
-                    _PC_new_source.Add(player, new_source);
+                _PC_new_source.Clear();
+                foreach (KeyValuePair<IMyCharacter, gravity_source> player_entry in _PC_current_source)
+                {
+                    player     = player_entry.Key;
+                    new_source = get_reference_body(player.PositionComp.GetPosition());
+                    if (player_entry.Value != new_source)
+                        _PC_new_source.Add(player, new_source);
+                }
+                foreach (KeyValuePair<IMyCharacter, gravity_source> changed_player_entry in _PC_new_source)
+                    _PC_current_source[changed_player_entry.Key] = changed_player_entry.Value;
             }
-            foreach (KeyValuePair<IMyCharacter, gravity_source> changed_player_entry in _PC_new_source)
-                _PC_current_source[changed_player_entry.Key] = changed_player_entry.Value;
 
-            _FO_new_source.Clear();
-            foreach (KeyValuePair<MyFloatingObject, gravity_source> FO_entry in _FO_current_source)
+            lock (_FO_current_source)
             {
-                floating_object = FO_entry.Key;
-                new_source      = get_reference_body(floating_object.PositionComp.GetPosition());
-                if (FO_entry.Value != new_source)
-                    _FO_new_source.Add(floating_object, new_source);
+                _FO_new_source.Clear();
+                foreach (KeyValuePair<MyFloatingObject, gravity_source> FO_entry in _FO_current_source)
+                {
+                    floating_object = FO_entry.Key;
+                    new_source      = get_reference_body(floating_object.PositionComp.GetPosition());
+                    if (FO_entry.Value != new_source)
+                        _FO_new_source.Add(floating_object, new_source);
+                }
+                foreach (KeyValuePair<MyFloatingObject, gravity_source> changed_FO_entry in _FO_new_source)
+                    _FO_current_source[changed_FO_entry.Key] = changed_FO_entry.Value;
             }
-            foreach (KeyValuePair<MyFloatingObject, gravity_source> changed_FO_entry in _FO_new_source)
-                _FO_current_source[changed_FO_entry.Key] = changed_FO_entry.Value;
         }
 
         #endregion
