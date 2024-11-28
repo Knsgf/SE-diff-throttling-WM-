@@ -2253,6 +2253,11 @@ namespace ttdtwm
             autopilot_on |= RC_block.IsAutoPilotEnabled;
         }
 
+        public void check_autopilot(IMyFlightMovementBlock autopilot_block)
+        {
+            autopilot_on |= autopilot_block.IsAutoPilotEnabled;
+        }
+
         public void reset_user_input()
         {
             _manual_thrust = _manual_rotation = _target_rotation = Vector3.Zero;
@@ -2420,6 +2425,7 @@ namespace ttdtwm
                 _CoM_shifted |= (current_grid_CoM - _grid_CoM_location).LengthSquared() > 0.01f;
                 if (_CoM_shifted)
                     _grid_CoM_location = current_grid_CoM;
+                screen_info.screen_text(_grid, "handle_4Hz_foreground", _grid_CoM_location.ToString(), 250);
             }
         }
 
