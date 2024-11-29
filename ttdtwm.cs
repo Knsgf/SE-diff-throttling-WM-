@@ -697,7 +697,7 @@ namespace orbiter_SE
 
             if (!_programmable_block_properties_set)
             {
-                if (_sample_PB?.GetProperty("ShowInToolbarConfig") == null)
+                if (_sample_PB?.GetProperty("Content") == null)
                     return;
                 create_PB_property<Func<string,             string, bool>, IMyProgrammableBlock>("ComputeOrbitElements"           , get_ship_elements_calculator  );
                 create_PB_property<Func<string, Vector3D, Vector3D, bool>, IMyProgrammableBlock>("ComputeOrbitElementsFromVectors", get_vector_elements_calculator);

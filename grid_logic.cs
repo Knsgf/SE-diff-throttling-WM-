@@ -18,10 +18,11 @@ namespace orbiter_SE
 
         private static readonly byte[] __message = new byte[sync_helper.MAX_MESSAGE_LENGTH];
 
-        private readonly IMyCubeGrid                    _grid;
-        private readonly HashSet<IMyControllableEntity> _ship_controllers = new HashSet<IMyControllableEntity>();
-        private readonly HashSet<IMyRemoteControl>      _RC_blocks        = new HashSet<IMyRemoteControl>();
-        private readonly HashSet<IMyJumpDrive>          _jump_drives      = new HashSet<IMyJumpDrive>();
+        private readonly IMyCubeGrid                     _grid;
+        private readonly HashSet<IMyJumpDrive>           _jump_drives      = new HashSet<IMyJumpDrive>();
+        private readonly HashSet<IMyControllableEntity>  _ship_controllers = new HashSet<IMyControllableEntity>();
+        private readonly HashSet<IMyRemoteControl>       _RC_blocks        = new HashSet<IMyRemoteControl>();
+        private readonly HashSet<IMyFlightMovementBlock> _autopilot_blocks = new HashSet<IMyFlightMovementBlock>();
 
         private List<grid_logic>    _secondary_grids = null;
         private engine_control_unit _ECU             = null;
@@ -249,6 +250,13 @@ namespace orbiter_SE
                     return;
                 }
 
+                var autopilot_block = entity as IMyFlightMovementBlock;
+                if (autopilot_block != null)
+                {
+                    _autopilot_blocks.Add(autopilot_block);
+                    return;
+                }
+
                 var thruster = entity as IMyThrust;
                 if (thruster != null)
                 {
@@ -294,6 +302,13 @@ namespace orbiter_SE
                     var RC_block = entity as IMyRemoteControl;
                     if (RC_block != null)
                         _RC_blocks.Remove(RC_block);
+                    return;
+                }
+
+                var autopilot_block = entity as IMyFlightMovementBlock;
+                if (autopilot_block != null)
+                {
+                    _autopilot_blocks.Remove(autopilot_block);
                     return;
                 }
 
@@ -513,6 +528,8 @@ namespace orbiter_SE
                     _ECU.autopilot_on = false;
                     foreach (IMyRemoteControl cur_RC_block in _RC_blocks)
                         _ECU.check_autopilot(cur_RC_block);
+                    foreach (IMyFlightMovementBlock autopilot_block in _autopilot_blocks)
+                        _ECU.check_autopilot(autopilot_block);
                     screen_info.set_displayed_vertical_speed(_grid, _ECU.vertical_speed, !_is_secondary);
 
                     if (sync_helper.running_on_server)
@@ -581,7 +598,7 @@ namespace orbiter_SE
                 delegate (IMySlimBlock block)
                 {
                     IMyCubeBlock full_block = block.FatBlock;
-                    return full_block is IMyCockpit || full_block is IMyRemoteControl || full_block is IMyThrust || full_block is IMyGyro 
+                    return full_block is IMyCockpit || full_block is IMyRemoteControl || full_block is IMyFlightMovementBlock || full_block is IMyThrust || full_block is IMyGyro 
                         || full_block is IMyProgrammableBlock || full_block is IMyJumpDrive;
                 }
             );

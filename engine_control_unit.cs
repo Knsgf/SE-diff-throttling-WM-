@@ -2366,6 +2366,11 @@ namespace orbiter_SE
             autopilot_on |= RC_block.IsAutoPilotEnabled;
         }
 
+        public void check_autopilot(IMyFlightMovementBlock autopilot_block)
+        {
+            autopilot_on |= autopilot_block.IsAutoPilotEnabled;
+        }
+
         public void reset_user_input()
         {
             _manual_thrust = _manual_rotation = _target_rotation = Vector3.Zero;
