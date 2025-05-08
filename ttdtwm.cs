@@ -188,41 +188,41 @@ namespace orbiter_SE
             };
         }
 
-        private Action<Dictionary<string, Vector3D>> get_vector_fetcher(IMyTerminalBlock PB)
+        private Action<Vector3D[]> get_vector_fetcher(IMyTerminalBlock PB)
         {
-            return delegate (Dictionary<string, Vector3D> vector_elements)
+            return delegate (Vector3D[] vector_elements)
             {
                 gravity_and_physics.retrieve_primary_vectors(PB, vector_elements);
             };
         }
 
-        private Action<Dictionary<string, double>> get_scalar_fetcher(IMyTerminalBlock PB)
+        private Action<double[]> get_scalar_fetcher(IMyTerminalBlock PB)
         {
-            return delegate (Dictionary<string, double> scalar_elements)
+            return delegate (double[] scalar_elements)
             {
                 gravity_and_physics.retrieve_primary_scalars(PB, scalar_elements);
             };
         }
 
-        private Action<Dictionary<string, double>> get_derived_fetcher(IMyTerminalBlock PB)
+        private Action<double[]> get_derived_fetcher(IMyTerminalBlock PB)
         {
-            return delegate (Dictionary<string, double> derived_elements)
+            return delegate (double[] derived_elements)
             {
                 gravity_and_physics.retrieve_derived_elements(PB, derived_elements);
             };
         }
 
-        private Action<double?, Dictionary<string, double>> get_positional_fetcher(IMyTerminalBlock PB)
+        private Action<double?, double[]> get_positional_fetcher(IMyTerminalBlock PB)
         {
-            return delegate (double? true_anomaly, Dictionary<string, double> positional_elements)
+            return delegate (double? true_anomaly, double[] positional_elements)
             {
                 gravity_and_physics.retrieve_positional_elements(PB, true_anomaly, positional_elements);
             };
         }
 
-        private Action<double, Dictionary<string, Vector3D>> get_state_vector_fetcher(IMyTerminalBlock PB)
+        private Action<double, Vector3D[]> get_state_vector_fetcher(IMyTerminalBlock PB)
         {
-            return delegate (double true_anomaly, Dictionary<string, Vector3D> positional_vectors)
+            return delegate (double true_anomaly, Vector3D[] positional_vectors)
             {
                 gravity_and_physics.retrieve_positional_vectors(PB, true_anomaly, positional_vectors);
             };
@@ -702,15 +702,15 @@ namespace orbiter_SE
                 create_PB_property<Func<string,             string, bool>, IMyProgrammableBlock>("ComputeOrbitElements"           , get_ship_elements_calculator  );
                 create_PB_property<Func<string, Vector3D, Vector3D, bool>, IMyProgrammableBlock>("ComputeOrbitElementsFromVectors", get_vector_elements_calculator);
                 create_PB_property<Func<string>, IMyProgrammableBlock>("GetReferenceBodyName", get_reference_name_fetcher);
-                create_PB_property<Action<Dictionary<string, Vector3D>>, IMyProgrammableBlock>("GetPrimaryVectors" , get_vector_fetcher );
-                create_PB_property<Action<Dictionary<string,   double>>, IMyProgrammableBlock>("GetPrimaryScalars" , get_scalar_fetcher );
-                create_PB_property<Action<Dictionary<string,   double>>, IMyProgrammableBlock>("GetDerivedElements", get_derived_fetcher);
-                create_PB_property<Action<double?, Dictionary<string,   double>>, IMyProgrammableBlock>("GetPositionalElements", get_positional_fetcher  );
-                create_PB_property<Action<double , Dictionary<string, Vector3D>>, IMyProgrammableBlock>("GetStateVectors"      , get_state_vector_fetcher);
+                create_PB_property<Action<Vector3D[]>, IMyProgrammableBlock>("GetPrimaryVectors" , get_vector_fetcher );
+                create_PB_property<Action<  double[]>, IMyProgrammableBlock>("GetPrimaryScalars" , get_scalar_fetcher );
+                create_PB_property<Action<  double[]>, IMyProgrammableBlock>("GetDerivedElements", get_derived_fetcher);
+                create_PB_property<Action<double?,   double[]>, IMyProgrammableBlock>("GetPositionalElements", get_positional_fetcher  );
+                create_PB_property<Action<double , Vector3D[]>, IMyProgrammableBlock>("GetStateVectors"      , get_state_vector_fetcher);
 
-                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>(   "ConvertTrueAnomalyToMean", get_true_to_mean_converter     );
-                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>(   "ConvertMeanAnomalyToTrue", get_mean_to_true_converter     );
-                create_PB_property<Func<double, double, Vector3D>, IMyProgrammableBlock>(         "ComputeOrbitNormal", get_orbit_normal_calculator    );
+                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>("ConvertTrueAnomalyToMean", get_true_to_mean_converter );
+                create_PB_property<Func<double, double,   double>, IMyProgrammableBlock>("ConvertMeanAnomalyToTrue", get_mean_to_true_converter );
+                create_PB_property<Func<double, double, Vector3D>, IMyProgrammableBlock>(      "ComputeOrbitNormal", get_orbit_normal_calculator);
                 create_PB_property<Func<Vector3D, Vector3D, Vector3D, double, double>, IMyProgrammableBlock>("ConvertRadialToTtrueAnomaly", get_radius_to_anomaly_converter);
                 create_PB_property<Func<double, double, double, double, double, double, ValueTuple<double, double>?>, IMyProgrammableBlock>
                     ("ComputeOrbitIntersections", get_intersection_calculator);

@@ -768,76 +768,76 @@ namespace orbiter_SE
             return PB_elements.name;
         }
 
-        public static void retrieve_primary_vectors(IMyTerminalBlock PB, Dictionary<string, Vector3D> output)
+        public static void retrieve_primary_vectors(IMyTerminalBlock PB, Vector3D[] output)
         {
             orbit_elements PB_elements;
-            if (output == null || !_PB_elements.TryGetValue(PB, out PB_elements))
+            if (output == null || output.Length < 6 || !_PB_elements.TryGetValue(PB, out PB_elements))
                 return;
 
-            output["SAM"] = PB_elements.specific_angular_momentum;
-            output["ANV"] = PB_elements.ascending_node_vector;
-            output["EcV"] = PB_elements.eccentricity_vector;
-            output["LGV"] = PB_elements.local_gravity;
-            output["Rad"] = PB_elements.radius_vector;
-            output["Vel"] = PB_elements.linear_velocity;
+            output[0] = PB_elements.specific_angular_momentum;
+            output[1] = PB_elements.ascending_node_vector;
+            output[2] = PB_elements.eccentricity_vector;
+            output[3] = PB_elements.local_gravity;
+            output[4] = PB_elements.radius_vector;
+            output[5] = PB_elements.linear_velocity;
         }
 
-        public static void retrieve_primary_scalars(IMyTerminalBlock PB, Dictionary<string, double> output)
+        public static void retrieve_primary_scalars(IMyTerminalBlock PB, double[] output)
         {
             orbit_elements PB_elements;
-            if (output == null || !_PB_elements.TryGetValue(PB, out PB_elements))
+            if (output == null || output.Length < 7 || !_PB_elements.TryGetValue(PB, out PB_elements))
                 return;
 
-            output["RBR"] = PB_elements.reference_radius;
-            output["SMA"] = PB_elements.semi_major_axis;
-            output["Ecc"] = PB_elements.eccentricity;
-            output["Inc"] = PB_elements.inclination;
-            output["LAN"] = PB_elements.longitude_of_ascending_node;
-            output["AoP"] = PB_elements.argument_of_periapsis;
-            output["TrA"] = PB_elements.true_anomaly;
+            output[0] = PB_elements.reference_radius;
+            output[1] = PB_elements.semi_major_axis;
+            output[2] = PB_elements.eccentricity;
+            output[3] = PB_elements.inclination;
+            output[4] = PB_elements.longitude_of_ascending_node;
+            output[5] = PB_elements.argument_of_periapsis;
+            output[6] = PB_elements.true_anomaly;
         }
 
-        public static void retrieve_derived_elements(IMyTerminalBlock PB, Dictionary<string, double> output)
+        public static void retrieve_derived_elements(IMyTerminalBlock PB, double[] output)
         {
             orbit_elements PB_elements;
-            if (output == null || !_PB_elements.TryGetValue(PB, out PB_elements))
+            if (output == null || output.Length < 5 || !_PB_elements.TryGetValue(PB, out PB_elements))
                 return;
 
             PB_elements.calculate_derived_elements();
-            output["SLR"] = PB_elements.semi_latus_rectum;
-            output["PeR"] = PB_elements.periapsis_radius;
-            output["ApR"] = PB_elements.apoapsis_radius;
-            output["MnM"] = PB_elements.mean_motion;
-            output["OrP"] = PB_elements.orbit_period;
+            output[0] = PB_elements.semi_latus_rectum;
+            output[1] = PB_elements.periapsis_radius;
+            output[2] = PB_elements.apoapsis_radius;
+            output[3] = PB_elements.mean_motion;
+            output[4] = PB_elements.orbit_period;
         }
 
-        public static void retrieve_positional_elements(IMyTerminalBlock PB, double? true_anomaly, Dictionary<string, double> output)
+        public static void retrieve_positional_elements(IMyTerminalBlock PB, double? true_anomaly, double[] output)
         {
             orbit_elements PB_elements;
-            if (output == null || !_PB_elements.TryGetValue(PB, out PB_elements))
+            if (output == null || output.Length < 7 || !_PB_elements.TryGetValue(PB, out PB_elements))
                 return;
 
             if (true_anomaly != null)
                 true_anomaly = floor_mod((double) true_anomaly, 2.0 * Math.PI);
             PB_elements.calculate_positional_elements(true_anomaly);
-            output["MnA"] = PB_elements.mean_anomaly;
-            output["TfP"] = PB_elements.time_from_periapsis;
-            output["CiV"] = PB_elements.circular_speed;
-            output["EsV"] = PB_elements.escape_speed;
-            output["Vel"] = PB_elements.predicted_speed;
-            output["AoV"] = PB_elements.angle_of_velocity;
-            output["Rad"] = PB_elements.predicted_distance;
+            output[0] = PB_elements.mean_anomaly;
+            output[1] = PB_elements.time_from_periapsis;
+            output[2] = PB_elements.circular_speed;
+            output[3] = PB_elements.escape_speed;
+            output[4] = PB_elements.predicted_speed;
+            output[5] = PB_elements.angle_of_velocity;
+            output[6] = PB_elements.predicted_distance;
         }
 
-        public static void retrieve_positional_vectors(IMyTerminalBlock PB, double true_anomaly, Dictionary<string, Vector3D> output)
+        public static void retrieve_positional_vectors(IMyTerminalBlock PB, double true_anomaly, Vector3D[] output)
         {
             orbit_elements PB_elements;
-            if (output == null || !_PB_elements.TryGetValue(PB, out PB_elements))
+            if (output == null || output.Length < 2 || !_PB_elements.TryGetValue(PB, out PB_elements))
                 return;
 
             PB_elements.calculate_state_vectors(floor_mod(true_anomaly, 2.0 * Math.PI));
-            output["Rad"] = PB_elements.radius_vector;
-            output["Vel"] = PB_elements.linear_velocity;
+            output[0] = PB_elements.radius_vector;
+            output[1] = PB_elements.linear_velocity;
         }
 
         public static double convert_true_anomaly_to_mean(double eccentricity, double true_anomaly)
